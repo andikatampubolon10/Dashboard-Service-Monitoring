@@ -1,0 +1,23 @@
+services:
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: dashboard-service:development
+    ports:
+      - "8080:80"
+    environment:
+      APP_ENV: development
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - dashboard
+
+networks:
+  dashboard:
+    name: dashboard-service-development
+    external: true
