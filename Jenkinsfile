@@ -1,5 +1,5 @@
 pipeline {
-	agent { label 'docker-terraform' }
+	agent { label 'Jenkins' }
 
 	options {
 		disableConcurrentBuilds()
@@ -27,8 +27,8 @@ pipeline {
 		stage('Terraform Init and Validate') {
 			steps {
 				dir('terraform') {
-					sh 'terraform init -input=false'
-					sh 'terraform validate'
+					bat 'terraform init -input=false'
+					bat 'terraform validate'
 				}
 			}
 		}
@@ -36,7 +36,7 @@ pipeline {
 		stage('Plan Production') {
 			steps {
 				dir('terraform') {
-					sh '''
+					bat '''
 						terraform workspace select production || terraform workspace new production
 						terraform plan -input=false -var="environment=production" -out=production.tfplan
 					'''
@@ -47,17 +47,17 @@ pipeline {
 
 		stage('Deploy Development') {
 			steps {
-				sh '''
+				bat '''
 					docker compose -f docker/docker-compose.dev.yml config
 					docker compose -f docker/docker-compose.dev.yml build
 				'''
 				dir('terraform') {
-					sh '''
+					bat '''
 						terraform workspace select development || terraform workspace new development
 						terraform apply -input=false -auto-approve -var="environment=development"
 					'''
 				}
-				sh 'docker compose -f docker/docker-compose.dev.yml up -d'
+				bat 'docker compose -f docker/docker-compose.dev.yml up -d'
 			}
 		}
 
@@ -73,12 +73,12 @@ pipeline {
 		stage('Deploy Production') {
 			steps {
 				dir('terraform') {
-					sh '''
+					bat '''
 						terraform workspace select production
 						terraform apply -input=false production.tfplan
 					'''
 				}
-				sh '''
+				bat '''
 					docker compose -f docker/docker-compose.prod.yml config
 					docker compose -f docker/docker-compose.prod.yml build
 					docker compose -f docker/docker-compose.prod.yml up -d
@@ -89,7 +89,7 @@ pipeline {
 
 	post {
 		always {
-			sh 'docker image prune -f || true'
+			bat 'docker image prune -f || exit /b 0'
 		}
 	}
 }

@@ -19,7 +19,8 @@ Node Jenkins yang menjalankan pipeline perlu memiliki:
 
 - Docker Engine dan Docker Compose v2.
 - Terraform versi 1.5 atau lebih baru.
-- Label node `docker-terraform`.
+- Label node `Jenkins`.
+- Agent Jenkins menggunakan Windows, sehingga Docker Desktop dan Terraform harus tersedia di `PATH`.
 - Trigger job `Build when a change is pushed to GitHub` atau webhook SCM yang sesuai.
 
 Tambahkan webhook repository ke URL Jenkins `/github-webhook/` dan gunakan Pipeline job dengan `Jenkinsfile` dari SCM.
