@@ -27,8 +27,8 @@ pipeline {
 		stage('Terraform Init and Validate') {
 			steps {
 				dir('terraform') {
-					bat 'terraform init -input=false'
-					bat 'terraform validate'
+					sh 'terraform init -input=false'
+					sh 'terraform validate'
 				}
 			}
 		}
@@ -36,7 +36,7 @@ pipeline {
 		stage('Plan Production') {
 			steps {
 				dir('terraform') {
-					bat '''
+					sh '''
 						terraform workspace select production || terraform workspace new production
 						terraform plan -input=false -var="environment=production" -out=production.tfplan
 					'''
@@ -47,17 +47,17 @@ pipeline {
 
 		stage('Deploy Development') {
 			steps {
-				bat '''
+				sh '''
 					docker compose -f docker/docker-compose.dev.yml config
 					docker compose -f docker/docker-compose.dev.yml build
 				'''
 				dir('terraform') {
-					bat '''
+					sh '''
 						terraform workspace select development || terraform workspace new development
 						terraform apply -input=false -auto-approve -var="environment=development"
 					'''
 				}
-				bat 'docker compose -f docker/docker-compose.dev.yml up -d'
+				sh 'docker compose -f docker/docker-compose.dev.yml up -d'
 			}
 		}
 
@@ -73,12 +73,12 @@ pipeline {
 		stage('Deploy Production') {
 			steps {
 				dir('terraform') {
-					bat '''
+					sh '''
 						terraform workspace select production
 						terraform apply -input=false production.tfplan
 					'''
 				}
-				bat '''
+				sh '''
 					docker compose -f docker/docker-compose.prod.yml config
 					docker compose -f docker/docker-compose.prod.yml build
 					docker compose -f docker/docker-compose.prod.yml up -d
@@ -89,7 +89,7 @@ pipeline {
 
 	post {
 		always {
-			bat 'docker image prune -f || exit /b 0'
+			sh 'docker image prune -f || true'
 		}
 	}
 }
