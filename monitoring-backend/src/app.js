@@ -21,6 +21,7 @@ const { initSocket } = require('./socket/metricsSocket');
 const healthRoute = require('./routes/health.route');
 const servicesRoute = require('./routes/services.route');
 const metricsRoute = require('./routes/metrics.route');
+const serversRoute = require('./routes/servers.route');
 
 // Middleware
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
@@ -59,6 +60,7 @@ initSocket(io);
 app.use('/health', healthRoute);
 app.use('/api/services', servicesRoute);
 app.use('/api/metrics', metricsRoute);
+app.use('/api/servers', serversRoute);
 
 // Centralized error handling
 app.use(notFoundHandler);

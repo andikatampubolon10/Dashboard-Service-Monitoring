@@ -15,6 +15,9 @@ import {
   RequestTimeSeriesPoint,
   BackendHealthInfo,
   MetricsSummaryResponse,
+  ServiceEndpoint,
+  ServiceChartData,
+  RegisterServerPayload,
 } from '../types';
 import { mockDb } from '../mock/database';
 
@@ -67,6 +70,37 @@ export class MockMonitoringProvider implements IMonitoringProvider {
     return mockDb.getServerById(id);
   }
 
+  async registerServer(payload: RegisterServerPayload): Promise<Server> {
+    await delay(200);
+    const cleanSlug = payload.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const server: Server = {
+      id: `server-${cleanSlug || Date.now()}`,
+      name: payload.name,
+      displayName: payload.name,
+      ip: payload.host,
+      host: payload.host,
+      port: payload.port,
+      isCustom: true,
+      probeResult: { open: true, latencyMs: 12, message: `Port ${payload.port} reachable` },
+      description: payload.description || `Target server node at ${payload.host}:${payload.port}`,
+      status: 'healthy',
+      os: 'Custom Host (Mock)',
+      region: payload.region || 'jakarta-idc',
+      env: payload.env || 'PRODUCTION',
+      uptime: '1h 00m',
+      cpuUsagePercent: 12,
+      memoryUsedBytes: 4 * 1024 * 1024 * 1024,
+      memoryTotalBytes: 16 * 1024 * 1024 * 1024,
+      diskUsedBytes: 45 * 1024 * 1024 * 1024,
+      diskTotalBytes: 200 * 1024 * 1024 * 1024,
+      networkInBytesPerSec: 0,
+      networkOutBytesPerSec: 0,
+      hostedServices: payload.serviceIds || [],
+      maxCapacity: 4,
+    };
+    return server;
+  }
+
   async getServices(filter: GlobalFilterState): Promise<Service[]> {
     await delay(150);
     return mockDb.getServices(filter);
@@ -77,18 +111,23 @@ export class MockMonitoringProvider implements IMonitoringProvider {
     return mockDb.getServiceById(id);
   }
 
-  async getServiceRequests(serviceId: string, _filter: GlobalFilterState): Promise<ServiceRequest[]> {
+  async getServiceRequests(
+    serviceId: string,
+    _filter?: GlobalFilterState,
+    _options?: { search?: string; method?: string; status?: string; page?: number; limit?: number }
+  ): Promise<ServiceRequest[]> {
     await delay(200);
     return mockDb.getServiceRequests(serviceId);
   }
 
   async getServiceDailyRequests(
     serviceId: string,
-    filter: GlobalFilterState,
-    granularity?: 'hourly' | 'daily' | '30d'
+    filter?: GlobalFilterState,
+    granularity?: 'hourly' | 'daily' | '30d',
+    _days?: number
   ): Promise<RequestTimeSeriesPoint[]> {
     await delay(200);
-    return mockDb.getServiceDailyRequests(serviceId, filter, granularity);
+    return mockDb.getServiceDailyRequests(serviceId, filter || { environment: 'all', serverId: 'all', serviceId, timeRange: '7d', refreshInterval: 0 }, granularity);
   }
 
   async getRequestById(requestId: string): Promise<ServiceRequest | null> {
@@ -109,6 +148,16 @@ export class MockMonitoringProvider implements IMonitoringProvider {
   async getServiceLatency(serviceId: string, filter: GlobalFilterState): Promise<LatencyMetricSeries[]> {
     await delay(200);
     return mockDb.getServiceLatency(serviceId, filter);
+  }
+
+  async getServiceCharts(serviceId: string, rangeSec?: number, points?: number): Promise<ServiceChartData> {
+    await delay(200);
+    return mockDb.getServiceCharts(serviceId, rangeSec, points);
+  }
+
+  async getServiceEndpoints(serviceId: string): Promise<ServiceEndpoint[]> {
+    await delay(150);
+    return mockDb.getServiceEndpoints(serviceId);
   }
 
   async getServiceLogs(serviceId: string, _filter: GlobalFilterState): Promise<LogEntry[]> {

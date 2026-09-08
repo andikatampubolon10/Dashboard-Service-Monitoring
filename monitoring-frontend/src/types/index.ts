@@ -35,6 +35,56 @@ export interface Server {
   networkInBytesPerSec: number;
   networkOutBytesPerSec: number;
   hostedServices: string[];
+  
+  // Placement & Allocation Rules properties
+  maxCapacity?: number; // Maximum service slots this server can host (e.g. 3 or 4)
+  tier?: 'critical' | 'standard' | 'internal'; // Security / workload isolation tier
+  allowedStacks?: string[]; // e.g. ['nodejs'], ['go'], or ['nodejs', 'go']
+  complianceStatus?: 'compliant' | 'warning' | 'violation';
+  ruleViolations?: string[];
+
+  // Real backend fields from monitoring-backend (/api/servers & /api/servers/:id)
+  displayName?: string;
+  host?: string;
+  port?: number;
+  isCustom?: boolean;
+  probeResult?: { open: boolean; latencyMs?: number; message?: string };
+  description?: string;
+  isLocal?: boolean;
+  servicesData?: Array<{
+    id: string;
+    name: string;
+    stack: string;
+    description: string;
+    status: 'UP' | 'DOWN' | string;
+    reqPerSecond: number | null;
+    errorRatePercent: number | null;
+    p99LatencyMs: number | null;
+    lastScrapedAt: string | null;
+  }>;
+  databases?: Array<{
+    id: string;
+    name: string;
+    host: string;
+    port: number;
+    status: 'UP' | 'DOWN' | string;
+    latencyMs?: number | null;
+  }>;
+  upServices?: number;
+  totalServices?: number;
+  upDatabases?: number;
+  totalDatabases?: number;
+  system?: {
+    cpu: { usagePercent: number; cores: number };
+    memory: { usedMb: number; totalMb: number; usedPercent: number };
+    disk: { usedGb: number; totalGb: number; usedPercent: number };
+    uptime: { seconds: number; formatted: string };
+    timestamp?: string;
+  } | null;
+  colocation?: {
+    canShare: string[];
+    cannotShare: string[];
+  } | null;
 }
 
 export interface ServerDetail extends Server {
@@ -44,6 +94,35 @@ export interface ServerDetail extends Server {
   networkHistory: { timestamp: string; in: number; out: number }[];
   processesCount: number;
   kernelVersion: string;
+}
+
+export interface RegisterServerPayload {
+  name: string;
+  host: string;
+  port: number;
+  description?: string;
+  env?: string;
+  region?: string;
+  serviceIds?: string[];
+}
+
+export type RuleSeverity = 'error' | 'warning' | 'info';
+
+export interface PlacementRuleResult {
+  ruleId: string;
+  title: string;
+  description: string;
+  passed: boolean;
+  severity: RuleSeverity;
+  message: string;
+}
+
+export interface ServerComplianceSummary {
+  status: 'compliant' | 'warning' | 'violation';
+  isCompliant: boolean;
+  violations: string[];
+  warnings: string[];
+  rulesEvaluated: PlacementRuleResult[];
 }
 
 // 2. Microservice Interface
@@ -114,12 +193,16 @@ export interface ServiceRequest {
   traceId: string;
   serviceId: string;
   serviceName: string;
-  method: HttpMethod;
+  method: HttpMethod | string;
   path: string;
   statusCode: number;
+  status?: number | string;
   durationMs: number;
+  latencyMs?: number;
   timestamp: string;
+  time?: string;
   clientIp: string;
+  client?: string;
   userAgent?: string;
   requestHeaders?: Record<string, string>;
   responseHeaders?: Record<string, string>;
@@ -151,26 +234,75 @@ export interface ServiceError {
   relatedTraceId?: string;
 }
 
-// 5. Latency Metric Time-Series
+// 5. Latency & Performance Metric Time-Series
 export interface LatencyMetricSeries {
   timestamp: string;
+  time?: string;
   p50: number;
   p90: number;
   p95: number;
   p99: number;
-  rps: number;
+  avg?: number;
+  rps?: number;
+  reqPerSecond?: number;
+  deltaRequests?: number;
+  errorRatePercent?: number;
+  errors5xx?: number;
+  errors4xx?: number;
 }
 
 // 5b. Request Volume & Daily Time-Series
 export interface RequestTimeSeriesPoint {
   timestamp: string; // e.g. "Mon, 01 Sep", "14:00", etc.
   date: string; // "2026-09-01"
+  displayDate?: string;
   totalRequests: number;
   successfulRequests: number; // 2xx/3xx
+  success2xx?: number;
   clientErrors: number; // 4xx
+  client4xx?: number;
   serverErrors: number; // 5xx
-  rps: number;
-  avgDurationMs: number;
+  server5xx?: number;
+  rps?: number;
+  avgDurationMs?: number;
+  avgLatencyMs?: number;
+  errorRatePercent?: number;
+}
+
+// 5c. Discovered Service Endpoint & Accessed Path
+export interface ServiceEndpoint {
+  method: HttpMethod | string;
+  path: string;
+  status: number | string;
+  count: number;
+  avgLatencyMs: number;
+}
+
+// 5d. Service Pre-formatted Chart Data
+export interface ServiceChartData {
+  serviceId: string;
+  range: string;
+  dataPoints: number;
+  latencyPercentiles: {
+    labels: string[];
+    p50: number[];
+    p90: number[];
+    p95: number[];
+    p99: number[];
+    avg: number[];
+  };
+  throughput: {
+    labels: string[];
+    reqPerSecond: number[];
+    deltaRequests: number[];
+  };
+  errors: {
+    labels: string[];
+    errorRatePercent: number[];
+    errors5xx: number[];
+    errors4xx: number[];
+  };
+  timeline: LatencyMetricSeries[];
 }
 
 // 6. Log Entry

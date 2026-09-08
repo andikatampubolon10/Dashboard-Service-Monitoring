@@ -17,6 +17,9 @@ import {
   RequestTimeSeriesPoint,
   BackendHealthInfo,
   MetricsSummaryResponse,
+  ServiceEndpoint,
+  ServiceChartData,
+  RegisterServerPayload,
 } from '../types';
 
 /**
@@ -56,6 +59,10 @@ class MonitoringApiService {
     return this.provider.getServerById(id);
   }
 
+  public async registerServer(payload: RegisterServerPayload): Promise<Server> {
+    return this.provider.registerServer(payload);
+  }
+
   public async getServices(filter: GlobalFilterState): Promise<Service[]> {
     return this.provider.getServices(filter);
   }
@@ -64,16 +71,21 @@ class MonitoringApiService {
     return this.provider.getServiceById(id);
   }
 
-  public async getServiceRequests(serviceId: string, filter: GlobalFilterState): Promise<ServiceRequest[]> {
-    return this.provider.getServiceRequests(serviceId, filter);
+  public async getServiceRequests(
+    serviceId: string,
+    filter?: GlobalFilterState,
+    options?: { search?: string; method?: string; status?: string; page?: number; limit?: number }
+  ): Promise<ServiceRequest[]> {
+    return this.provider.getServiceRequests(serviceId, filter, options);
   }
 
   public async getServiceDailyRequests(
     serviceId: string,
-    filter: GlobalFilterState,
-    granularity?: 'hourly' | 'daily' | '30d'
+    filter?: GlobalFilterState,
+    granularity?: 'hourly' | 'daily' | '30d',
+    days?: number
   ): Promise<RequestTimeSeriesPoint[]> {
-    return this.provider.getServiceDailyRequests(serviceId, filter, granularity);
+    return this.provider.getServiceDailyRequests(serviceId, filter, granularity, days);
   }
 
   public async getRequestById(requestId: string): Promise<ServiceRequest | null> {
@@ -90,6 +102,14 @@ class MonitoringApiService {
 
   public async getServiceLatency(serviceId: string, filter: GlobalFilterState): Promise<LatencyMetricSeries[]> {
     return this.provider.getServiceLatency(serviceId, filter);
+  }
+
+  public async getServiceCharts(serviceId: string, rangeSec?: number, points?: number): Promise<ServiceChartData> {
+    return this.provider.getServiceCharts(serviceId, rangeSec, points);
+  }
+
+  public async getServiceEndpoints(serviceId: string): Promise<ServiceEndpoint[]> {
+    return this.provider.getServiceEndpoints(serviceId);
   }
 
   public async getServiceLogs(serviceId: string, filter: GlobalFilterState): Promise<LogEntry[]> {

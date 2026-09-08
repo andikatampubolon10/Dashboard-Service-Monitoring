@@ -1,5 +1,5 @@
 import React from 'react';
-import { useParams, NavLink, Outlet, Link, Navigate } from 'react-router-dom';
+import { useParams, NavLink, Outlet, Link, Navigate, useNavigate } from 'react-router-dom';
 import { useServiceDetail, useServices } from '../../hooks/useServices';
 import { ErrorState } from '../../components/common/ErrorState';
 import { formatNumber, formatRps } from '../../utils/formatters';
@@ -7,6 +7,7 @@ import { AlertTriangle } from 'lucide-react';
 
 export const ServiceDetailPage: React.FC = () => {
   const { id = 'ai-consultation' } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
   // If someone visits /services/billing-engine, redirect to ai-consultation
   if (id === 'billing-engine') {
@@ -140,7 +141,7 @@ export const ServiceDetailPage: React.FC = () => {
             {allServices.length > 0 && (
               <select
                 value={activeService.id}
-                onChange={(e) => (window.location.href = `/services/${e.target.value}`)}
+                onChange={(e) => navigate(`/services/${e.target.value}`)}
                 className="bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none focus:border-cyan-500 shadow-sm"
               >
                 {allServices.map((s) => (

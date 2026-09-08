@@ -10,6 +10,7 @@
  * per-service process metrics from Prometheus.
  */
 
+const os = require('os');
 const si = require('systeminformation');
 
 /**
@@ -104,13 +105,35 @@ async function getHostMetrics() {
  * @returns {Promise<SystemMetrics>}
  */
 async function collectSystemMetrics() {
-  const [host, disk] = await Promise.all([getHostMetrics(), getDiskMetrics()]);
+  const [host, disk] = await Promise.all([
+    getHostMetrics(),
+    getDiskMetrics(),
+  ]);
+
+  let uptimeSec = 0;
+  try {
+    uptimeSec = os.uptime ? os.uptime() : (si.time ? si.time().uptime : 0);
+  } catch (_) {
+    uptimeSec = 0;
+  }
+
+  const uptimeDays  = Math.floor(uptimeSec / 86400);
+  const uptimeHours = Math.floor((uptimeSec % 86400) / 3600);
+  const uptimeFmt   = uptimeDays > 0
+    ? `${uptimeDays}d ${uptimeHours}h`
+    : `${uptimeHours}h`;
+
   return {
     timestamp: new Date().toISOString(),
     ...host,
     disk,
+    uptime: {
+      seconds: uptimeSec,
+      formatted: uptimeFmt,
+    },
   };
 }
+
 
 module.exports = { collectSystemMetrics, getDiskMetrics, getHostMetrics };
 

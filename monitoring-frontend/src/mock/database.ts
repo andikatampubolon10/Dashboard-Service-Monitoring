@@ -12,6 +12,9 @@ import {
   GlobalFilterState,
   LatencyMetricSeries,
   RequestTimeSeriesPoint,
+  ServiceEndpoint,
+  ServiceChartData,
+  PlacementRuleResult,
 } from '../types';
 import { INITIAL_SERVERS } from './servers';
 import { INITIAL_SERVICES } from './services';
@@ -21,6 +24,7 @@ import { INITIAL_LOGS } from './logs';
 import { INITIAL_ALERTS } from './alerts';
 import { INITIAL_TOPOLOGY } from './dependencies';
 import { getTimeWindowMinutes } from '../utils/dateUtils';
+import { validateServicePlacement } from '../utils/serverRules';
 
 class MockDatabase {
   private servers: ServerDetail[] = [...INITIAL_SERVERS];
@@ -109,6 +113,53 @@ class MockDatabase {
 
   public getServerById(id: string): ServerDetail | null {
     return this.servers.find((s) => s.id === id) || null;
+  }
+
+  public assignServiceToServer(
+    serverId: string,
+    serviceId: string
+  ): { success: boolean; message: string; results?: PlacementRuleResult[] } {
+    const server = this.getServerById(serverId);
+    const service = this.getServiceById(serviceId);
+    if (!server || !service) {
+      return { success: false, message: 'Server atau Service tidak ditemukan.' };
+    }
+
+    const currentServices = this.services.filter((s) => server.hostedServices.includes(s.id));
+    const validation = validateServicePlacement(server, service, currentServices);
+
+    if (!validation.allowed) {
+      return {
+        success: false,
+        message: validation.blockingReasons.join(' | '),
+        results: validation.results,
+      };
+    }
+
+    // Add to server's hostedServices
+    if (!server.hostedServices.includes(serviceId)) {
+      server.hostedServices.push(serviceId);
+      service.serverId = serverId;
+    }
+
+    return {
+      success: true,
+      message: `Service ${service.name} berhasil dialokasikan ke ${server.name}.`,
+      results: validation.results,
+    };
+  }
+
+  public removeServiceFromServer(serverId: string, serviceId: string): boolean {
+    const server = this.getServerById(serverId);
+    if (server) {
+      server.hostedServices = server.hostedServices.filter((id) => id !== serviceId);
+      const svc = this.getServiceById(serviceId);
+      if (svc && svc.serverId === serverId) {
+        svc.serverId = '';
+      }
+      return true;
+    }
+    return false;
   }
 
   // Services
@@ -346,6 +397,100 @@ class MockDatabase {
       return true;
     }
     return false;
+  }
+
+  // Endpoints & Accessed Routes
+  public getServiceEndpoints(serviceId: string): ServiceEndpoint[] {
+    const service = this.getServiceById(serviceId);
+    const baseLatency = service ? service.latencyP50Ms : 25;
+    return [
+      { method: 'GET', path: `/api/v1/${serviceId}/health`, status: 200, count: 1240, avgLatencyMs: 4 },
+      { method: 'GET', path: `/api/v1/${serviceId}/status`, status: 200, count: 850, avgLatencyMs: Math.round(baseLatency * 0.8) },
+      { method: 'POST', path: `/api/v1/${serviceId}/action`, status: 200, count: 420, avgLatencyMs: baseLatency },
+      { method: 'GET', path: `/api/v1/${serviceId}/details`, status: 200, count: 310, avgLatencyMs: Math.round(baseLatency * 1.2) },
+      { method: 'PUT', path: `/api/v1/${serviceId}/update`, status: 200, count: 95, avgLatencyMs: Math.round(baseLatency * 1.5) },
+      { method: 'POST', path: `/api/v1/${serviceId}/fail`, status: 500, count: 12, avgLatencyMs: Math.round(baseLatency * 2.1) },
+    ];
+  }
+
+  // Preformatted Chart Data
+  public getServiceCharts(serviceId: string, _rangeSec = 3600, points = 30): ServiceChartData {
+    const service = this.getServiceById(serviceId);
+    const p50Base = service ? service.latencyP50Ms : 20;
+    const p90Base = service ? service.latencyP90Ms : 45;
+    const p95Base = service ? service.latencyP95Ms : 65;
+    const p99Base = service ? service.latencyP99Ms : 120;
+    const rpsBase = service ? service.throughputRps : 35;
+    const errRateBase = service ? service.errorRatePercent : 0.5;
+
+    const labels: string[] = [];
+    const p50: number[] = [];
+    const p90: number[] = [];
+    const p95: number[] = [];
+    const p99: number[] = [];
+    const avg: number[] = [];
+    const reqPerSecond: number[] = [];
+    const deltaRequests: number[] = [];
+    const errorRatePercent: number[] = [];
+    const errors5xx: number[] = [];
+    const errors4xx: number[] = [];
+    const timeline: LatencyMetricSeries[] = [];
+
+    const now = Date.now();
+    for (let i = 0; i < points; i++) {
+      const pointDate = new Date(now - (points - 1 - i) * 60000);
+      const timeLabel = pointDate.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const jitter = Math.sin(i * 0.5) * 4;
+
+      const curP50 = Math.max(1, Math.round(p50Base + jitter));
+      const curP90 = Math.max(curP50 + 2, Math.round(p90Base + jitter * 1.3));
+      const curP95 = Math.max(curP90 + 2, Math.round(p95Base + jitter * 1.6));
+      const curP99 = Math.max(curP95 + 4, Math.round(p99Base + jitter * 2));
+      const curAvg = Math.round((curP50 + curP90) / 2);
+      const curRps = Math.max(0.1, parseFloat((rpsBase + Math.cos(i * 0.4) * (rpsBase * 0.2)).toFixed(2)));
+      const curDelta = Math.round(curRps * 60);
+      const curErrRate = Math.max(0, parseFloat((errRateBase + Math.sin(i * 0.3) * 0.2).toFixed(2)));
+      const cur5xx = curErrRate > 0.6 ? 1 : 0;
+      const cur4xx = curErrRate > 0.3 ? 2 : 0;
+
+      labels.push(timeLabel);
+      p50.push(curP50);
+      p90.push(curP90);
+      p95.push(curP95);
+      p99.push(curP99);
+      avg.push(curAvg);
+      reqPerSecond.push(curRps);
+      deltaRequests.push(curDelta);
+      errorRatePercent.push(curErrRate);
+      errors5xx.push(cur5xx);
+      errors4xx.push(cur4xx);
+
+      timeline.push({
+        timestamp: pointDate.toISOString(),
+        time: timeLabel,
+        p50: curP50,
+        p90: curP90,
+        p95: curP95,
+        p99: curP99,
+        avg: curAvg,
+        rps: curRps,
+        reqPerSecond: curRps,
+        deltaRequests: curDelta,
+        errorRatePercent: curErrRate,
+        errors5xx: cur5xx,
+        errors4xx: cur4xx,
+      });
+    }
+
+    return {
+      serviceId,
+      range: '3600s',
+      dataPoints: points,
+      latencyPercentiles: { labels, p50, p90, p95, p99, avg },
+      throughput: { labels, reqPerSecond, deltaRequests },
+      errors: { labels, errorRatePercent, errors5xx, errors4xx },
+      timeline,
+    };
   }
 }
 

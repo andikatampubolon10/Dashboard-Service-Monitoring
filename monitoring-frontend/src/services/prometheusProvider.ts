@@ -15,6 +15,9 @@ import {
   RequestTimeSeriesPoint,
   BackendHealthInfo,
   MetricsSummaryResponse,
+  ServiceEndpoint,
+  ServiceChartData,
+  RegisterServerPayload,
 } from '../types';
 
 /**
@@ -49,6 +52,10 @@ export class PrometheusMonitoringProvider implements IMonitoringProvider {
     throw new Error('PrometheusMonitoringProvider getServerById pending.');
   }
 
+  async registerServer(_payload: RegisterServerPayload): Promise<Server> {
+    throw new Error('PrometheusMonitoringProvider registerServer pending.');
+  }
+
   async getServices(_filter: GlobalFilterState): Promise<Service[]> {
     throw new Error('PrometheusMonitoringProvider getServices pending.');
   }
@@ -79,6 +86,14 @@ export class PrometheusMonitoringProvider implements IMonitoringProvider {
 
   async getServiceLatency(_serviceId: string, _filter: GlobalFilterState): Promise<LatencyMetricSeries[]> {
     throw new Error('PromQL histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) pending.');
+  }
+
+  async getServiceCharts(_serviceId: string, _rangeSec?: number, _points?: number): Promise<ServiceChartData> {
+    throw new Error('PromQL getServiceCharts pending.');
+  }
+
+  async getServiceEndpoints(_serviceId: string): Promise<ServiceEndpoint[]> {
+    throw new Error('PromQL getServiceEndpoints pending.');
   }
 
   async getServiceLogs(_serviceId: string, _filter: GlobalFilterState): Promise<LogEntry[]> {
