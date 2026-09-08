@@ -42,11 +42,14 @@ router.get('/', (req, res) => {
       lastScrapedAt: latest?.timestamp || null,
       scrapeLatencyMs: latest?.scrapeLatencyMs || null,
       error: latest?.error || null,
-      // Quick summary for the service cards in the dashboard
+      // Summary metrics for the services table
       summary: latest
         ? {
             reqPerSecond: latest.metrics.throughput?.reqPerSecond ?? 0,
+            reqTotal: latest.metrics.throughput?.reqTotal ?? 0,
             errorRatePercent: latest.metrics.errorRate?.percent ?? 0,
+            errorCount: (latest.metrics.errorRate?.total5xx ?? 0) + (latest.metrics.errorRate?.total4xx ?? 0),
+            p95LatencyMs: latest.metrics.latency?.p95Ms ?? latest.metrics.latency?.p99Ms ?? 0,
             p99LatencyMs: latest.metrics.latency?.p99Ms ?? 0,
             cpuPercent: latest.metrics.cpu?.usagePercent ?? 0,
             memoryRssMb: latest.metrics.memory?.rssMb ?? 0,

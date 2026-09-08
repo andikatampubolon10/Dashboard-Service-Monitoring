@@ -1,12 +1,15 @@
 {
   "name": "dashboard-service-monitoring",
   "version": "1.0.0",
-  "description": "Jenkins menjalankan pipeline setiap kali ada push ke repository:",
-  "main": "index.js",
+  "description": "Tara AI Service Monitoring Dashboard",
   "scripts": {
-    "dev": "npm --prefix monitoring-backend run dev",
-    "start": "npm --prefix monitoring-backend start",
-    "test": "npm --prefix monitoring-backend test"
+    "dev": "npm --prefix monitoring-frontend run dev",
+    "dev:frontend": "npm --prefix monitoring-frontend run dev",
+    "dev:backend": "npm --prefix monitoring-backend run dev",
+    "build": "npm --prefix monitoring-frontend run build",
+    "build:frontend": "npm --prefix monitoring-frontend run build",
+    "start:backend": "npm --prefix monitoring-backend start",
+    "test:backend": "npm --prefix monitoring-backend test"
   },
   "repository": {
     "type": "git",
@@ -14,10 +17,5 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/andikatampubolon10/Dashboard-Service-Monitoring/issues"
-  },
-  "homepage": "https://github.com/andikatampubolon10/Dashboard-Service-Monitoring#readme"
+  "license": "ISC"
 }
