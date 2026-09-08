@@ -1,0 +1,23 @@
+{
+  "name": "dashboard-service-monitoring",
+  "version": "1.0.0",
+  "description": "Jenkins menjalankan pipeline setiap kali ada push ke repository:",
+  "main": "index.js",
+  "scripts": {
+    "dev": "npm --prefix monitoring-backend run dev",
+    "start": "npm --prefix monitoring-backend start",
+    "test": "npm --prefix monitoring-backend test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andikatampubolon10/Dashboard-Service-Monitoring.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/andikatampubolon10/Dashboard-Service-Monitoring/issues"
+  },
+  "homepage": "https://github.com/andikatampubolon10/Dashboard-Service-Monitoring#readme"
+}
