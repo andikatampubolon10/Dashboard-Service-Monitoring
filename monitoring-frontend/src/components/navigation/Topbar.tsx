@@ -6,13 +6,15 @@ import { useGlobalFilters } from '../../context/FilterContext';
 import { useServers } from '../../hooks/useServers';
 import { useServices } from '../../hooks/useServices';
 import { Environment } from '../../types';
-import { Sun, Moon, Filter } from 'lucide-react';
+import { Sun, Moon, Filter, Zap } from 'lucide-react';
+import StressTestModal from '../monitoring/StressTestModal';
 
 export const Topbar: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const { filter, setEnvironment, setServerId, setServiceId } = useGlobalFilters();
   const { data: servers = [] } = useServers();
   const { data: services = [] } = useServices();
+  const [isStressTestOpen, setIsStressTestOpen] = React.useState(false);
 
   return (
     <header className="h-14 bg-white dark:bg-[#0B0F19] border-b border-slate-200 dark:border-slate-800/80 flex items-center justify-between px-6 shrink-0 z-20 transition-colors duration-150 shadow-sm dark:shadow-none">
@@ -67,8 +69,18 @@ export const Topbar: React.FC = () => {
         </div>
       </div>
 
-      {/* Right Controls: Time Range, Auto-Refresh & Theme Toggle */}
+      {/* Right Controls: Time Range, Auto-Refresh, Stress Test & Theme Toggle */}
       <div className="flex items-center gap-2.5">
+        {/* Stress Test Trigger Button */}
+        <button
+          onClick={() => setIsStressTestOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/10 dark:bg-orange-500/20 border border-orange-500/30 text-orange-600 dark:text-orange-400 hover:bg-orange-500/20 text-xs font-semibold transition-all shadow-sm cursor-pointer"
+          title="Stress Test Simulator Engine"
+        >
+          <Zap className="w-3.5 h-3.5 text-orange-500" />
+          <span>Stress Test</span>
+        </button>
+
         <TimeRangePicker />
         <AutoRefreshControl />
 
@@ -85,6 +97,12 @@ export const Topbar: React.FC = () => {
           )}
         </button>
       </div>
+
+      {/* Stress Test Simulator Modal */}
+      <StressTestModal
+        isOpen={isStressTestOpen}
+        onClose={() => setIsStressTestOpen(false)}
+      />
     </header>
   );
 };

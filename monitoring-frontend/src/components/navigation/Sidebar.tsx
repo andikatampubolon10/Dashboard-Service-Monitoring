@@ -1,8 +1,9 @@
 import React from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Server, Network, Activity } from 'lucide-react';
+import { LayoutDashboard, Server, Network, Activity, Zap } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
+
   return (
     <aside className="w-60 bg-white dark:bg-[#0B0F19] border-r border-slate-200 dark:border-slate-800/80 flex flex-col justify-between shrink-0 select-none z-30 transition-colors duration-150 shadow-sm dark:shadow-none">
       <div className="overflow-y-auto">
@@ -80,6 +81,21 @@ export const Sidebar: React.FC = () => {
               >
                 <Network className="w-4 h-4" />
                 <span>Services</span>
+              </NavLink>
+
+              {/* Dedicated Full Page Stress Test Link under Services */}
+              <NavLink
+                to="/stress-test"
+                className={({ isActive }) =>
+                  `w-full flex items-center gap-3 px-3 py-2 text-xs font-medium rounded-lg transition-all ${
+                    isActive
+                      ? 'bg-orange-50 dark:bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-500/30 font-semibold shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`
+                }
+              >
+                <Zap className="w-4 h-4 text-orange-500" />
+                <span>Stress Test</span>
               </NavLink>
             </nav>
           </div>
