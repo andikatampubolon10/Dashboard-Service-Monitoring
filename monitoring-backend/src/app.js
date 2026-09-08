@@ -39,6 +39,10 @@ app.use(
 
 app.use(express.json());
 
+// Serve static frontend files
+const path = require('path');
+app.use(express.static(path.join(__dirname, '../public')));
+
 // Setup Socket.IO
 const io = new Server(server, {
   cors: {

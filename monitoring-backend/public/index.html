@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Monitoring Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">API Monitor</div>
+      <nav id="service-list" class="nav-menu">
+        <!-- Services injected here -->
+      </nav>
+    </aside>
+    
+    <main class="main-content">
+      <header class="header">
+        <h1 id="service-title">Select a Service</h1>
+        <div class="tabs">
+          <button class="tab active" data-target="tab-overview">Overview</button>
+          <button class="tab" data-target="tab-requests">Requests</button>
+          <button class="tab" data-target="tab-latency">Latency</button>
+        </div>
+      </header>
+      
+      <div class="content">
+        <!-- Overview Tab -->
+        <section id="tab-overview" class="tab-pane active">
+          <div class="charts-grid">
+            <div class="card">
+              <h3>Daily Requests</h3>
+              <canvas id="dailyChart"></canvas>
+            </div>
+            <div class="card">
+              <h3>Throughput (req/s)</h3>
+              <canvas id="throughputChart"></canvas>
+            </div>
+            <div class="card">
+              <h3>Errors over time</h3>
+              <canvas id="errorsChart"></canvas>
+            </div>
+          </div>
+        </section>
+        
+        <!-- Requests Tab -->
+        <section id="tab-requests" class="tab-pane">
+          <div class="card">
+            <div class="table-header">
+              <input type="text" id="search-requests" placeholder="Search requests..." class="search-input">
+              <span class="row-count" id="row-count">0 rows</span>
+            </div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>METHOD</th>
+                    <th>PATH</th>
+                    <th>STATUS</th>
+                    <th>LATENCY</th>
+                    <th>CLIENT</th>
+                    <th>TIME</th>
+                  </tr>
+                </thead>
+                <tbody id="requests-tbody">
+                  <!-- Rows injected here -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+        
+        <!-- Latency Tab -->
+        <section id="tab-latency" class="tab-pane">
+          <div class="card">
+            <h3>Latency percentiles</h3>
+            <canvas id="latencyChart"></canvas>
+          </div>
+        </section>
+        
+      </div>
+    </main>
+  </div>
+  <script src="/js/app.js"></script>
+</body>
+</html>
