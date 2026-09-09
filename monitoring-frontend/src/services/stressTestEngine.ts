@@ -96,14 +96,14 @@ class StressTestEngine {
     }
 
     let healthGrade: 'HEALTHY' | 'DEGRADED' | 'CRITICAL' = 'HEALTHY';
-    let healthVerdict = 'Sistem Sangat Stabil & Respon Cepat (Siap Dipakai Pengguna Banyak)';
+    let healthVerdict = 'Sistem Sangat Stabil & Lancar (Aplikasi siap menampung banyak pengguna)';
 
     if (p95LatencyMs > 1000 || errorRatePercent > 5.0) {
       healthGrade = 'CRITICAL';
-      healthVerdict = 'Sistem Terlalu Beban / Overload! Respon lambat atau ada kegagalan request.';
+      healthVerdict = 'Sistem Kewalahan / Beban Berlebih! Waktu tunggu terlalu lama atau ada permintaan yang gagal.';
     } else if (p95LatencyMs > 500 || errorRatePercent > 1.0) {
       healthGrade = 'DEGRADED';
-      healthVerdict = 'Sistem Mulai Tertekan. Waktu tunggu agak meningkat namun tetap memproses request.';
+      healthVerdict = 'Sistem Mulai Terasa Lambat. Waktu tunggu sedikit meningkat namun transaksi tetap terlayani.';
     }
 
     return {
@@ -285,53 +285,53 @@ export function generateRecommendations(
 
   if (healthGrade === 'HEALTHY') {
     recommendations.push(
-      '🟢 Kapasitas Sistem Sangat Baik: Microservices mampu menangani beban trafik saat ini tanpa hambatan latensi.'
+      '🟢 Daya Tahan Sangat Tangguh: Seluruh layanan berjalan mulus tanpa antrean, dan pengguna menerima balasan dengan sangat cepat.'
     );
     recommendations.push(
-      '🚀 Pengujian Lanjutan: Coba tingkatkan jumlah Virtual Users (VU) ke 500 - 1.000 VU untuk mengetahui batas maksimum (breaking point) sistem.'
+      '🚀 Uji Kapasitas Lebih Tinggi: Coba naikkan jumlah pengguna menjadi 100 hingga 200 orang secara serentak untuk melihat batas maksimal kekuatan sistem.'
     );
     recommendations.push(
-      '📊 Monitoring Rutin: Pertahankan Prometheus metrics & Grafana alert rules pada kondisi default.'
+      '✅ Pengalaman Pengguna Prima: Waktu tunggu pengguna jauh di bawah 1 detik, sehingga aplikasi terasa sangat nyaman digunakan.'
     );
   } else if (healthGrade === 'DEGRADED') {
     recommendations.push(
-      `⚠️ Terjadi Peningkatan Latensi (${p95LatencyMs}ms): Waktu respon mulai melambat mendekati batas SLA 1.000ms.`
+      `⚠️ Waktu Balas Mulai Agak Melambat (${p95LatencyMs} milidetik): Pengguna mulai merasakan sedikit jeda saat mengakses fitur ini.`
     );
     if (selectedFlow === '1') {
       recommendations.push(
-        '💡 AI Consultation Service: Terapkan Caching Layer (Redis) untuk query sesi chat dan tingkatkan worker thread pada LLM pipeline.'
+        '💡 Simpan Jawaban Cepat (Cache AI): Pertanyaan yang sering diajukan ke dokter AI sebaiknya disimpan di memori cepat agar AI tidak perlu berpikir ulang untuk pertanyaan yang sama.'
       );
     } else if (selectedFlow === '2') {
       recommendations.push(
-        '💡 Lifestyle Service: Tambahkan HTTP Caching (ETag / Stale-While-Revalidate) untuk endpoint membaca artikel publik (GET /articles).'
+        '💡 Pasang Salinan Berita Cepat (Cache CDN): Artikel kesehatan dapat disimpan di salinan cadangan cepat agar server tidak lelah saat banyak pembaca membuka artikel bersamaan.'
       );
     } else {
       recommendations.push(
-        '💡 Medical Record Service: Tambahkan Database Indexing pada kolom nama/spesialisasi dokter (GET /doctors/search).'
+        '💡 Buat Daftar Isi Pencarian Cepat (Index Database): Beri penanda khusus pada nama dan jadwal dokter seperti daftar isi buku agar pencarian dokter langsung ditemukan seketika.'
       );
     }
     recommendations.push(
-      '⚡ Database Connection Pool: Tingkatkan kapasitas maksimum pool koneksi database (MaxOpenConns) dari 25 menjadi 50 koneksi.'
+      '⚡ Perbanyak Kuota Sambungan Antrean: Tambah kapasitas antrean data agar lebih banyak pengguna bisa dilayani dalam satu detik bersamaan.'
     );
     recommendations.push(
-      '🔄 Horizontal Pod Autoscaler (HPA): Aktifkan fitur Autoscaling Kubernetes saat CPU utilization mencapai > 70%.'
+      '🔄 Aktifkan Server Cadangan Otomatis: Siapkan komputer server tambahan yang otomatis menyala bila aplikasi mulai padat pengunjung.'
     );
   } else {
     // CRITICAL
     recommendations.push(
-      `🔴 Overload / High Error Rate (${errorRatePercent.toFixed(1)}% Error): Terjadi kelebihan beban kapasitas server!`
+      `🔴 Server Kewalahan (${errorRatePercent.toFixed(1)}% Permintaan Gagal): Jumlah pengguna melebihi kapasitas daya tampung server saat ini.`
     );
     recommendations.push(
-      '🚨 Circuit Breaker: Aktifkan Resilience4j / Envoy Circuit Breaker pada API Gateway untuk memotong panggilan yang mengalami timeout.'
+      '🚨 Pasang Sekring Pengaman Otomatis: Jika server sedang penuh, tampilkan antrean ramah kepada pengguna daripada membuat aplikasi macet total.'
     );
     recommendations.push(
-      '🗄️ Database Read Replica: Pisahkan operasi Read & Write ke Database Master-Slave Replica untuk mengurangi beban query.'
+      '🗄️ Pisahkan Komputer Pencari & Penyimpan Data: Pisahkan komputer khusus membaca artikel/dokter dari komputer pencatatan transaksi agar tidak saling berebut tenaga.'
     );
     recommendations.push(
-      '🛡️ API Gateway Rate Limiting: Pasang Throttling / Rate Limit (misal 100 req/sec per user) untuk mencegah serangan DDoS / Bot Attack.'
+      '🛡️ Pasang Pintu Pembatas Akses: Lindungi sistem dengan membatasi klik berulang yang terlalu cepat dalam satu detik untuk mencegah antrean spam.'
     );
     recommendations.push(
-      '📈 Resource Limits: Tingkatkan batas RAM & CPU request pada Pod deployment Docker / Kubernetes.'
+      '📈 Tambah Kapasitas Memori Server: Tingkatkan kapasitas memori (RAM) dan prosesor (CPU) pada komputer server Anda.'
     );
   }
 

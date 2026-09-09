@@ -15,7 +15,19 @@ import {
   Database,
   Cpu,
   RotateCcw,
+  BarChart3,
 } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+  Cell,
+} from 'recharts';
 import { useOverviewMetrics } from '../hooks/useOverviewMetrics';
 import { useServices } from '../hooks/useServices';
 import { useServers } from '../hooks/useServers';
@@ -24,12 +36,13 @@ import {
   StressTestRecord,
   stressTestEngine,
 } from '../services/stressTestEngine';
-import { formatNumber, formatLatency } from '../utils/formatters';
+import { formatNumber } from '../utils/formatters';
 import StressTestResultModal from '../components/monitoring/StressTestResultModal';
 
 interface FlowAnalysis {
   record: StressTestRecord | null;
   status: 'HEALTHY' | 'DEGRADED' | 'CRITICAL' | 'UNTESTED';
+  statusLabel: string;
   targetVUs: number;
   p95LatencyMs: number;
   errorRatePercent: number;
@@ -43,12 +56,13 @@ function getFlow1Analysis(record: StressTestRecord | null): FlowAnalysis {
     return {
       record: null,
       status: 'UNTESTED',
+      statusLabel: '⚪ Belum Pernah Dites',
       targetVUs: 0,
       p95LatencyMs: 0,
       errorRatePercent: 0,
       currentRps: 0,
-      reason: 'Layanan AI Consultation belum pernah diuji pada sesi ini. Inferensi LLM sinkron pada POST /chat perlu diuji untuk mengetahui batas antrean worker-nya.',
-      recommendation: 'Jalankan pengujian beban pada Flow 1 untuk mengukur batas throughput token LLM.',
+      reason: 'Fitur konsultasi AI belum pernah diuji coba. Anda bisa mengujinya untuk melihat berapa banyak pengguna yang sanggup dilayani oleh dokter AI secara bersamaan.',
+      recommendation: 'Jalankan pengujian pada fitur ini untuk melihat kecepatan proses berpikir AI.',
     };
   }
 
@@ -56,21 +70,27 @@ function getFlow1Analysis(record: StressTestRecord | null): FlowAnalysis {
   const isDegraded = record.healthGrade === 'DEGRADED';
 
   let reason = '';
+  let statusLabel = '';
+
   if (isHealthy) {
-    reason = `Model AI dan worker backend sangat responsif pada beban ${record.targetVUs} VU. Latensi P95 (${record.p95LatencyMs}ms) terjaga aman di bawah batas SLA 1.000ms dengan 0 kegagalan.`;
+    statusLabel = '🟢 Sangat Cepat & Lancar';
+    reason = `Dokter AI merespons dengan sangat cepat pada beban ${record.targetVUs} pengguna sekaligus. Pesan langsung terbalas dalam waktu ${record.p95LatencyMs} milidetik tanpa kendala.`;
   } else if (isDegraded) {
-    reason = `Inferensi AI LLM pada POST /chat berjalan sinkron sehingga thread worker mulai antre saat dipacu ${record.targetVUs} VU. Latensi naik ke ${record.p95LatencyMs}ms mendekati batas toleransi SLA.`;
+    statusLabel = '🟡 Mulai Terasa Lambat';
+    reason = `Setiap jawaban AI membutuhkan proses berpikir cerdas yang cukup berat. Saat ada ${record.targetVUs} orang bertanya bersamaan, antrean bertambah sehingga pengguna menunggu sedikit lebih lama (${record.p95LatencyMs} milidetik).`;
   } else {
-    reason = `Critical Overload! Antrean inferensi AI mengalami bottleneck pada beban ${record.targetVUs} VU, memicu lonjakan latensi ${record.p95LatencyMs}ms dan tingkat kegagalan ${record.errorRatePercent.toFixed(1)}%.`;
+    statusLabel = '🔴 Kewalahan / Macet';
+    reason = `Sistem AI kewalahan melayani ${record.targetVUs} pengguna sekaligus! Antrean terlalu panjang (${record.p95LatencyMs} milidetik) dan sekitar ${record.errorRatePercent.toFixed(1)}% pesan gagal terkirim.`;
   }
 
   const recommendation = isHealthy
-    ? 'Kapasitas saat ini sangat prima. Tingkatkan target VU untuk mencari breaking point maksimum.'
-    : 'Terapkan Redis Caching untuk jawaban chat yang serupa dan naikkan alokasi worker thread backend.';
+    ? 'Performa AI sangat baik. Silakan coba naikkan jumlah pengguna untuk melihat batas maksimalnya.'
+    : 'Simpan jawaban pertanyaan umum di memori cepat (Cache) agar AI tidak perlu berpikir berulang-ulang untuk pertanyaan serupa.';
 
   return {
     record,
     status: record.healthGrade,
+    statusLabel,
     targetVUs: record.targetVUs,
     p95LatencyMs: record.p95LatencyMs,
     errorRatePercent: record.errorRatePercent,
@@ -85,12 +105,13 @@ function getFlow2Analysis(record: StressTestRecord | null): FlowAnalysis {
     return {
       record: null,
       status: 'UNTESTED',
+      statusLabel: '⚪ Belum Pernah Dites',
       targetVUs: 0,
       p95LatencyMs: 0,
       errorRatePercent: 0,
       currentRps: 0,
-      reason: 'Layanan Lifestyle & Artikel belum pernah diuji. Endpoint membaca katalog artikel GET /api/articles siap diuji beban.',
-      recommendation: 'Jalankan pengujian pada Flow 2 untuk mengecek batas throughput katalog artikel.',
+      reason: 'Fitur membaca artikel belum pernah diuji coba. Fitur ini cocok dites untuk melihat kesiapan aplikasi jika ada berita kesehatan yang viral.',
+      recommendation: 'Jalankan pengujian untuk melihat ketahanan server saat ribuan pembaca membuka artikel.',
     };
   }
 
@@ -98,21 +119,27 @@ function getFlow2Analysis(record: StressTestRecord | null): FlowAnalysis {
   const isDegraded = record.healthGrade === 'DEGRADED';
 
   let reason = '';
+  let statusLabel = '';
+
   if (isHealthy) {
-    reason = `Transaksi GET /api/articles bersifat read-heavy ringan dengan payload kecil. Penggunaan CPU server tetap efisien (<35%) pada beban ${record.targetVUs} VU (P95: ${record.p95LatencyMs}ms).`;
+    statusLabel = '🟢 Paling Cepat & Tangguh';
+    reason = `Membuka artikel hanya menampilkan tulisan dan gambar yang sudah siap saji tanpa proses rumit. Sistem sangat hemat tenaga dan lancar (${record.p95LatencyMs} milidetik) saat dibaca ${record.targetVUs} orang sekaligus.`;
   } else if (isDegraded) {
-    reason = `Volume request tinggi pada pembacaan artikel (${record.targetVUs} VU) mulai membebani I/O jaringan server (P95: ${record.p95LatencyMs}ms).`;
+    statusLabel = '🟡 Sedikit Lambat';
+    reason = `Banyaknya pengguna (${record.targetVUs} orang) yang membuka artikel di detik yang sama mulai membuat jalur data server agak padat (${record.p95LatencyMs} milidetik).`;
   } else {
-    reason = `Overload! Memory buffer cache server terlampaui pada beban ekstrim ${record.targetVUs} VU sehingga terjadi connection timeout.`;
+    statusLabel = '🔴 Sambungan Terputus';
+    reason = `Kapasitas server penuh karena diserbu ${record.targetVUs} pembaca sekaligus, sehingga sebagian pengguna mengalami gagal memuat halaman.`;
   }
 
   const recommendation = isHealthy
-    ? 'Pertahankan konfigurasi saat ini. Pertimbangkan HTTP Caching (ETag) untuk penghematan transfer data.'
-    : 'Tambahkan reverse proxy caching (Nginx / Cloudflare) agar query artikel publik tidak membebani database.';
+    ? 'Kondisi fitur ini sangat prima dan sudah siap menampung lonjakan pembaca kapan saja.'
+    : 'Gunakan teknologi penyimpanan sementara (Cache CDN) agar server utama tidak terbebani saat artikel ramai dibaca.';
 
   return {
     record,
     status: record.healthGrade,
+    statusLabel,
     targetVUs: record.targetVUs,
     p95LatencyMs: record.p95LatencyMs,
     errorRatePercent: record.errorRatePercent,
@@ -127,12 +154,13 @@ function getFlow3Analysis(record: StressTestRecord | null): FlowAnalysis {
     return {
       record: null,
       status: 'UNTESTED',
+      statusLabel: '⚪ Belum Pernah Dites',
       targetVUs: 0,
       p95LatencyMs: 0,
       errorRatePercent: 0,
       currentRps: 0,
-      reason: 'Layanan Medical Record belum pernah diuji. Endpoint pencarian dokter spesialis GET /doctors/search siap diuji.',
-      recommendation: 'Jalankan pengujian pada Flow 3 untuk mengukur daya tahan query database dokter.',
+      reason: 'Fitur pencarian dokter belum diuji. Anda bisa mengujinya untuk melihat kecepatan pencarian saat jam sibuk pendaftaran pasien.',
+      recommendation: 'Jalankan pengujian pada Flow 3 untuk mengukur kecepatan pencarian daftar dokter.',
     };
   }
 
@@ -140,21 +168,27 @@ function getFlow3Analysis(record: StressTestRecord | null): FlowAnalysis {
   const isDegraded = record.healthGrade === 'DEGRADED';
 
   let reason = '';
+  let statusLabel = '';
+
   if (isHealthy) {
-    reason = `Database query pencarian dokter berjalan lancar pada beban ${record.targetVUs} VU. Latensi P95 tercatat stabil di ${record.p95LatencyMs}ms dengan 0 error.`;
+    statusLabel = '🟢 Lancar & Responsif';
+    reason = `Pencarian nama dan jadwal dokter bekerja lancar pada beban ${record.targetVUs} pengguna. Hasil pencarian langsung muncul dalam ${record.p95LatencyMs} milidetik tanpa error.`;
   } else if (isDegraded) {
-    reason = `Query pencarian dokter GET /doctors/search mengalami disk I/O scan yang meningkat pada ${record.targetVUs} VU (P95: ${record.p95LatencyMs}ms) karena tabel dokter belum diindeks secara spesifik.`;
+    statusLabel = '🟡 Pencarian Mulai Berat';
+    reason = `Sistem mencari dokter dengan membaca seluruh daftar data dari atas ke bawah. Saat ${record.targetVUs} orang memfilter dokter bersamaan, proses pencarian mulai memakan waktu (${record.p95LatencyMs} milidetik).`;
   } else {
-    reason = `Database connection pool jenuh! Terjadi connection timeout pada ${record.targetVUs} VU saat banyak user mencari dokter secara bersamaan.`;
+    statusLabel = '🔴 Antrean Penuh';
+    reason = `Database kewalahan melayani pencarian dari ${record.targetVUs} orang sekaligus, menyebabkan antrean dokter macet dan pencarian menjadi gagal.`;
   }
 
   const recommendation = isHealthy
-    ? 'Performa database stabil. Lakukan pengujian berkelanjutan bersamaan dengan flow lainnya.'
-    : 'Tambahkan Database Indexing pada kolom spesialisasi dokter dan naikkan MaxOpenConns pada connection pool.';
+    ? 'Pencarian dokter saat ini bekerja optimal. Lanjutkan pengujian bersama fitur-fitur lain.'
+    : 'Beri tanda indeks pencarian cepat (seperti daftar isi buku) agar nama dokter langsung ditemukan seketika.';
 
   return {
     record,
     status: record.healthGrade,
+    statusLabel,
     targetVUs: record.targetVUs,
     p95LatencyMs: record.p95LatencyMs,
     errorRatePercent: record.errorRatePercent,
@@ -173,7 +207,6 @@ export const OverviewPage: React.FC = () => {
   const [selectedModalRecord, setSelectedModalRecord] = useState<StressTestRecord | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Muat dan dengarkan pembaruan riwayat stress test
   useEffect(() => {
     setHistory(getStressTestHistory());
 
@@ -196,22 +229,18 @@ export const OverviewPage: React.FC = () => {
     };
   }, []);
 
-  // Agregasi Statistik Multi-Run
   const totalRuns = history.length;
   const passedRuns = history.filter((r) => r.healthGrade === 'HEALTHY').length;
   const degradedRuns = history.filter((r) => r.healthGrade === 'DEGRADED').length;
   const criticalRuns = history.filter((r) => r.healthGrade === 'CRITICAL').length;
   const complianceRate = totalRuns > 0 ? Math.round((passedRuns / totalRuns) * 100) : 100;
 
-  // Batas Kapasitas Aman Tertinggi (Max Safe VU yang berstatus HEALTHY)
   const healthyRuns = history.filter((r) => r.healthGrade === 'HEALTHY');
-  const maxSafeVU = healthyRuns.length > 0 ? Math.max(...healthyRuns.map((r) => r.targetVUs)) : (totalRuns === 0 ? 100 : 0);
+  const maxSafeVU = healthyRuns.length > 0 ? Math.max(...healthyRuns.map((r) => r.targetVUs)) : 0;
 
-  // Breaking point (VU terendah yang gagal / degraded / critical)
   const failedRuns = history.filter((r) => r.healthGrade !== 'HEALTHY');
   const breakingPointVU = failedRuns.length > 0 ? Math.min(...failedRuns.map((r) => r.targetVUs)) : null;
 
-  // Temukan pengujian terbaru untuk masing-masing Flow secara dinamis
   const latestFlow1 = history.find((r) => r.selectedFlow === '1') || null;
   const latestFlow2 = history.find((r) => r.selectedFlow === '2') || null;
   const latestFlow3 = history.find((r) => r.selectedFlow === '3') || null;
@@ -222,25 +251,66 @@ export const OverviewPage: React.FC = () => {
 
   const latestRun = history.length > 0 ? history[0] : null;
 
+  // DATA GRAFIK PER BEBAN PENGGUNA (HANYA DARI PENGUJIAN NYATA)
+  const uniqueVUMap = new Map<number, StressTestRecord>();
+  history.forEach((run) => {
+    if (!uniqueVUMap.has(run.targetVUs)) {
+      uniqueVUMap.set(run.targetVUs, run);
+    }
+  });
+
+  const actualVUTests = Array.from(uniqueVUMap.values()).sort((a, b) => a.targetVUs - b.targetVUs);
+
+  const vuComparisonChartData = actualVUTests.map((run) => {
+    const isHealthy = run.healthGrade === 'HEALTHY';
+    const isDegraded = run.healthGrade === 'DEGRADED';
+    const color = isHealthy ? '#10b981' : isDegraded ? '#f59e0b' : '#ef4444';
+
+    let userFriendlyStatus = '🟢 Sangat Lancar';
+    let userExperienceNote = 'Pengguna merasa nyaman, aplikasi merespons seketika.';
+
+    if (run.p95LatencyMs > 1000 || run.healthGrade === 'CRITICAL') {
+      userFriendlyStatus = '🔴 Lambat Sekali (Macet)';
+      userExperienceNote = 'Pengguna menunggu terlalu lama dan berisiko keluar dari aplikasi.';
+    } else if (run.p95LatencyMs > 500 || run.healthGrade === 'DEGRADED') {
+      userFriendlyStatus = '🟡 Mulai Ada Jeda';
+      userExperienceNote = 'Masih bisa dipakai, namun mulai terasa ada jeda saat memuat data.';
+    }
+
+    return {
+      vu: `${run.targetVUs} Orang`,
+      rawVU: run.targetVUs,
+      flowShort: run.flowTitle.split(':')[0],
+      p95: run.p95LatencyMs,
+      rps: run.currentRps,
+      errorRate: `${run.errorRatePercent.toFixed(1)}%`,
+      status: userFriendlyStatus,
+      experience: userExperienceNote,
+      timestamp: run.timestamp,
+      color,
+      record: run,
+    };
+  });
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-12">
-      {/* 1. HEADER RINGKAS */}
+      {/* 1. HEADER UTAMA (BAHASA MUDAH DIPAHAMI) */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
-              OBSERVABILITY &amp; CAPACITY AUDIT
+              PEMANTAUAN DAYA TAHAN SISTEM
             </span>
             <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Sistem Aktif
+              Sistem Sedang Berjalan Normal
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight mt-1">
-            Dashboard Observability &amp; Kapasitas
+            Dashboard Kesehatan &amp; Daya Tahan Sistem
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Analisis ketahanan beban teragregasi, batas jenuh kapasitas sistem, dan alasan teknis performa.
+            Melihat seberapa cepat sistem merespons dan seberapa kuat menampung banyak pengguna di saat bersamaan.
           </p>
         </div>
 
@@ -249,77 +319,79 @@ export const OverviewPage: React.FC = () => {
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold shadow-sm shadow-orange-500/25 transition self-start sm:self-auto"
         >
           <Zap className="w-4 h-4 fill-white" />
-          <span>Jalankan Simulator Stress Test ↗</span>
+          <span>Uji Daya Tahan Sistem ↗</span>
         </Link>
       </div>
 
-      {/* 2. BARIS STATUS UTAMA (KPI SISTEM & KAPASITAS NYATA) */}
+      {/* 2. 4 KARTU RINGKASAN KONDISI APLIKASI */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Layanan */}
         <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Network className="w-3.5 h-3.5 text-blue-500" />
-            Layanan Microservices
+            Layanan Aplikasi
           </span>
           <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
-            {services.length || 3} Layanan
+            {services.length || 3} Layanan Aktif
           </div>
           <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-            🟢 {servers.length || 3} Node Server Terhubung
+            🟢 {servers.length || 3} Komputer Server Siap
           </span>
         </div>
 
-        {/* Trafik Real-time */}
+        {/* Kecepatan Transaksi */}
         <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Activity className="w-3.5 h-3.5 text-orange-500" />
-            Trafik Operasional
+            Kecepatan Aktivitas
           </span>
           <div className="text-xl font-black font-mono text-orange-500">
-            {metrics?.averageRps || 42} RPS
+            {metrics?.averageRps || 42} Proses / Detik
           </div>
           <span className="text-[11px] text-slate-500 font-medium">
-            Total {metrics ? formatNumber(metrics.totalRequests) : '18.4k'} request hari ini
+            Total {metrics ? formatNumber(metrics.totalRequests) : '18.4k'} permintaan hari ini
           </span>
         </div>
 
-        {/* Latensi P95 */}
+        {/* Kecepatan Balasan */}
         <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 text-emerald-500" />
-            Latensi Global (P95)
+            Waktu Balasan Rata-rata
           </span>
           <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
-            {metrics ? formatLatency(metrics.latencyP95Ms) : '240 ms'}
+            {metrics ? `${Math.round(metrics.latencyP95Ms)} ms` : '240 ms'}
           </div>
           <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-            ✅ Di bawah batas SLA 1.000 ms
+            ✅ Sangat Cepat (Di bawah 1 detik)
           </span>
         </div>
 
-        {/* Kapasitas Aman Teruji (Dinamis dari History) */}
+        {/* Kapasitas Aman Teruji */}
         <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Zap className="w-3.5 h-3.5 text-orange-500" />
-            Batas Kapasitas Aman
+            Kapasitas Aman Teruji
           </span>
           <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
-            {maxSafeVU > 0 ? `${maxSafeVU} VU` : 'Belum Teruji'}
+            {maxSafeVU > 0 ? `${maxSafeVU} Pengguna` : 'Belum Dites'}
           </div>
           <span className="text-[11px] text-slate-500 font-medium">
             {totalRuns > 0
-              ? `${totalRuns} pengujian (${complianceRate}% lolos SLA)`
-              : 'Jalankan stress test ↗'}
+              ? `${totalRuns} kali dites (${complianceRate}% sukses)`
+              : 'Klik untuk mulai tes pertama ↗'}
           </span>
         </div>
       </div>
 
-      {/* 3. SECTION UTAMA: INSIGHT HASIL STRESS TEST TERAGREGASI */}
+      {/* 3. KARTU UTAMA: KESIMPULAN KEKUATAN SISTEM (BAHASA SEDERHANA) */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm overflow-hidden space-y-6 p-6">
-        {/* Banner Kesimpulan Keseluruhan (Dinamis Berdasarkan Data Riwayat) */}
+        {/* Banner Kesimpulan */}
         <div
           className={`rounded-2xl border p-5 space-y-3 transition-colors ${
-            breakingPointVU
+            totalRuns === 0
+              ? 'border-slate-300 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30'
+              : breakingPointVU
               ? 'border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent'
               : 'border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent'
           }`}
@@ -328,12 +400,16 @@ export const OverviewPage: React.FC = () => {
             <div className="flex items-center gap-3">
               <div
                 className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                  breakingPointVU
+                  totalRuns === 0
+                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                    : breakingPointVU
                     ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
                     : 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'
                 }`}
               >
-                {breakingPointVU ? (
+                {totalRuns === 0 ? (
+                  <Clock className="w-5 h-5" />
+                ) : breakingPointVU ? (
                   <AlertTriangle className="w-5 h-5 stroke-[2.5]" />
                 ) : (
                   <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
@@ -343,29 +419,29 @@ export const OverviewPage: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <span
                     className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded ${
-                      breakingPointVU
+                      totalRuns === 0
+                        ? 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                        : breakingPointVU
                         ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
                         : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
                     }`}
                   >
                     {totalRuns > 0
-                      ? `AUDIT KEPATUHAN DARI ${totalRuns} PENGUJIAN`
-                      : 'EVALUASI BASELINE SISTEM'}
+                      ? `RINGKASAN DARI ${totalRuns} KALI PENGUJIAN`
+                      : 'BELUM ADA PENGUJIAN DILAKUKAN'}
                   </span>
                   {totalRuns > 0 && (
-                    <span className="text-xs text-slate-500 font-mono">
-                      Kepatuhan SLA: {complianceRate}% ({passedRuns} Sehat, {degradedRuns} Tertekan, {criticalRuns} Kritis)
+                    <span className="text-xs text-slate-500">
+                      Tingkat Keberhasilan: {complianceRate}% ({passedRuns} Lancar, {degradedRuns} Mulai Lambat, {criticalRuns} Kewalahan)
                     </span>
                   )}
                 </div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-white mt-0.5">
-                  {totalRuns === 0 ? (
-                    'Microservices Siap Diuji — Jalankan Pengujian untuk Menemukan Batas Kapasitas Nyata'
-                  ) : breakingPointVU ? (
-                    `Batas Kapasitas Aman Sistem: ${maxSafeVU} VU (Titik Jenuh / Degradasi Terdeteksi pada ${breakingPointVU} VU)`
-                  ) : (
-                    `Batas Kapasitas Maksimum Teruji: ${maxSafeVU} VU (Seluruh ${totalRuns} Pengujian Lolos Batas SLA)`
-                  )}
+                  {totalRuns === 0
+                    ? 'Belum Ada Tes Beban Pengguna — Ayo Tes Berapa Banyak Pengguna yang Kuat Ditampung Sistem Anda'
+                    : breakingPointVU
+                    ? `Sistem Aman Menampung Hingga ${maxSafeVU} Pengguna Serentak (Mulai terasa melambat jika mencapai ${breakingPointVU} orang)`
+                    : `Sistem Terbukti Sangat Kuat — Lancar Menampung Hingga ${maxSafeVU} Pengguna Sekaligus`}
                 </h2>
               </div>
             </div>
@@ -380,36 +456,34 @@ export const OverviewPage: React.FC = () => {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer self-start sm:self-auto"
               >
                 <Eye className="w-3.5 h-3.5" />
-                <span>Laporan Terakhir ({latestRun.targetVUs} VU)</span>
+                <span>Lihat Hasil Terakhir ({latestRun.targetVUs} Orang)</span>
               </button>
             )}
           </div>
 
           <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            {totalRuns === 0 ? (
-              'Belum ada riwayat pengujian lokal tersimpan. Lakukan stress test pada masing-masing skenario di bawah untuk mengukur throughput, waktu tunggu respons (P95), dan potensi titik jenuh sistem.'
-            ) : breakingPointVU ? (
-              `Analisis Ketahanan: Dari total ${totalRuns} pengujian, microservices terbukti beroperasi optimal hingga ${maxSafeVU} VU. Namun terjadi degradasi latensi atau error saat beban dinaikkan ke ${breakingPointVU} VU. Evaluasi rinci per alur dan penyebab teknisnya dapat dilihat di bawah.`
-            ) : (
-              `Analisis Ketahanan: Seluruh ${totalRuns} pengujian yang telah dilakukan berhasil memenuhi standar SLA (latensi P95 < 1.000 ms dan error < 5%). Sistem siap menampung beban operasional saat ini.`
-            )}
+            {totalRuns === 0
+              ? 'Silakan klik tombol "Uji Daya Tahan Sistem" di kanan atas untuk mencoba mengirimkan puluhan hingga ratusan pengguna secara serentak. Grafik dan evaluasi di bawah ini akan terisi secara otomatis dari hasil tes Anda.'
+              : breakingPointVU
+              ? `Kabar Baik: Aplikasi Anda bekerja sangat lancar pada pemakaian wajar (${maxSafeVU} orang sekaligus). Namun, jika ada lebih dari ${breakingPointVU} pengguna membuka aplikasi secara serentak, layanan mulai membutuhkan waktu lebih lama untuk membalas.`
+              : `Seluruh hasil pengetesan menunjukkan aplikasi Anda sangat sehat. Pengguna merasakan respons yang cepat (kurang dari 1 detik) dan tidak ada transaksi yang gagal.`}
           </p>
         </div>
 
-        {/* 3 KARTU EVALUASI DINAMIS PER FITUR DENGAN REASON YANG JELAS */}
+        {/* 3 KARTU KONDISI FITUR (BAHASA AWAM & ALASAN JELAS) */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-orange-500" />
-              Evaluasi Dinamis per Skenario Layanan &amp; Alasan Teknis (Reason)
+              Kondisi 3 Fitur Utama Saat Dipakai Bersamaan
             </span>
-            <span className="text-[11px] text-slate-400 font-mono">
-              Batas SLA: Latensi &lt; 1.000 ms &middot; Error &lt; 5%
+            <span className="text-[11px] text-slate-400">
+              Batas waktu tunggu yang wajar: Kurang dari 1 detik (1.000 ms)
             </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* FLOW 1: AI HEALTHCARE */}
+            {/* FLOW 1: KONSULTASI DOKTER AI */}
             <div
               className={`p-4 rounded-xl border space-y-3 flex flex-col justify-between transition-colors ${
                 flow1.status === 'CRITICAL'
@@ -425,7 +499,7 @@ export const OverviewPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
                     <MessageSquare className="w-3 h-3" />
-                    AI Consultation Service
+                    Fitur Chat Dokter AI
                   </span>
                   <span
                     className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border ${
@@ -438,28 +512,24 @@ export const OverviewPage: React.FC = () => {
                         : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
                     }`}
                   >
-                    {flow1.status === 'HEALTHY' && '🟢 Sehat'}
-                    {flow1.status === 'DEGRADED' && '🟡 Mulai Tertekan'}
-                    {flow1.status === 'CRITICAL' && '🔴 Overload'}
-                    {flow1.status === 'UNTESTED' && '⚪ Belum Diuji'}
+                    {flow1.statusLabel}
                   </span>
                 </div>
 
                 <div className="font-bold text-sm text-slate-900 dark:text-white">
-                  Flow 1: Konsultasi AI Healthcare
+                  Konsultasi Chat AI
                 </div>
 
-                <div className="text-[11px] text-slate-500 font-mono">
+                <div className="text-[11px] text-slate-500">
                   {flow1.record
-                    ? `Beban Terakhir: ${flow1.targetVUs} VU · P95: ${flow1.p95LatencyMs}ms · Error: ${flow1.errorRatePercent.toFixed(1)}%`
-                    : 'Belum ada data pengujian tersimpan'}
+                    ? `Dites pada: ${flow1.targetVUs} Pengguna · Waktu tunggu: ${flow1.p95LatencyMs} milidetik`
+                    : 'Belum ada data pengetesan'}
                 </div>
 
-                {/* REASON YANG JELAS */}
                 <div className="p-3 rounded-lg bg-white/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs space-y-1">
                   <div className="text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider flex items-center gap-1">
                     <Cpu className="w-3 h-3" />
-                    Alasan Teknis (Reason):
+                    Penjelasan Kondisi:
                   </div>
                   <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
                     {flow1.reason}
@@ -469,7 +539,7 @@ export const OverviewPage: React.FC = () => {
 
               <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px]">
                 <span className="text-slate-500 font-medium">
-                  {flow1.record ? flow1.record.timestamp : 'Belum diuji'}
+                  {flow1.record ? flow1.record.timestamp : 'Belum pernah dites'}
                 </span>
                 {flow1.record ? (
                   <button
@@ -478,22 +548,22 @@ export const OverviewPage: React.FC = () => {
                       setSelectedModalRecord(flow1.record);
                       setIsModalOpen(true);
                     }}
-                    className="text-orange-500 hover:text-orange-600 font-bold transition flex items-center gap-1"
+                    className="text-orange-500 hover:text-orange-600 font-bold transition flex items-center gap-1 cursor-pointer"
                   >
-                    Detail Laporan 🔍
+                    Lihat Rincian 🔍
                   </button>
                 ) : (
                   <Link
                     to="/stress-test"
                     className="text-orange-500 hover:text-orange-600 font-bold transition"
                   >
-                    Uji Sekarang ↗
+                    Tes Fitur Ini ↗
                   </Link>
                 )}
               </div>
             </div>
 
-            {/* FLOW 2: LIFESTYLE & ARTIKEL */}
+            {/* FLOW 2: MEMBACA ARTIKEL */}
             <div
               className={`p-4 rounded-xl border space-y-3 flex flex-col justify-between transition-colors ${
                 flow2.status === 'CRITICAL'
@@ -509,7 +579,7 @@ export const OverviewPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
                     <BookOpen className="w-3 h-3" />
-                    Lifestyle Service
+                    Fitur Artikel Kesehatan
                   </span>
                   <span
                     className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border ${
@@ -522,28 +592,24 @@ export const OverviewPage: React.FC = () => {
                         : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
                     }`}
                   >
-                    {flow2.status === 'HEALTHY' && '🟢 Sehat'}
-                    {flow2.status === 'DEGRADED' && '🟡 Mulai Tertekan'}
-                    {flow2.status === 'CRITICAL' && '🔴 Overload'}
-                    {flow2.status === 'UNTESTED' && '⚪ Belum Diuji'}
+                    {flow2.statusLabel}
                   </span>
                 </div>
 
                 <div className="font-bold text-sm text-slate-900 dark:text-white">
-                  Flow 2: PIN &amp; Baca Artikel
+                  Membaca Artikel Kesehatan
                 </div>
 
-                <div className="text-[11px] text-slate-500 font-mono">
+                <div className="text-[11px] text-slate-500">
                   {flow2.record
-                    ? `Beban Terakhir: ${flow2.targetVUs} VU · P95: ${flow2.p95LatencyMs}ms · Error: ${flow2.errorRatePercent.toFixed(1)}%`
-                    : 'Belum ada data pengujian tersimpan'}
+                    ? `Dites pada: ${flow2.targetVUs} Pengguna · Waktu tunggu: ${flow2.p95LatencyMs} milidetik`
+                    : 'Belum ada data pengetesan'}
                 </div>
 
-                {/* REASON YANG JELAS */}
                 <div className="p-3 rounded-lg bg-white/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs space-y-1">
                   <div className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3" />
-                    Alasan Teknis (Reason):
+                    Penjelasan Kondisi:
                   </div>
                   <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
                     {flow2.reason}
@@ -553,7 +619,7 @@ export const OverviewPage: React.FC = () => {
 
               <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px]">
                 <span className="text-slate-500 font-medium">
-                  {flow2.record ? flow2.record.timestamp : 'Belum diuji'}
+                  {flow2.record ? flow2.record.timestamp : 'Belum pernah dites'}
                 </span>
                 {flow2.record ? (
                   <button
@@ -562,22 +628,22 @@ export const OverviewPage: React.FC = () => {
                       setSelectedModalRecord(flow2.record);
                       setIsModalOpen(true);
                     }}
-                    className="text-orange-500 hover:text-orange-600 font-bold transition flex items-center gap-1"
+                    className="text-orange-500 hover:text-orange-600 font-bold transition flex items-center gap-1 cursor-pointer"
                   >
-                    Detail Laporan 🔍
+                    Lihat Rincian 🔍
                   </button>
                 ) : (
                   <Link
                     to="/stress-test"
                     className="text-orange-500 hover:text-orange-600 font-bold transition"
                   >
-                    Uji Sekarang ↗
+                    Tes Fitur Ini ↗
                   </Link>
                 )}
               </div>
             </div>
 
-            {/* FLOW 3: MEDICAL RECORD & CARI DOKTER */}
+            {/* FLOW 3: PENCARIAN DOKTER */}
             <div
               className={`p-4 rounded-xl border space-y-3 flex flex-col justify-between transition-colors ${
                 flow3.status === 'CRITICAL'
@@ -593,7 +659,7 @@ export const OverviewPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
                     <Stethoscope className="w-3 h-3" />
-                    Medical Record Service
+                    Fitur Cari Dokter
                   </span>
                   <span
                     className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border ${
@@ -606,28 +672,24 @@ export const OverviewPage: React.FC = () => {
                         : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
                     }`}
                   >
-                    {flow3.status === 'HEALTHY' && '🟢 Sehat'}
-                    {flow3.status === 'DEGRADED' && '🟡 Mulai Tertekan'}
-                    {flow3.status === 'CRITICAL' && '🔴 Overload'}
-                    {flow3.status === 'UNTESTED' && '⚪ Belum Diuji'}
+                    {flow3.statusLabel}
                   </span>
                 </div>
 
                 <div className="font-bold text-sm text-slate-900 dark:text-white">
-                  Flow 3: Pencarian &amp; Profil Dokter
+                  Pencarian Jadwal &amp; Dokter
                 </div>
 
-                <div className="text-[11px] text-slate-500 font-mono">
+                <div className="text-[11px] text-slate-500">
                   {flow3.record
-                    ? `Beban Terakhir: ${flow3.targetVUs} VU · P95: ${flow3.p95LatencyMs}ms · Error: ${flow3.errorRatePercent.toFixed(1)}%`
-                    : 'Belum ada data pengujian tersimpan'}
+                    ? `Dites pada: ${flow3.targetVUs} Pengguna · Waktu tunggu: ${flow3.p95LatencyMs} milidetik`
+                    : 'Belum ada data pengetesan'}
                 </div>
 
-                {/* REASON YANG JELAS */}
                 <div className="p-3 rounded-lg bg-white/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-xs space-y-1">
                   <div className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider flex items-center gap-1">
                     <Database className="w-3 h-3" />
-                    Alasan Teknis (Reason):
+                    Penjelasan Kondisi:
                   </div>
                   <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
                     {flow3.reason}
@@ -637,7 +699,7 @@ export const OverviewPage: React.FC = () => {
 
               <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px]">
                 <span className="text-slate-500 font-medium">
-                  {flow3.record ? flow3.record.timestamp : 'Belum diuji'}
+                  {flow3.record ? flow3.record.timestamp : 'Belum pernah dites'}
                 </span>
                 {flow3.record ? (
                   <button
@@ -646,16 +708,16 @@ export const OverviewPage: React.FC = () => {
                       setSelectedModalRecord(flow3.record);
                       setIsModalOpen(true);
                     }}
-                    className="text-orange-500 hover:text-orange-600 font-bold transition flex items-center gap-1"
+                    className="text-orange-500 hover:text-orange-600 font-bold transition flex items-center gap-1 cursor-pointer"
                   >
-                    Detail Laporan 🔍
+                    Lihat Rincian 🔍
                   </button>
                 ) : (
                   <Link
                     to="/stress-test"
                     className="text-orange-500 hover:text-orange-600 font-bold transition"
                   >
-                    Uji Sekarang ↗
+                    Tes Fitur Ini ↗
                   </Link>
                 )}
               </div>
@@ -663,15 +725,165 @@ export const OverviewPage: React.FC = () => {
           </div>
         </div>
 
-        {/* REKOMENDASI ARSITEKTUR STRATEGIS */}
+        {/* 4. GRAFIK & TABEL PER JUMLAH PENGGUNA (BAHASA AWAM & DATA NYATA) */}
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 p-5 space-y-4">
+          <div className="border-b border-slate-200/60 dark:border-slate-800/80 pb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-orange-500" />
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
+                  Perbandingan Kecepatan Berdasarkan Jumlah Pengguna
+                </h3>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Melihat bagaimana kecepatan sistem berubah dari beban santai hingga beban puncak yang telah Anda tes.
+              </p>
+            </div>
+
+            <div className="text-[11px] text-slate-500 self-start sm:self-auto">
+              {vuComparisonChartData.length} Tingkat Beban Pernah Dites
+            </div>
+          </div>
+
+          {vuComparisonChartData.length === 0 ? (
+            <div className="p-8 text-center rounded-xl bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-orange-500/10 text-orange-500 flex items-center justify-center mx-auto">
+                <BarChart3 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Belum Ada Data Pengetesan Beban
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Grafik dan tabel di bawah ini akan otomatis terisi setelah Anda menjalankan tes beban pengguna di halaman Simulator Stress Test.
+                </p>
+              </div>
+              <Link
+                to="/stress-test"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm"
+              >
+                <Zap className="w-3.5 h-3.5 fill-white" />
+                <span>Mulai Tes Pertama Anda ↗</span>
+              </Link>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+              {/* Grafik Recharts */}
+              <div className="lg:col-span-5 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Waktu Tunggu Pengguna (milidetik)
+                  </span>
+                  <span className="text-[10px] text-rose-500 font-bold">
+                    Batas Wajar = 1.000 ms (1 Detik)
+                  </span>
+                </div>
+
+                <div className="h-48 w-full pt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={vuComparisonChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
+                      <XAxis dataKey="vu" stroke="#64748b" fontSize={10} tickLine={false} />
+                      <YAxis stroke="#64748b" fontSize={10} tickLine={false} domain={[0, 'auto']} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0F172A',
+                          borderColor: '#334155',
+                          borderRadius: '8px',
+                          color: '#fff',
+                          fontSize: '11px',
+                        }}
+                        formatter={(val: number) => [`${val} milidetik`, 'Waktu Tunggu']}
+                      />
+                      <ReferenceLine y={1000} stroke="#f43f5e" strokeDasharray="4 4" />
+                      <Bar dataKey="p95" radius={[6, 6, 0, 0]}>
+                        {vuComparisonChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Tabel Matriks Bahasa Awam */}
+              <div className="lg:col-span-7 overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 uppercase text-[10px] font-bold tracking-wider">
+                    <tr>
+                      <th className="p-3">Jumlah Pengguna</th>
+                      <th className="p-3">Fitur yang Dites</th>
+                      <th className="p-3 text-center">Waktu Tunggu</th>
+                      <th className="p-3 text-center">Kecepatan Proses</th>
+                      <th className="p-3 text-center">Tingkat Gagal</th>
+                      <th className="p-3 text-center">Kenyamanan Pengguna</th>
+                      <th className="p-3 text-right">Rincian</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                    {vuComparisonChartData.map((item) => (
+                      <tr key={item.vu} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition">
+                        <td className="p-3 font-bold text-slate-900 dark:text-white">
+                          {item.vu}
+                        </td>
+                        <td className="p-3 text-slate-700 dark:text-slate-300">
+                          <div>{item.flowShort}</div>
+                          <span className="text-[10px] text-slate-400">{item.timestamp}</span>
+                        </td>
+                        <td className="p-3 text-center font-bold">
+                          <span
+                            className={
+                              item.p95 > 1000
+                                ? 'text-rose-500'
+                                : item.p95 > 500
+                                ? 'text-amber-500'
+                                : 'text-emerald-500'
+                            }
+                          >
+                            {item.p95} ms
+                          </span>
+                        </td>
+                        <td className="p-3 text-center text-slate-700 dark:text-slate-300">
+                          {item.rps} /detik
+                        </td>
+                        <td className="p-3 text-center text-slate-700 dark:text-slate-300">
+                          {item.errorRate}
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className="text-[10px] font-bold whitespace-nowrap">
+                            {item.status}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedModalRecord(item.record);
+                              setIsModalOpen(true);
+                            }}
+                            className="text-orange-500 hover:text-orange-600 font-bold transition text-xs cursor-pointer"
+                          >
+                            Lihat 🔍
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 5. PRIORITAS PERBAIKAN SISTEM (BAHASA AWAM & JELAS) */}
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
               <Zap className="w-4 h-4 text-orange-500" />
-              Prioritas Tindakan Arsitektur (Berdasarkan Hasil Uji Nyata)
+              3 Langkah Sederhana untuk Memperkuat Sistem:
             </span>
             <Link to="/stress-test" className="text-xs text-orange-500 font-bold hover:underline flex items-center gap-1">
-              Uji Skenario Baru ↗
+              Tes Skenario Baru ↗
             </Link>
           </div>
 
@@ -679,45 +891,45 @@ export const OverviewPage: React.FC = () => {
             <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 space-y-1">
               <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                 <span className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center text-[10px] font-black">1</span>
-                Redis Cache Layer (AI Consultation)
+                Simpan Balasan Cepat (Cache AI)
               </div>
               <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
-                <strong>Alasan:</strong> Mengurangi 45% antrean ke model AI dengan menyimpan respons chat serupa, menjaga latensi tetap &lt; 300ms.
+                <strong>Alasan:</strong> Pertanyaan yang sering ditanyakan langsung dijawab seketika dari memori cepat, sehingga otak AI tidak kelelahan saat ribuan orang bertanya.
               </p>
             </div>
 
             <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 space-y-1">
               <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                 <span className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center text-[10px] font-black">2</span>
-                Database Indexing (Medical Record)
+                Daftar Isi Cepat Pencarian Dokter
               </div>
               <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
-                <strong>Alasan:</strong> Mencegah <em>table scan</em> pada pencarian dokter sehingga latensi DB turun dari 450 ms menjadi &lt; 50 ms.
+                <strong>Alasan:</strong> Memberikan penomoran indeks pada nama dokter agar pencarian tidak perlu membolak-balik seluruh database dari awal, membuat pencarian langsung instan.
               </p>
             </div>
 
             <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 space-y-1">
               <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                 <span className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center text-[10px] font-black">3</span>
-                Horizontal Pod Autoscaling (HPA)
+                Komputer Cadangan Otomatis
               </div>
               <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
-                <strong>Alasan:</strong> Menambah pod secara otomatis saat CPU &gt; 70%, mencegah terjadinya service unavailable saat lonjakan traffic.
+                <strong>Alasan:</strong> Menyalakan komputer server tambahan secara otomatis jika aplikasi tiba-tiba diserbu banyak pengguna di jam sibuk agar aplikasi tidak pernah down.
               </p>
             </div>
           </div>
         </div>
 
-        {/* 4. RIWAYAT SINGKAT SESI PENGUJIAN JIKA ADA LEBIH DARI 1 PENGUJIAN */}
+        {/* 6. RIWAYAT SESI PENGETESAN */}
         {totalRuns > 1 && (
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                 <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-                Riwayat Cepat Sesi Stress Test ({totalRuns} Pengujian Tersimpan)
+                Riwayat Sesi yang Pernah Anda Lakukan ({totalRuns} Kali Dites)
               </span>
               <Link to="/stress-test" className="text-orange-500 text-xs font-semibold hover:underline">
-                Kelola Semua di Stress Test Hub ↗
+                Buka Menu Stress Test Lengkap ↗
               </Link>
             </div>
 
@@ -730,7 +942,7 @@ export const OverviewPage: React.FC = () => {
                     setSelectedModalRecord(run);
                     setIsModalOpen(true);
                   }}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono transition cursor-pointer ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition cursor-pointer ${
                     run.healthGrade === 'HEALTHY'
                       ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10'
                       : run.healthGrade === 'DEGRADED'
@@ -738,11 +950,11 @@ export const OverviewPage: React.FC = () => {
                       : 'bg-rose-500/5 border-rose-500/20 text-rose-700 dark:text-rose-400 hover:bg-rose-500/10'
                   }`}
                 >
-                  <span className="font-bold font-sans">{run.flowTitle.split(':')[0]}</span>
+                  <span className="font-bold">{run.flowTitle.split(':')[0]}</span>
                   <span>&bull;</span>
-                  <span>{run.targetVUs} VU</span>
+                  <span>{run.targetVUs} Orang</span>
                   <span>&bull;</span>
-                  <span>{run.p95LatencyMs}ms</span>
+                  <span>{run.p95LatencyMs} ms</span>
                 </button>
               ))}
             </div>

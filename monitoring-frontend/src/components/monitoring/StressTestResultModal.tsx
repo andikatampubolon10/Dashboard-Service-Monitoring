@@ -55,14 +55,14 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
-                  LAPORAN PROFIL PERFORMA
+                  LAPORAN KEKUATAN SISTEM
                 </span>
                 <span className="text-xs text-slate-400 font-mono">
                   {record.timestamp}
                 </span>
               </div>
               <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight mt-0.5">
-                Hasil Stress Test & Rekomendasi Sistem
+                Hasil Uji Daya Tahan &amp; Solusi Penguatan Sistem
               </h2>
             </div>
           </div>
@@ -90,9 +90,9 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
             </span>
             <div>
               <h3 className="font-black text-base uppercase tracking-wide">
-                {isHealthy && "Sistem Sangat Stabil & Sehat"}
-                {isDegraded && "Sistem Mulai Tertekan (Latensi Tinggi)"}
-                {isCritical && "Sistem Overload / High Error Rate!"}
+                {isHealthy && "Sistem Sangat Cepat & Lancar"}
+                {isDegraded && "Sistem Mulai Terasa Ada Jeda (Waktu Tunggu Meningkat)"}
+                {isCritical && "Sistem Kewalahan / Ada Transaksi Gagal!"}
               </h3>
               <p className="text-xs opacity-90 font-medium mt-0.5">
                 {record.healthVerdict}
@@ -104,7 +104,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
         {/* Flow & Metrics Summary Grid */}
         <div className="space-y-3">
           <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
-            <span>SKENARIO PENGUJIANKU:</span>
+            <span>FITUR YANG DIUJI:</span>
             <span className="font-extrabold text-slate-900 dark:text-white bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
               {record.flowTitle}
             </span>
@@ -114,27 +114,27 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
             {/* Metric 1: Target VU */}
             <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-center gap-1">
-                <Users className="w-3 h-3 text-orange-500" /> Beban User
+                <Users className="w-3 h-3 text-orange-500" /> Beban Pengguna
               </span>
               <span className="text-lg font-black text-slate-900 dark:text-white font-mono mt-0.5 block">
-                {record.targetVUs} <span className="text-xs font-bold text-slate-400">VU</span>
+                {record.targetVUs} <span className="text-xs font-bold text-slate-400">Orang</span>
               </span>
             </div>
 
             {/* Metric 2: RPS */}
             <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-center gap-1">
-                <Activity className="w-3 h-3 text-blue-500" /> Kecepatan RPS
+                <Activity className="w-3 h-3 text-blue-500" /> Kecepatan Balas
               </span>
               <span className="text-lg font-black text-slate-900 dark:text-white font-mono mt-0.5 block">
-                {formatNumber(record.currentRps)} <span className="text-xs font-bold text-slate-400">req/s</span>
+                {formatNumber(record.currentRps)} <span className="text-xs font-bold text-slate-400">proses/dtk</span>
               </span>
             </div>
 
             {/* Metric 3: Latensi P95 */}
             <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-center gap-1">
-                <Clock className="w-3 h-3 text-purple-500" /> Respon P95
+                <Clock className="w-3 h-3 text-purple-500" /> Waktu Tunggu
               </span>
               <span
                 className={`text-lg font-black font-mono mt-0.5 block ${
@@ -148,7 +148,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
             {/* Metric 4: Error Rate */}
             <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center justify-center gap-1">
-                <Zap className="w-3 h-3 text-rose-500" /> Tingkat Error
+                <Zap className="w-3 h-3 text-rose-500" /> Tingkat Gagal
               </span>
               <span
                 className={`text-lg font-black font-mono mt-0.5 block ${
@@ -165,7 +165,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 p-5 space-y-3.5">
           <div className="flex items-center gap-2 text-slate-900 dark:text-white font-extrabold text-sm border-b border-slate-200/60 dark:border-slate-800 pb-2.5">
             <Sparkles className="w-4 h-4 text-orange-500" />
-            <span>Rekomendasi Perbaikan & Optimasi Teknis:</span>
+            <span>Langkah Praktis untuk Memperkuat Aplikasi:</span>
           </div>
 
           <div className="space-y-2 text-xs">
@@ -213,7 +213,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
               className="inline-flex items-center gap-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white px-5 py-2.5 text-xs font-bold shadow-md shadow-orange-500/20 transition"
             >
               <CheckCircle2 className="w-4 h-4" />
-              Tutup & Simpan
+              Tutup Laporan
             </button>
           </div>
         </div>
