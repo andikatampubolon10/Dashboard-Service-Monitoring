@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useServers, useRegisterServer } from '../../hooks/useServers';
 import { useServices } from '../../hooks/useServices';
 import { ErrorState } from '../../components/common/ErrorState';
 import { TableSkeleton } from '../../components/common/LoadingSkeleton';
@@ -16,11 +15,19 @@ import {
   Plus,
   Server as ServerIcon,
   Loader2,
+  Terminal,
+  Cpu,
+  HardDrive,
+  Sparkles,
+  Radio,
+  Layers,
 } from 'lucide-react';
 import {
   OFFICIAL_PLACEMENT_RULES,
   evaluateServerCompliance,
 } from '../../utils/serverRules';
+import { useServers, useRegisterServer, useDiscoverServer } from '../../hooks/useServers';
+import { DiscoveredService, DiscoverServerResponse } from '../../types';
 
 export const ServerListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -33,11 +40,22 @@ export const ServerListPage: React.FC = () => {
   const [showRulesModal, setShowRulesModal] = useState<boolean>(false);
   const [showAddServerModal, setShowAddServerModal] = useState<boolean>(false);
 
+  // Discovery Mode & Credentials
+  const [discoveryMode, setDiscoveryMode] = useState<'ssh' | 'probe'>('ssh');
+  const [sshConfig, setSshConfig] = useState({
+    sshPort: '22',
+    username: 'ubuntu',
+    password: '',
+  });
+  const [candidatePortsStr, setCandidatePortsStr] = useState('8080, 4004, 4006, 4007, 3001, 3002, 4005, 9100');
+  const [discoveredData, setDiscoveredData] = useState<DiscoverServerResponse | null>(null);
+  const [discoveredServicesSelection, setDiscoveredServicesSelection] = useState<DiscoveredService[]>([]);
+
   // Form state for adding new server
   const [formData, setFormData] = useState({
     name: '',
     host: '',
-    port: '9100',
+    port: '22',
     env: 'PRODUCTION',
     region: 'jakarta-idc',
     description: '',
@@ -46,19 +64,75 @@ export const ServerListPage: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
-  const toggleServiceSelection = (serviceId: string) => {
-    setFormData((prev) => {
-      const exists = prev.selectedServiceIds.includes(serviceId);
-      return {
-        ...prev,
-        selectedServiceIds: exists
-          ? prev.selectedServiceIds.filter((id) => id !== serviceId)
-          : [...prev.selectedServiceIds, serviceId],
-      };
-    });
+  const discoverServerMutation = useDiscoverServer();
+  const registerServerMutation = useRegisterServer();
+
+  const handleRunDiscovery = async () => {
+    setFormError(null);
+    setFormSuccess(null);
+
+    const cleanHost = formData.host.trim();
+    if (!cleanHost) {
+      setFormError('Masukkan IP Address atau Host laptop target terlebih dahulu');
+      return;
+    }
+
+    try {
+      let candidatePorts: number[] | undefined;
+      if (discoveryMode === 'probe' && candidatePortsStr.trim()) {
+        candidatePorts = candidatePortsStr
+          .split(',')
+          .map((p) => parseInt(p.trim(), 10))
+          .filter((p) => !isNaN(p) && p > 0);
+      }
+
+      const res = await discoverServerMutation.mutateAsync({
+        host: cleanHost,
+        mode: discoveryMode,
+        sshPort: parseInt(sshConfig.sshPort, 10) || 22,
+        username: sshConfig.username.trim() || undefined,
+        password: sshConfig.password || undefined,
+        candidatePorts,
+      });
+
+      setDiscoveredData(res);
+      setDiscoveredServicesSelection(res.services || []);
+
+      // Pre-fill default name if empty
+      if (!formData.name.trim()) {
+        const shortHost = cleanHost.replace(/[^a-zA-Z0-9]/g, '-');
+        setFormData((prev) => ({
+          ...prev,
+          name: discoveryMode === 'ssh' ? `WSL2-Node-${shortHost}` : `Remote-Node-${shortHost}`,
+          description: `Discovered via ${discoveryMode.toUpperCase()} (${res.os || 'Linux'}) with ${res.services?.length || 0} active services`,
+          port: discoveryMode === 'ssh' ? sshConfig.sshPort : (res.services?.[0]?.port ? String(res.services[0].port) : '9100'),
+        }));
+      }
+
+      setFormSuccess(
+        `Koneksi berhasil! Terdeteksi ${res.services?.length || 0} microservice aktif di ${cleanHost} (${res.os || 'Linux'}).`
+      );
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'Gagal melakukan auto-discovery ke target host';
+      setFormError(errorMsg);
+      setDiscoveredData(null);
+    }
   };
 
-  const registerServerMutation = useRegisterServer();
+  const toggleDiscoveredService = (serviceId: string) => {
+    if (!discoveredData) return;
+    const found = discoveredData.services.find((s) => s.id === serviceId);
+    if (!found) return;
+
+    setDiscoveredServicesSelection((prev) => {
+      const exists = prev.some((s) => s.id === serviceId);
+      if (exists) {
+        return prev.filter((s) => s.id !== serviceId);
+      } else {
+        return [...prev, found];
+      }
+    });
+  };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,11 +147,7 @@ export const ServerListPage: React.FC = () => {
       setFormError('Host atau IP Address wajib diisi');
       return;
     }
-    const portNum = parseInt(formData.port, 10);
-    if (isNaN(portNum) || portNum <= 0 || portNum > 65535) {
-      setFormError('Port harus valid antara 1 - 65535');
-      return;
-    }
+    const portNum = parseInt(formData.port, 10) || 22;
 
     try {
       const res = await registerServerMutation.mutateAsync({
@@ -88,16 +158,21 @@ export const ServerListPage: React.FC = () => {
         region: formData.region.trim(),
         description: formData.description.trim(),
         serviceIds: formData.selectedServiceIds,
+        services: discoveredServicesSelection,
+        spec: discoveredData?.spec,
       });
+
       setFormSuccess(`Server "${res.name}" berhasil didaftarkan! Status: ${res.status}`);
       refetch();
       setTimeout(() => {
         setShowAddServerModal(false);
         setFormSuccess(null);
+        setDiscoveredData(null);
+        setDiscoveredServicesSelection([]);
         setFormData({
           name: '',
           host: '',
-          port: '9100',
+          port: '22',
           env: 'PRODUCTION',
           region: 'jakarta-idc',
           description: '',
@@ -529,22 +604,22 @@ export const ServerListPage: React.FC = () => {
         </div>
       </Modal>
 
-      {/* ─── MODAL: TAMBAH SERVER TARGET VIA IP & PORT ───────────────────────── */}
+      {/* ─── MODAL: TAMBAH SERVER TARGET & MULTI-NODE DISCOVERY ────────────── */}
       <Modal
         isOpen={showAddServerModal}
         onClose={() => {
-          if (!registerServerMutation.isPending) {
+          if (!registerServerMutation.isPending && !discoverServerMutation.isPending) {
             setShowAddServerModal(false);
           }
         }}
         title={
           <div className="flex items-center gap-2 text-slate-900 dark:text-white">
             <ServerIcon className="w-5 h-5 text-cyan-500" />
-            <span>Daftarkan Server Host Target Baru</span>
+            <span>Daftarkan Server Node (Laptop / WSL Distro)</span>
           </div>
         }
-        subtitle="Registrasikan host server fisik/VM baru untuk dipantau telemetrinya via IP dan Port Agent/Exporter."
-        maxWidth="lg"
+        subtitle="Registrasikan laptop lain di jaringan LAN/Wi-Fi untuk auto-detect hardware dan scraping microservices secara dinamis."
+        maxWidth="2xl"
       >
         <form onSubmit={handleRegisterSubmit} className="space-y-4 text-xs font-mono">
           {formError && (
@@ -561,56 +636,282 @@ export const ServerListPage: React.FC = () => {
             </div>
           )}
 
+          {/* Connection Mode Switcher */}
           <div className="space-y-1.5">
             <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
-              Nama Server / Host <span className="text-rose-500">*</span>
+              Metode Koneksi &amp; Auto-Discovery
             </label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. Server Gamma / Worker Node 1"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
-            />
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-[#111827] rounded-xl border border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDiscoveryMode('ssh')}
+                className={`py-2 px-3 rounded-lg flex items-center justify-center gap-2 text-xs font-bold transition ${
+                  discoveryMode === 'ssh'
+                    ? 'bg-white dark:bg-[#1e293b] text-cyan-600 dark:text-cyan-400 shadow-sm border border-slate-200 dark:border-slate-700'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Terminal className="w-3.5 h-3.5 text-cyan-500" />
+                <span>SSH Remote (WSL2 / Linux)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDiscoveryMode('probe')}
+                className={`py-2 px-3 rounded-lg flex items-center justify-center gap-2 text-xs font-bold transition ${
+                  discoveryMode === 'probe'
+                    ? 'bg-white dark:bg-[#1e293b] text-cyan-600 dark:text-cyan-400 shadow-sm border border-slate-200 dark:border-slate-700'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Radio className="w-3.5 h-3.5 text-emerald-500" />
+                <span>HTTP Port Probe (Zero-Config)</span>
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Network Host & Discovery Parameters */}
+          <div className="p-4 rounded-xl bg-slate-50/70 dark:bg-[#0f172a]/60 border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-2 space-y-1.5">
+                <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                  IP Address / Host Laptop Target <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 192.168.1.105 atau localhost"
+                  value={formData.host}
+                  onChange={(e) => setFormData({ ...formData, host: e.target.value })}
+                  className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                />
+              </div>
+
+              {discoveryMode === 'ssh' ? (
+                <div className="space-y-1.5">
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                    Port SSH
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="65535"
+                    value={sshConfig.sshPort}
+                    onChange={(e) => setSshConfig({ ...sshConfig, sshPort: e.target.value })}
+                    className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                    Port Exporter
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="65535"
+                    value={formData.port}
+                    onChange={(e) => setFormData({ ...formData, port: e.target.value })}
+                    className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                  />
+                </div>
+              )}
+            </div>
+
+            {discoveryMode === 'ssh' ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                    SSH Username <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. ubuntu atau nama user WSL"
+                    value={sshConfig.username}
+                    onChange={(e) => setSshConfig({ ...sshConfig, username: e.target.value })}
+                    className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                    SSH Password (Opsional)
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Password user WSL (jika ada)"
+                    value={sshConfig.password}
+                    onChange={(e) => setSshConfig({ ...sshConfig, password: e.target.value })}
+                    className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                  Daftar Port Kandidat Microservice untuk Di-scan
+                </label>
+                <input
+                  type="text"
+                  placeholder="8080, 4004, 4006, 4007, 3001, 3002, 4005, 9100"
+                  value={candidatePortsStr}
+                  onChange={(e) => setCandidatePortsStr(e.target.value)}
+                  className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm font-mono"
+                />
+              </div>
+            )}
+
+            {/* Run Discovery Trigger Button */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-sans">
+                {discoveryMode === 'ssh'
+                  ? '💡 Pastikan WSL di laptop 2 menggunakan networkingMode=mirrored di .wslconfig atau SSH aktif.'
+                  : '💡 Backend akan menguji response /metrics di setiap port secara paralel.'}
+              </span>
+
+              <button
+                type="button"
+                onClick={handleRunDiscovery}
+                disabled={discoverServerMutation.isPending || !formData.host.trim()}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold font-mono transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              >
+                {discoverServerMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Menghubungi Host &amp; Memindai...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-cyan-200" />
+                    <span>Tes &amp; Auto-Detect Service</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* ─── HASIL DISCOVERY PANEL (JIKA SUDAH DISCAN) ───────────────────── */}
+          {discoveredData && (
+            <div className="p-4 rounded-xl bg-cyan-50/50 dark:bg-cyan-950/20 border border-cyan-200 dark:border-cyan-800/40 space-y-3 animate-fadeIn">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="font-bold text-xs text-slate-900 dark:text-white font-mono">
+                    Hasil Deteksi Host: {discoveredData.os || 'Linux Node'}
+                  </span>
+                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  {discoveredData.services.length} Service Ditemukan
+                </span>
+              </div>
+
+              {/* Hardware Specs Preview */}
+              {discoveredData.spec && (
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-2.5 rounded-lg bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 text-center">
+                    <div className="text-[10px] text-slate-400 flex items-center justify-center gap-1">
+                      <Cpu className="w-3 h-3 text-cyan-500" />
+                      <span>CPU</span>
+                    </div>
+                    <div className="font-bold text-sm text-slate-800 dark:text-white mt-0.5">
+                      {discoveredData.spec.cores} Cores
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 text-center">
+                    <div className="text-[10px] text-slate-400 flex items-center justify-center gap-1">
+                      <HardDrive className="w-3 h-3 text-emerald-500" />
+                      <span>RAM</span>
+                    </div>
+                    <div className="font-bold text-sm text-slate-800 dark:text-white mt-0.5">
+                      {Math.round(discoveredData.spec.totalMemoryMb / 1024)} GB
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 text-center">
+                    <div className="text-[10px] text-slate-400 flex items-center justify-center gap-1">
+                      <Layers className="w-3 h-3 text-amber-500" />
+                      <span>Disk SSD</span>
+                    </div>
+                    <div className="font-bold text-sm text-slate-800 dark:text-white mt-0.5">
+                      {discoveredData.spec.totalDiskGb} GB
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Discovered Services Checklist */}
+              <div className="space-y-1.5 pt-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-bold text-slate-700 dark:text-slate-300">
+                    Microservice yang Ditemukan di Laptop Ini:
+                  </span>
+                  <span className="text-slate-400 text-[10px]">
+                    {discoveredServicesSelection.length} dari {discoveredData.services.length} dipilih untuk di-scrape
+                  </span>
+                </div>
+
+                {discoveredData.services.length === 0 ? (
+                  <div className="p-3 text-center text-slate-500 text-[11px] bg-white dark:bg-[#111827] rounded-lg border border-slate-200 dark:border-slate-800">
+                    Tidak ada microservice dengan endpoint <code>/metrics</code> yang merespons di port yang dipindai. Anda tetap dapat mendaftarkan server ini dan memilih service secara manual di bawah.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                    {discoveredData.services.map((svc) => {
+                      const isSelected = discoveredServicesSelection.some((s) => s.id === svc.id);
+                      return (
+                        <div
+                          key={svc.id}
+                          onClick={() => toggleDiscoveredService(svc.id)}
+                          className={`p-2.5 rounded-lg border flex items-center justify-between gap-2 cursor-pointer transition select-none ${
+                            isSelected
+                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-200'
+                              : 'bg-white dark:bg-[#111827] border-slate-200 dark:border-slate-800 hover:border-slate-300 opacity-60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              className="rounded text-emerald-500 focus:ring-emerald-400 h-3.5 w-3.5 pointer-events-none"
+                            />
+                            <div className="min-w-0">
+                              <div className="font-bold text-[11px] truncate">
+                                {svc.name}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                Port :{svc.port} &bull; {svc.url}
+                              </div>
+                            </div>
+                          </div>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
+                            {svc.stack}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Server Identity & Metadata */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
-                Host / IP Address <span className="text-rose-500">*</span>
+                Nama Server / Label <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. 192.168.1.150 / localhost"
-                value={formData.host}
-                onChange={(e) => setFormData({ ...formData, host: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                placeholder="e.g. Laptop-2-Worker"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
-                Port Exporter / Agent <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="number"
-                required
-                min="1"
-                max="65535"
-                placeholder="e.g. 9100"
-                value={formData.port}
-                onChange={(e) => setFormData({ ...formData, port: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
-              />
-            </div>
-          </div>
-          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-sans">
-            Port yang diuji adalah port telemetri host (misal port 9100 untuk Prometheus Node Exporter atau port agent kesehatan server).
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
                 Environment
@@ -618,7 +919,7 @@ export const ServerListPage: React.FC = () => {
               <select
                 value={formData.env}
                 onChange={(e) => setFormData({ ...formData, env: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm font-mono"
+                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm font-mono"
               >
                 <option value="PRODUCTION">PRODUCTION</option>
                 <option value="STAGING">STAGING</option>
@@ -628,14 +929,14 @@ export const ServerListPage: React.FC = () => {
 
             <div className="space-y-1.5">
               <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
-                Region
+                Region / Lokasi
               </label>
               <input
                 type="text"
-                placeholder="e.g. jakarta-idc"
+                placeholder="e.g. jakarta-idc / local-lan"
                 value={formData.region}
                 onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
               />
             </div>
           </div>
@@ -646,75 +947,17 @@ export const ServerListPage: React.FC = () => {
             </label>
             <input
               type="text"
-              placeholder="e.g. Node worker cadangan untuk pipeline pemrosesan"
+              placeholder="e.g. Laptop 2 menjalankan microservice live-consult dan ai-consultation"
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+              className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
             />
-          </div>
-
-          {/* Microservices Allocation (Checklist) */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
-                Pilih Microservices yang Berjalan di Host Ini ({formData.selectedServiceIds.length} dipilih)
-              </label>
-              <span className="text-[10px] text-slate-400 font-mono">Opsional</span>
-            </div>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-sans">
-              Tandai service yang di-deploy ke server ini agar telemetri service otomatis terpantau di detail host.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-[#0a0f1d]/50">
-              {allServices.length === 0 ? (
-                <div className="col-span-2 p-3 text-center text-slate-400 text-[11px]">
-                  Memuat daftar microservice...
-                </div>
-              ) : (
-                allServices.map((svc) => {
-                  const isChecked = formData.selectedServiceIds.includes(svc.id);
-                  const isGo = (svc.stack || '').toLowerCase().includes('go');
-                  return (
-                    <div
-                      key={svc.id}
-                      onClick={() => toggleServiceSelection(svc.id)}
-                      className={`p-2.5 rounded-lg border flex items-center justify-between gap-2 cursor-pointer transition select-none ${
-                        isChecked
-                          ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-700 dark:text-cyan-300'
-                          : 'bg-white dark:bg-[#111827] border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {}}
-                          className="rounded text-cyan-500 focus:ring-cyan-400 h-3.5 w-3.5 pointer-events-none"
-                        />
-                        <span className="font-bold text-[11px] truncate">
-                          {svc.name}
-                        </span>
-                      </div>
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tracking-wider shrink-0 ${
-                          isGo
-                            ? 'bg-cyan-50 dark:bg-[#0e2238] text-cyan-600 dark:text-[#38bdf8]'
-                            : 'bg-emerald-50 dark:bg-[#0d2a22] text-emerald-600 dark:text-[#10b981]'
-                        }`}
-                      >
-                        {isGo ? 'GO' : 'NODE.JS'}
-                      </span>
-                    </div>
-                  );
-                })
-              )}
-            </div>
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <button
               type="button"
-              disabled={registerServerMutation.isPending}
+              disabled={registerServerMutation.isPending || discoverServerMutation.isPending}
               onClick={() => setShowAddServerModal(false)}
               className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
             >
@@ -722,18 +965,18 @@ export const ServerListPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={registerServerMutation.isPending}
+              disabled={registerServerMutation.isPending || !formData.name.trim() || !formData.host.trim()}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold font-mono transition shadow-sm shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {registerServerMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Menguji Koneksi &amp; Mendaftarkan...</span>
+                  <span>Mendaftarkan &amp; Memulai Scraping...</span>
                 </>
               ) : (
                 <>
                   <Plus className="w-4 h-4" />
-                  <span>Daftarkan Server Target</span>
+                  <span>Daftarkan Server &amp; Mulai Scraping</span>
                 </>
               )}
             </button>

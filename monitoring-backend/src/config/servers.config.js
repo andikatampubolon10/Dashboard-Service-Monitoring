@@ -171,7 +171,20 @@ function registerServer(server) {
   return server;
 }
 
-module.exports = { SERVERS, getAllServers, getServerById, registerServer };
+/**
+ * @param {string} id
+ * @returns {boolean}
+ */
+function removeServer(id) {
+  const idx = CUSTOM_SERVERS.findIndex((s) => s.id === id);
+  if (idx >= 0) {
+    CUSTOM_SERVERS.splice(idx, 1);
+    return true;
+  }
+  return false;
+}
+
+module.exports = { SERVERS, getAllServers, getServerById, registerServer, removeServer };
 
 /**
  * @typedef {Object} DatabaseConfig

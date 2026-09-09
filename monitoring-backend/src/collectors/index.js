@@ -12,7 +12,7 @@
  */
 
 const cron = require('node-cron');
-const { SERVICES } = require('../config/services.config');
+const { SERVICES, getAllActiveServices } = require('../config/services.config');
 const monitoringConfig = require('../config/monitoring.config');
 const { scrapeService } = require('./prometheusCollector');
 const { collectSystemMetrics } = require('./systemCollector');
@@ -42,15 +42,17 @@ function setSocketServer(socketServer) {
 
 /**
  * Run one full scrape cycle across all services.
- * Executes all 7 scrapes in parallel for minimum latency.
+ * Executes all active scrapes in parallel for minimum latency.
  */
 async function runScrapeCycle() {
   const now = Date.now();
   const intervalSeconds = (now - lastScrapeAt) / 1000;
   lastScrapeAt = now;
 
+  const activeServices = getAllActiveServices();
+
   // Scrape all services in parallel
-  const scrapePromises = SERVICES.map((service) => {
+  const scrapePromises = activeServices.map((service) => {
     const prevMap = getPrevMetricMap(service.id);
     return scrapeService(service, prevMap, intervalSeconds)
       .then((result) => ({ service, result }));

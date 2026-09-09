@@ -19,6 +19,8 @@ import {
   ServiceEndpoint,
   ServiceChartData,
   RegisterServerPayload,
+  DiscoverServerPayload,
+  DiscoverServerResponse,
 } from '../types';
 import { mockDb } from '../mock/database';
 
@@ -830,6 +832,19 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
     } catch {
       return mockDb.getServers(_filter);
     }
+  }
+
+  async discoverServer(payload: DiscoverServerPayload): Promise<DiscoverServerResponse> {
+    const res = await fetch(`${this.baseUrl}/api/servers/discover`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to auto-discover server');
+    }
+    return data;
   }
 
   async registerServer(payload: RegisterServerPayload): Promise<Server> {

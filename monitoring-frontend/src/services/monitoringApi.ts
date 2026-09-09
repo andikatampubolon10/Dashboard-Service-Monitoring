@@ -20,6 +20,8 @@ import {
   ServiceEndpoint,
   ServiceChartData,
   RegisterServerPayload,
+  DiscoverServerPayload,
+  DiscoverServerResponse,
 } from '../types';
 
 /**
@@ -57,6 +59,10 @@ class MonitoringApiService {
 
   public async getServerById(id: string): Promise<ServerDetail | null> {
     return this.provider.getServerById(id);
+  }
+
+  public async discoverServer(payload: DiscoverServerPayload): Promise<DiscoverServerResponse> {
+    return this.provider.discoverServer(payload);
   }
 
   public async registerServer(payload: RegisterServerPayload): Promise<Server> {

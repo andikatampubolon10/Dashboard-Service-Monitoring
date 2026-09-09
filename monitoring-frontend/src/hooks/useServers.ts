@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { monitoringApi } from '../services/monitoringApi';
 import { useGlobalFilters } from '../context/FilterContext';
-import { RegisterServerPayload } from '../types';
+import { RegisterServerPayload, DiscoverServerPayload } from '../types';
 
 export function useServers() {
   const { filter, lastRefreshedAt } = useGlobalFilters();
@@ -25,6 +25,12 @@ export function useServerDetail(serverId: string) {
   });
 }
 
+export function useDiscoverServer() {
+  return useMutation({
+    mutationFn: (payload: DiscoverServerPayload) => monitoringApi.discoverServer(payload),
+  });
+}
+
 export function useRegisterServer() {
   const queryClient = useQueryClient();
 
@@ -32,7 +38,10 @@ export function useRegisterServer() {
     mutationFn: (payload: RegisterServerPayload) => monitoringApi.registerServer(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['servers'] });
+      queryClient.invalidateQueries({ queryKey: ['services'] });
+      queryClient.invalidateQueries({ queryKey: ['overview-metrics'] });
     },
   });
 }
+
 

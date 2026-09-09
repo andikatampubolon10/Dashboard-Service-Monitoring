@@ -18,6 +18,8 @@ import {
   ServiceEndpoint,
   ServiceChartData,
   RegisterServerPayload,
+  DiscoverServerPayload,
+  DiscoverServerResponse,
 } from '../types';
 
 /**
@@ -50,6 +52,10 @@ export class PrometheusMonitoringProvider implements IMonitoringProvider {
 
   async getServerById(_id: string): Promise<ServerDetail | null> {
     throw new Error('PrometheusMonitoringProvider getServerById pending.');
+  }
+
+  async discoverServer(_payload: DiscoverServerPayload): Promise<DiscoverServerResponse> {
+    throw new Error('PrometheusMonitoringProvider discoverServer pending.');
   }
 
   async registerServer(_payload: RegisterServerPayload): Promise<Server> {

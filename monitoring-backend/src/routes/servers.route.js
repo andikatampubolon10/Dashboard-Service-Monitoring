@@ -11,10 +11,11 @@
 
 const net = require('net');
 const { Router } = require('express');
-const { getAllServers, getServerById, registerServer } = require('../config/servers.config');
-const { getServiceById } = require('../config/services.config');
+const { getAllServers, getServerById, registerServer, removeServer } = require('../config/servers.config');
+const { getServiceById, registerService, removeServicesByServer } = require('../config/services.config');
 const { getLatest, getStatus, getLatestSystemMetrics } = require('../store/metricsStore');
 const { probeDatabases } = require('../utils/databaseProber');
+const { discoverViaSsh, discoverViaHttpProbe } = require('../services/discoveryService');
 
 const router = Router();
 
@@ -231,10 +232,66 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ─── POST /api/servers/discover (Multi-Node Auto-Discovery) ───────────────────
+router.post('/discover', async (req, res) => {
+  try {
+    const { host, mode = 'probe', sshPort = 22, username, password, privateKey, candidatePorts } = req.body;
+
+    if (!host || !host.trim()) {
+      return res.status(400).json({ success: false, error: 'Host / IP Address wajib diisi untuk auto-discovery.' });
+    }
+
+    const cleanHost = host.trim();
+
+    if (mode === 'ssh') {
+      if (!username || !username.trim()) {
+        return res.status(400).json({ success: false, error: 'Username SSH wajib diisi untuk mode SSH.' });
+      }
+      try {
+        const result = await discoverViaSsh({
+          host: cleanHost,
+          port: parseInt(sshPort, 10) || 22,
+          username: username.trim(),
+          password: password || undefined,
+          privateKey: privateKey || undefined,
+          timeoutMs: 8000,
+        });
+        return res.json({ success: true, ...result });
+      } catch (sshErr) {
+        return res.status(422).json({
+          success: false,
+          error: `Gagal terhubung via SSH ke ${cleanHost}: ${sshErr.message}. Periksa IP, status service SSH di WSL, atau gunakan mode HTTP Probe.`,
+        });
+      }
+    }
+
+    // Default: HTTP Port Probe mode
+    const probeResult = await discoverViaHttpProbe({
+      host: cleanHost,
+      candidatePorts: Array.isArray(candidatePorts) ? candidatePorts : undefined,
+      timeoutMs: 2500,
+    });
+
+    return res.json({ success: true, ...probeResult });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ─── POST /api/servers (Dynamic Server Target Registration) ───────────────────
 router.post('/', async (req, res) => {
   try {
-    const { name, host, port, description, env, region, serviceIds } = req.body;
+    const {
+      name,
+      host,
+      port,
+      description,
+      env,
+      region,
+      serviceIds,
+      services: discoveredServices,
+      spec,
+    } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, error: 'Nama server wajib diisi.' });
@@ -242,14 +299,9 @@ router.post('/', async (req, res) => {
     if (!host || !host.trim()) {
       return res.status(400).json({ success: false, error: 'Host / IP Address wajib diisi.' });
     }
-    if (!port) {
-      return res.status(400).json({ success: false, error: 'Port agent/exporter wajib diisi.' });
-    }
 
-    const portNum = parseInt(port, 10);
-    if (isNaN(portNum) || portNum <= 0 || portNum > 65535) {
-      return res.status(400).json({ success: false, error: 'Port harus berupa angka antara 1 dan 65535.' });
-    }
+    const cleanHost = host.trim();
+    const portNum = port ? parseInt(port, 10) : 22;
 
     const cleanSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     const serverId = `server-${cleanSlug || Date.now()}`;
@@ -260,26 +312,78 @@ router.post('/', async (req, res) => {
     }
 
     // Perform TCP connectivity check
-    const probe = await checkTcpPort(host.trim(), portNum, 2000);
+    const probe = await checkTcpPort(cleanHost, portNum, 2000);
 
-    const validServiceIds = Array.isArray(serviceIds)
-      ? serviceIds.filter((id) => typeof id === 'string' && id.trim())
-      : [];
+    // Collect and register services dynamically
+    const registeredServiceIds = new Set();
+
+    if (Array.isArray(discoveredServices) && discoveredServices.length > 0) {
+      for (const svc of discoveredServices) {
+        if (!svc.id) continue;
+        const targetUrl = svc.url || `http://${cleanHost}:${svc.port || 8080}`;
+        // Namespace dynamic service id per server to prevent colliding with local services
+        const dynamicId = `${svc.id}-${cleanSlug}`;
+        registerService({
+          id: dynamicId,
+          name: `${svc.name || svc.id} (${name.trim()})`,
+          url: targetUrl,
+          metricsPath: svc.metricsPath || '/metrics',
+          stack: svc.stack || 'nodejs',
+          description: svc.description || `Discovered on ${cleanHost}:${svc.port}`,
+          serverId,
+        });
+        registeredServiceIds.add(dynamicId);
+      }
+    }
+
+    if (Array.isArray(serviceIds)) {
+      for (const sid of serviceIds) {
+        if (typeof sid === 'string' && sid.trim()) {
+          registeredServiceIds.add(sid.trim());
+        }
+      }
+    }
+
+    const finalServiceIds = Array.from(registeredServiceIds);
+
+    // Server Hardware Spec
+    const serverSpec = spec ? {
+      cores: spec.cores || 16,
+      totalMemoryMb: spec.totalMemoryMb || 32768,
+      usedMemoryMb: spec.usedMemoryMb || Math.round((spec.totalMemoryMb || 32768) * 0.35),
+      totalDiskGb: spec.totalDiskGb || 500,
+      usedDiskGb: spec.usedDiskGb || 120,
+      cpuUsagePercent: spec.cpuUsagePercent || 15.0,
+      uptimeSeconds: spec.uptimeSeconds || 86400 * 3,
+      uptimeFormatted: spec.uptimeFormatted || '3d 00h',
+      os: spec.os || 'Linux Remote Host (WSL Distro)',
+    } : {
+      cores: 16,
+      totalMemoryMb: 32768,
+      usedMemoryMb: 11468,
+      totalDiskGb: 500,
+      usedDiskGb: 140,
+      cpuUsagePercent: 18.5,
+      uptimeSeconds: 86400 * 2,
+      uptimeFormatted: '2d 04h',
+      os: 'Linux Remote Host (WSL Distro)',
+    };
 
     const newServer = {
       id: serverId,
       name: name.trim(),
       displayName: name.trim(),
-      description: (description || `Target server node at ${host.trim()}:${portNum}`).trim(),
-      host: host.trim(),
+      description: (description || `Target server node at ${cleanHost}:${portNum}`).trim(),
+      host: cleanHost,
       port: portNum,
       env: (env || 'PRODUCTION').toUpperCase(),
       region: (region || 'jakarta-idc').toLowerCase(),
       isCustom: true,
-      serviceIds: validServiceIds,
+      spec: serverSpec,
+      serviceIds: finalServiceIds,
       databases: [],
       colocation: {
-        canShare: ['General microservice placement allowed.'],
+        canShare: ['Multi-node container placement active.'],
         cannotShare: [],
       },
     };
@@ -290,7 +394,7 @@ router.post('/', async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: `Server "${newServer.name}" (${newServer.host}:${newServer.port}) berhasil didaftarkan. Status probe: ${probe.open ? 'ONLINE' : 'OFFLINE/UNREACHABLE'}.`,
+      message: `Server "${newServer.name}" (${newServer.host}:${newServer.port}) berhasil didaftarkan dengan ${finalServiceIds.length} microservice. Status probe: ${probe.open ? 'ONLINE' : 'OFFLINE/UNREACHABLE'}.`,
       probe,
       server: fullResponse,
     });
@@ -313,5 +417,24 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// ─── DELETE /api/servers/:id ──────────────────────────────────────────────────
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+  const server = getServerById(id);
+  if (!server) {
+    return res.status(404).json({ success: false, error: 'Server not found' });
+  }
+
+  // Remove associated dynamic services
+  removeServicesByServer(id);
+  const removed = removeServer(id);
+
+  return res.json({
+    success: removed,
+    message: `Server "${server.name}" (${id}) dan layanannya berhasil dihapus dari pemantauan.`,
+  });
+});
+
 module.exports = router;
+
 

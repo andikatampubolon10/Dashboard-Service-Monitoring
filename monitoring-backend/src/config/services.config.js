@@ -74,16 +74,70 @@ const SERVICES = [
   },
 ];
 
+/** @type {Map<string, ServiceConfig>} */
+const DYNAMIC_SERVICES = new Map();
+
 /**
- * Lookup service by ID.
+ * Get all active services (both built-in and dynamically discovered).
+ * @returns {ServiceConfig[]}
+ */
+function getAllActiveServices() {
+  const mergedMap = new Map();
+  for (const svc of SERVICES) {
+    mergedMap.set(svc.id, svc);
+  }
+  for (const [id, svc] of DYNAMIC_SERVICES.entries()) {
+    mergedMap.set(id, svc);
+  }
+  return Array.from(mergedMap.values());
+}
+
+/**
+ * Register or update a service dynamically (e.g. from remote laptop discovery).
+ * @param {ServiceConfig & { serverId?: string }} service
+ */
+function registerService(service) {
+  DYNAMIC_SERVICES.set(service.id, {
+    id: service.id,
+    name: service.name || service.id,
+    url: service.url,
+    metricsPath: service.metricsPath || '/metrics',
+    stack: service.stack || 'nodejs',
+    description: service.description || `Discovered service at ${service.url}`,
+    serverId: service.serverId,
+    isDynamic: true,
+  });
+  return DYNAMIC_SERVICES.get(service.id);
+}
+
+/**
+ * Remove all dynamic services associated with a specific serverId.
+ * @param {string} serverId
+ */
+function removeServicesByServer(serverId) {
+  for (const [id, svc] of DYNAMIC_SERVICES.entries()) {
+    if (svc.serverId === serverId) {
+      DYNAMIC_SERVICES.delete(id);
+    }
+  }
+}
+
+/**
+ * Lookup service by ID across all active services.
  * @param {string} id
  * @returns {ServiceConfig | undefined}
  */
 function getServiceById(id) {
-  return SERVICES.find((s) => s.id === id);
+  return getAllActiveServices().find((s) => s.id === id);
 }
 
-module.exports = { SERVICES, getServiceById };
+module.exports = {
+  SERVICES,
+  getAllActiveServices,
+  registerService,
+  removeServicesByServer,
+  getServiceById,
+};
 
 /**
  * @typedef {Object} ServiceConfig
@@ -93,4 +147,7 @@ module.exports = { SERVICES, getServiceById };
  * @property {string} metricsPath - Path to Prometheus metrics endpoint
  * @property {'nodejs'|'go'} stack - Runtime stack
  * @property {string} description - Short service description
+ * @property {string} [serverId] - Server ID hosting this service
+ * @property {boolean} [isDynamic] - True if discovered at runtime
  */
+

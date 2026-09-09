@@ -96,6 +96,49 @@ export interface ServerDetail extends Server {
   kernelVersion: string;
 }
 
+export interface DiscoveredService {
+  id: string;
+  name: string;
+  port: number;
+  url: string;
+  metricsPath: string;
+  stack: 'go' | 'nodejs';
+  description?: string;
+  status: 'UP' | 'DOWN';
+  latencyMs?: number;
+  hasMetrics?: boolean;
+}
+
+export interface DiscoverServerPayload {
+  host: string;
+  mode: 'ssh' | 'probe';
+  sshPort?: number;
+  username?: string;
+  password?: string;
+  privateKey?: string;
+  candidatePorts?: number[];
+}
+
+export interface DiscoverServerResponse {
+  success: boolean;
+  host: string;
+  discoveryMode: 'ssh' | 'probe';
+  os?: string;
+  spec?: {
+    cores: number;
+    totalMemoryMb: number;
+    usedMemoryMb: number;
+    totalDiskGb: number;
+    usedDiskGb: number;
+    uptimeSeconds?: number;
+    uptimeFormatted?: string;
+    os?: string;
+  };
+  services: DiscoveredService[];
+  dockerContainers?: string[];
+  error?: string;
+}
+
 export interface RegisterServerPayload {
   name: string;
   host: string;
@@ -104,7 +147,18 @@ export interface RegisterServerPayload {
   env?: string;
   region?: string;
   serviceIds?: string[];
+  services?: DiscoveredService[];
+  spec?: {
+    cores: number;
+    totalMemoryMb: number;
+    usedMemoryMb?: number;
+    totalDiskGb: number;
+    usedDiskGb?: number;
+    os?: string;
+    uptimeFormatted?: string;
+  };
 }
+
 
 export type RuleSeverity = 'error' | 'warning' | 'info';
 

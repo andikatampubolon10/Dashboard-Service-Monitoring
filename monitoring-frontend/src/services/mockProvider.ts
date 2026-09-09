@@ -18,6 +18,8 @@ import {
   ServiceEndpoint,
   ServiceChartData,
   RegisterServerPayload,
+  DiscoverServerPayload,
+  DiscoverServerResponse,
 } from '../types';
 import { mockDb } from '../mock/database';
 
@@ -68,6 +70,77 @@ export class MockMonitoringProvider implements IMonitoringProvider {
   async getServerById(id: string): Promise<ServerDetail | null> {
     await delay(200);
     return mockDb.getServerById(id);
+  }
+
+  async discoverServer(payload: DiscoverServerPayload): Promise<DiscoverServerResponse> {
+    await delay(400);
+    return {
+      success: true,
+      host: payload.host,
+      discoveryMode: payload.mode,
+      os: payload.mode === 'ssh' ? 'Ubuntu 22.04 LTS (WSL2)' : 'Remote Linux Host',
+      spec: {
+        cores: 16,
+        totalMemoryMb: 32768,
+        usedMemoryMb: 11468,
+        totalDiskGb: 500,
+        usedDiskGb: 140,
+        uptimeSeconds: 86400 * 3,
+        uptimeFormatted: '3d 00h',
+        os: payload.mode === 'ssh' ? 'Ubuntu 22.04 LTS (WSL2)' : 'Remote Linux Host',
+      },
+      services: [
+        {
+          id: 'live-consult',
+          name: 'Live Consult Service',
+          port: 4004,
+          url: `http://${payload.host}:4004`,
+          metricsPath: '/metrics',
+          stack: 'go',
+          description: 'Real-time WebSocket consultation sessions',
+          status: 'UP',
+          latencyMs: 12,
+          hasMetrics: true,
+        },
+        {
+          id: 'ai-consultation',
+          name: 'AI Consultation Service',
+          port: 4006,
+          url: `http://${payload.host}:4006`,
+          metricsPath: '/metrics',
+          stack: 'nodejs',
+          description: 'AI-powered consultation lifecycle & inference',
+          status: 'UP',
+          latencyMs: 15,
+          hasMetrics: true,
+        },
+        {
+          id: 'medical-record',
+          name: 'Medical Record Service',
+          port: 3002,
+          url: `http://${payload.host}:3002`,
+          metricsPath: '/metrics',
+          stack: 'nodejs',
+          description: 'Patient medical history and record indexing',
+          status: 'UP',
+          latencyMs: 8,
+          hasMetrics: true,
+        },
+        {
+          id: 'lifestyle',
+          name: 'Lifestyle Service',
+          port: 4007,
+          url: `http://${payload.host}:4007`,
+          metricsPath: '/metrics',
+          stack: 'nodejs',
+          description: 'Exercise catalog and completion tracking',
+          status: 'UP',
+          latencyMs: 10,
+          hasMetrics: true,
+        },
+      ],
+      dockerContainers: ['live-consult-app', 'ai-inference-worker', 'medical-record-api', 'lifestyle-api'],
+    };
   }
 
   async registerServer(payload: RegisterServerPayload): Promise<Server> {

@@ -17,6 +17,8 @@ import {
   ServiceEndpoint,
   ServiceChartData,
   RegisterServerPayload,
+  DiscoverServerPayload,
+  DiscoverServerResponse,
 } from '../types';
 
 /**
@@ -29,6 +31,7 @@ export interface IMonitoringProvider {
   getOverviewMetrics(filter: GlobalFilterState): Promise<OverviewMetrics>;
   getServers(filter: GlobalFilterState): Promise<Server[]>;
   getServerById(id: string): Promise<ServerDetail | null>;
+  discoverServer(payload: DiscoverServerPayload): Promise<DiscoverServerResponse>;
   registerServer(payload: RegisterServerPayload): Promise<Server>;
   getServices(filter: GlobalFilterState): Promise<Service[]>;
   getServiceById(id: string): Promise<ServiceDetail | null>;
