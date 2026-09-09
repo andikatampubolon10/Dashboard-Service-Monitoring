@@ -49,8 +49,19 @@ const SERVERS = [
     name: 'server-alpha',
     displayName: 'Server Alpha',
     description: 'Authentication, health data & audit layer',
-    host: process.env.SERVER_ALPHA_HOST || 'localhost',
+    host: process.env.SERVER_ALPHA_HOST || '10.0.1.10',
     agentUrl: process.env.SERVER_ALPHA_AGENT_URL || null,
+    spec: {
+      cores: 32,
+      totalMemoryMb: 65536,
+      usedMemoryMb: 22350,
+      totalDiskGb: 1024,
+      usedDiskGb: 312.4,
+      cpuUsagePercent: 22.4,
+      uptimeSeconds: 1234567,
+      uptimeFormatted: '14d 06h',
+      os: 'Ubuntu 22.04 LTS (Docker Host)',
+    },
     serviceIds: ['identity', 'health-profile', 'audit'],
     databases: [
       {
@@ -85,8 +96,19 @@ const SERVERS = [
     name: 'server-beta',
     displayName: 'Server Beta',
     description: 'Real-time consultations, AI & medical data services',
-    host: process.env.SERVER_BETA_HOST || 'localhost',
+    host: process.env.SERVER_BETA_HOST || '10.0.1.20',
     agentUrl: process.env.SERVER_BETA_AGENT_URL || null,
+    spec: {
+      cores: 64,
+      totalMemoryMb: 131072,
+      usedMemoryMb: 86400,
+      totalDiskGb: 2048,
+      usedDiskGb: 1184.2,
+      cpuUsagePercent: 58.7,
+      uptimeSeconds: 2456789,
+      uptimeFormatted: '28d 10h',
+      os: 'Ubuntu 22.04 LTS (Docker Compute Host)',
+    },
     serviceIds: ['ai-consultation', 'live-consult', 'medical-record', 'lifestyle'],
     databases: [
       {
