@@ -203,8 +203,10 @@ function identifyService(port, bodyText = '', containerName = '') {
  * @param {number[]} [params.candidatePorts]
  * @param {number} [params.timeoutMs]
  */
-async function discoverViaHttpProbe({ host, candidatePorts = DEFAULT_PROBE_PORTS, timeoutMs = 2500 }) {
-  const uniquePorts = Array.from(new Set(candidatePorts.filter((p) => p > 0 && p <= 65535)));
+async function discoverViaHttpProbe({ host, candidatePorts = DEFAULT_PROBE_PORTS, exporterPort = 9100, timeoutMs = 2500 }) {
+  const expPort = parseInt(exporterPort, 10) || 9100;
+  const basePorts = Array.isArray(candidatePorts) && candidatePorts.length > 0 ? candidatePorts : DEFAULT_PROBE_PORTS;
+  const uniquePorts = Array.from(new Set([...basePorts, expPort].filter((p) => p > 0 && p <= 65535)));
   const discovered = [];
   let hostSpecs = null;
 
@@ -297,7 +299,20 @@ async function discoverViaHttpProbe({ host, candidatePorts = DEFAULT_PROBE_PORTS
             hasMetrics: false,
           });
         } catch {
-          // If port is not responding to any HTTP request, do not falsely identify as a web microservice
+          // Port is listening on TCP, register as active listening service
+          const matched = identifyService(port, '');
+          discovered.push({
+            id: matched.id,
+            name: matched.name,
+            port,
+            url: targetUrl,
+            metricsPath: '/metrics',
+            stack: matched.stack,
+            description: matched.description || `Listening TCP service on port ${port}`,
+            status: 'UP',
+            latencyMs: tcpResult.latencyMs,
+            hasMetrics: false,
+          });
         }
       }
     })
@@ -349,7 +364,7 @@ function execSshCommand(client, cmd) {
  * @param {string} [params.privateKey] - SSH Private key (PEM)
  * @param {number} [params.timeoutMs=8000]
  */
-async function discoverViaSsh({ host, port = 22, username, password, privateKey, timeoutMs = 10000 }) {
+async function discoverViaSsh({ host, port = 22, username, password, privateKey, timeoutMs = 25000 }) {
   return new Promise((resolve, reject) => {
     const client = new SshClient();
     let isFinished = false;
@@ -368,6 +383,11 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
         clearTimeout(timer);
         reject(new Error(`SSH Error (${host}:${port}): ${err.message}`));
       }
+    });
+
+    // Support modern Ubuntu PAM / keyboard-interactive password prompts
+    client.on('keyboard-interactive', (name, instructions, instructionsLang, prompts, finish) => {
+      finish([password || '']);
     });
 
     client.on('ready', async () => {
@@ -466,9 +486,17 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
           detectedPortSet.add(p);
         }
 
-        const candidatePorts = Array.from(detectedPortSet);
+        // Exclude database, redis, kafka, mailhog, and ssh ports to prevent probing delays
+        const IGNORE_PORTS = new Set([
+          5432, 5436, 5437, 5438, 5439, 5440, 5441,
+          6379, 6380, 6382,
+          27017, 27018, 9092, 1025, 8025, 22, 2221, 2222
+        ]);
+        const candidatePorts = Array.from(detectedPortSet).filter((p) =>
+          p >= 1000 && p <= 65535 && !IGNORE_PORTS.has(p)
+        );
 
-        // 3. Inspect endpoints with local curl/wget or process verification inside remote host
+        // 3. Inspect endpoints with local curl inside remote host (fast 1s timeout)
         const discoveredServices = [];
         const seenServiceIds = new Set();
 
@@ -477,20 +505,17 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
           let inspectedText = '';
 
           try {
-            // Try curl first, fallback to wget
             inspectedText = await execSshCommand(
               client,
-              `curl -s -m 2 http://127.0.0.1:${port}/metrics 2>/dev/null || wget -q -O - -T 2 http://127.0.0.1:${port}/metrics 2>/dev/null | head -n 30`
+              `curl -s -m 1 http://127.0.0.1:${port}/metrics 2>/dev/null | head -n 20`
             );
-          } catch {
-            // curl / wget failed
-          }
+          } catch {}
 
-          if (!inspectedText) {
+          if (!inspectedText && containerInfo) {
             try {
               inspectedText = await execSshCommand(
                 client,
-                `curl -s -m 2 http://127.0.0.1:${port}/health 2>/dev/null || wget -q -O - -T 2 http://127.0.0.1:${port}/health 2>/dev/null`
+                `curl -s -m 1 http://127.0.0.1:${port}/health 2>/dev/null | head -n 10`
               );
             } catch {}
           }
@@ -558,6 +583,7 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
       port,
       username,
       readyTimeout: timeoutMs,
+      tryKeyboard: true,
     };
     if (privateKey) {
       connectConfig.privateKey = privateKey;
