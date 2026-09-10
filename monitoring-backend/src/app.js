@@ -22,6 +22,7 @@ const healthRoute = require('./routes/health.route');
 const servicesRoute = require('./routes/services.route');
 const metricsRoute = require('./routes/metrics.route');
 const serversRoute = require('./routes/servers.route');
+const { router: stressTestRoute, setSocketServer: setStressTestSocketServer } = require('./routes/stressTest.route');
 
 // Middleware
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
@@ -54,6 +55,7 @@ const io = new Server(server, {
 
 // Attach socket server to collectors for real-time broadcasts
 setSocketServer(io);
+setStressTestSocketServer(io);
 initSocket(io);
 
 // Mount API routes
@@ -61,6 +63,7 @@ app.use('/health', healthRoute);
 app.use('/api/services', servicesRoute);
 app.use('/api/metrics', metricsRoute);
 app.use('/api/servers', serversRoute);
+app.use('/api/stress-test', stressTestRoute);
 
 // Centralized error handling
 app.use(notFoundHandler);

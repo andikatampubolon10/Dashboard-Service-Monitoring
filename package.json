@@ -9,7 +9,10 @@
     "build": "npm --prefix monitoring-frontend run build",
     "build:frontend": "npm --prefix monitoring-frontend run build",
     "start:backend": "npm --prefix monitoring-backend start",
-    "test:backend": "npm --prefix monitoring-backend test"
+    "test:backend": "npm --prefix monitoring-backend test",
+    "stress:flow1": "bin\\k6.exe run --env FLOW=1 stress-test.js",
+    "stress:flow2": "bin\\k6.exe run --env FLOW=2 stress-test.js",
+    "stress:flow3": "bin\\k6.exe run --env FLOW=3 stress-test.js"
   },
   "repository": {
     "type": "git",

@@ -19,7 +19,7 @@ const KNOWN_SERVICES = [
   {
     id: 'identity',
     name: 'Identity Service',
-    defaultPort: 8080,
+    defaultPort: 8081,
     stack: 'go',
     description: 'Authentication, JWT issuance, user identity management',
     signatures: ['identity', 'jwt', 'auth_', 'user_'],
@@ -82,7 +82,7 @@ const KNOWN_SERVICES = [
   },
 ];
 
-const DEFAULT_PROBE_PORTS = [8080, 3001, 3002, 4004, 4005, 4006, 4007, 9100, 3000, 5000, 8000];
+const DEFAULT_PROBE_PORTS = [8081, 8080, 3001, 3002, 4004, 4005, 4006, 4007, 9100, 3000, 5000, 8000];
 
 /**
  * Test TCP reachability of a single host:port

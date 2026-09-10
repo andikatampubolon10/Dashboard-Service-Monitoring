@@ -11,7 +11,6 @@ import {
   BookOpen,
   Stethoscope,
   Users,
-  Clock,
   Check,
   TrendingUp,
   FileText,
@@ -49,7 +48,7 @@ export const StressTestPage = () => {
   const [progress, setProgress] = useState<StressTestProgress>(stressTestEngine.getProgress());
   const [selectedFlow, setSelectedFlow] = useState<SelectedFlowType>("1");
   const [targetVUs, setTargetVUs] = useState<number>(50);
-  const [durationSec, setDurationSec] = useState<number>(30);
+  const durationSec = 30; // Durasi pengujian standar 30 detik
   const [chartData, setChartData] = useState<LatencyPoint[]>([]);
 
   const [historyRecords, setHistoryRecords] = useState<StressTestRecord[]>(() => getStressTestHistory());
@@ -238,13 +237,13 @@ export const StressTestPage = () => {
                 {selectedFlow === "1" && (
                   <>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-                      Menguji proses Login pengguna, pembuatan ruang sesi AI, hingga penerimaan respon balasan diagnosis.
+                      Menguji proses Login pengguna, pembuatan ruang sesi AI, hingga pengiriman chat dan penerimaan respon balasan dokter AI.
                     </p>
 
                     <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-800 text-xs space-y-1">
                       <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
                         <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span>Step 1: Login Autentikasi (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">POST /auth/login</code>)</span>
+                        <span>Step 1: Login Autentikasi (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">POST /api/v1/auth/login</code>)</span>
                       </div>
                       <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
                         <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
@@ -252,7 +251,7 @@ export const StressTestPage = () => {
                       </div>
                       <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
                         <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span>Step 3: Terima Respon AI (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">POST /api/consultations/:id/chat</code>)</span>
+                        <span>Step 3: Kirim Chat & Respon AI (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">POST /api/consultation/chat</code>)</span>
                       </div>
                     </div>
                   </>
@@ -287,13 +286,13 @@ export const StressTestPage = () => {
                 {selectedFlow === "2" && (
                   <>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-                      Menguji verifikasi PIN 6-digit keamanan, membaca katalog artikel, dan isi detail artikel kesehatan.
+                      Menguji validasi status PIN keamanan pengguna, membaca katalog artikel, hingga membaca isi lengkap artikel kesehatan.
                     </p>
 
                     <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-800 text-xs space-y-1">
                       <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
                         <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span>Step 1: Verifikasi PIN Kode (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">POST /auth/pin</code>)</span>
+                        <span>Step 1: Validasi Status PIN (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">GET /api/v1/pin/status</code>)</span>
                       </div>
                       <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
                         <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
@@ -301,7 +300,7 @@ export const StressTestPage = () => {
                       </div>
                       <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
                         <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span>Step 3: Baca Detail Artikel (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">GET /api/articles/:id</code>)</span>
+                        <span>Step 3: Baca Detail Lengkap (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">GET /api/articles/:slug</code>)</span>
                       </div>
                     </div>
                   </>
@@ -325,10 +324,10 @@ export const StressTestPage = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 font-bold text-sm text-slate-900 dark:text-white">
                     <Stethoscope className="w-4 h-4 text-blue-500" />
-                    <span>Flow 3: Pencarian & Profil Dokter</span>
+                    <span>Flow 3: Telekonsultasi & Dokter</span>
                   </div>
                   <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                    Medical Record
+                    Live Consult
                   </span>
                 </div>
 
@@ -336,21 +335,21 @@ export const StressTestPage = () => {
                 {selectedFlow === "3" && (
                   <>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-                      Menguji Login pengguna, pencarian spesialis dokter, hingga membaca profil lengkap dokter.
+                      Menguji login pengguna, menarik riwayat telekonsultasi dokter spesialis, hingga mengakses profil dan detail sesi dokter.
                     </p>
 
                     <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-800 text-xs space-y-1">
                       <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
                         <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span>Step 1: Login Autentikasi (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">POST /auth/login</code>)</span>
+                        <span>Step 1: Login Autentikasi (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">POST /api/v1/auth/login</code>)</span>
                       </div>
                       <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
                         <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span>Step 2: Cari Dokter Spesialis (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">GET /api/doctors/search</code>)</span>
+                        <span>Step 2: List Sesi & Dokter (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">GET /api/live-consult</code>)</span>
                       </div>
                       <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
                         <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                        <span>Step 3: Detail Profil Dokter (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">GET /api/doctors/:id</code>)</span>
+                        <span>Step 3: Detail Profil & Sesi Dokter (<code className="text-[10px] font-mono bg-slate-200 dark:bg-slate-800 px-1 rounded">GET /api/live-consult/:id</code>)</span>
                       </div>
                     </div>
                   </>
@@ -410,31 +409,6 @@ export const StressTestPage = () => {
                   </button>
                 ))}
               </div>
-
-              {/* Durasi Pengujian */}
-              <div className="flex items-center justify-between pt-2">
-                <span className="text-xs text-slate-600 dark:text-slate-400 font-semibold flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Durasi Pengujian:</span>
-                </span>
-                <div className="flex items-center gap-1.5">
-                  {[15, 30, 60, 120].map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      disabled={progress.isRunning}
-                      onClick={() => setDurationSec(d)}
-                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
-                        durationSec === d
-                          ? "bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900"
-                          : "bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400"
-                      }`}
-                    >
-                      {d} Detik
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -448,7 +422,7 @@ export const StressTestPage = () => {
                 Eksekusi Stress Test
               </div>
               <div className="text-sm font-bold text-slate-900 dark:text-white">
-                Alur: {selectedFlow === "1" ? "Flow 1 (AI)" : selectedFlow === "2" ? "Flow 2 (Artikel)" : "Flow 3 (Dokter)"} | Target: {targetVUs} User ({durationSec}s)
+                Alur: {selectedFlow === "1" ? "Flow 1 (AI)" : selectedFlow === "2" ? "Flow 2 (Artikel)" : "Flow 3 (Dokter)"} | Target: {targetVUs} Virtual Users
               </div>
             </div>
 
@@ -562,7 +536,7 @@ export const StressTestPage = () => {
               <span className="text-xs text-slate-500 font-mono">Garis Merah Putus-putus = Batas SLA 1000ms</span>
             </div>
 
-            <div className="h-56 w-full pt-2">
+            <div className="h-72 w-full pt-2">
               <ResponsiveContainer width="100%" height="100%">
                 <ReLineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />

@@ -43,7 +43,7 @@ const SERVICES = [
   {
     id: 'identity',
     name: process.env.SERVICE_IDENTITY_NAME || 'Identity Service',
-    url: process.env.SERVICE_IDENTITY_URL || 'http://localhost:8080',
+    url: process.env.SERVICE_IDENTITY_URL || 'http://localhost:8081',
     metricsPath: METRICS_PATH,
     stack: 'go',
     description: 'Authentication, JWT issuance, user identity management',

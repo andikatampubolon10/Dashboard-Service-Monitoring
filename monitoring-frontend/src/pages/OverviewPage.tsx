@@ -14,7 +14,6 @@ import {
   Stethoscope,
   Database,
   Cpu,
-  RotateCcw,
   BarChart3,
 } from 'lucide-react';
 import {
@@ -251,6 +250,16 @@ export const OverviewPage: React.FC = () => {
 
   const latestRun = history.length > 0 ? history[0] : null;
 
+  const getFriendlyFlowName = (flowId: string, title?: string): string => {
+    if (flowId === '1') return 'Konsultasi Chat Dokter AI';
+    if (flowId === '2') return 'Membaca Artikel Kesehatan';
+    if (flowId === '3') return 'Pencarian Jadwal & Dokter';
+    if (title && title.includes(':')) {
+      return title.split(':')[1]?.trim() || title;
+    }
+    return title || 'Fitur Layanan';
+  };
+
   // DATA GRAFIK PER BEBAN PENGGUNA (HANYA DARI PENGUJIAN NYATA)
   const uniqueVUMap = new Map<number, StressTestRecord>();
   history.forEach((run) => {
@@ -270,7 +279,7 @@ export const OverviewPage: React.FC = () => {
     let userExperienceNote = 'Pengguna merasa nyaman, aplikasi merespons seketika.';
 
     if (run.p95LatencyMs > 1000 || run.healthGrade === 'CRITICAL') {
-      userFriendlyStatus = '🔴 Lambat Sekali (Macet)';
+      userFriendlyStatus = '🔴 Terasa Lambat (Macet)';
       userExperienceNote = 'Pengguna menunggu terlalu lama dan berisiko keluar dari aplikasi.';
     } else if (run.p95LatencyMs > 500 || run.healthGrade === 'DEGRADED') {
       userFriendlyStatus = '🟡 Mulai Ada Jeda';
@@ -280,10 +289,10 @@ export const OverviewPage: React.FC = () => {
     return {
       vu: `${run.targetVUs} Orang`,
       rawVU: run.targetVUs,
-      flowShort: run.flowTitle.split(':')[0],
+      flowShort: getFriendlyFlowName(run.selectedFlow, run.flowTitle),
       p95: run.p95LatencyMs,
       rps: run.currentRps,
-      errorRate: `${run.errorRatePercent.toFixed(1)}%`,
+      errorRate: run.errorRatePercent === 0 ? '0% (Aman)' : `${run.errorRatePercent.toFixed(1)}% Gagal`,
       status: userFriendlyStatus,
       experience: userExperienceNote,
       timestamp: run.timestamp,
@@ -299,18 +308,18 @@ export const OverviewPage: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
-              PEMANTAUAN DAYA TAHAN SISTEM
+              PEMANTAUAN KESEHATAN SISTEM
             </span>
             <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Sistem Sedang Berjalan Normal
+              Semua Layanan Berjalan Normal
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight mt-1">
-            Dashboard Kesehatan &amp; Daya Tahan Sistem
+            Dashboard Kesehatan &amp; Daya Tahan Aplikasi
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Melihat seberapa cepat sistem merespons dan seberapa kuat menampung banyak pengguna di saat bersamaan.
+            Pantau seberapa cepat aplikasi merespons dan seberapa banyak pengguna yang sanggup dilayani bersamaan tanpa kendala.
           </p>
         </div>
 
@@ -323,7 +332,7 @@ export const OverviewPage: React.FC = () => {
         </Link>
       </div>
 
-      {/* 2. 4 KARTU RINGKASAN KONDISI APLIKASI */}
+      {/* 2. 4 KARTU RINGKASAN KONDISI APLIKASI (BAHASA AWAM) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Layanan */}
         <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
@@ -343,13 +352,13 @@ export const OverviewPage: React.FC = () => {
         <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Activity className="w-3.5 h-3.5 text-orange-500" />
-            Kecepatan Aktivitas
+            Kecepatan Menjawab
           </span>
           <div className="text-xl font-black font-mono text-orange-500">
             {metrics?.averageRps || 42} Proses / Detik
           </div>
           <span className="text-[11px] text-slate-500 font-medium">
-            Total {metrics ? formatNumber(metrics.totalRequests) : '18.4k'} permintaan hari ini
+            Total {metrics ? formatNumber(metrics.totalRequests) : '18.4k'} aktivitas hari ini
           </span>
         </div>
 
@@ -357,13 +366,13 @@ export const OverviewPage: React.FC = () => {
         <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 text-emerald-500" />
-            Waktu Balasan Rata-rata
+            Waktu Tunggu Pengguna
           </span>
           <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
             {metrics ? `${Math.round(metrics.latencyP95Ms)} ms` : '240 ms'}
           </div>
           <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-            ✅ Sangat Cepat (Di bawah 1 detik)
+            ✅ Sangat Cepat (Hanya 0.2 detik)
           </span>
         </div>
 
@@ -371,7 +380,7 @@ export const OverviewPage: React.FC = () => {
         <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <Zap className="w-3.5 h-3.5 text-orange-500" />
-            Kapasitas Aman Teruji
+            Daya Tampung Teruji
           </span>
           <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
             {maxSafeVU > 0 ? `${maxSafeVU} Pengguna` : 'Belum Dites'}
@@ -775,7 +784,7 @@ export const OverviewPage: React.FC = () => {
                     Waktu Tunggu Pengguna (milidetik)
                   </span>
                   <span className="text-[10px] text-rose-500 font-bold">
-                    Batas Wajar = 1.000 ms (1 Detik)
+                    Batas Nyaman Pengguna = 1.000 milidetik (1 Detik)
                   </span>
                 </div>
 
@@ -812,12 +821,12 @@ export const OverviewPage: React.FC = () => {
                   <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 uppercase text-[10px] font-bold tracking-wider">
                     <tr>
                       <th className="p-3">Jumlah Pengguna</th>
-                      <th className="p-3">Fitur yang Dites</th>
+                      <th className="p-3">Fitur yang Diuji</th>
                       <th className="p-3 text-center">Waktu Tunggu</th>
-                      <th className="p-3 text-center">Kecepatan Proses</th>
+                      <th className="p-3 text-center">Kecepatan Balas</th>
                       <th className="p-3 text-center">Tingkat Gagal</th>
                       <th className="p-3 text-center">Kenyamanan Pengguna</th>
-                      <th className="p-3 text-right">Rincian</th>
+                      <th className="p-3 text-right">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
@@ -827,7 +836,7 @@ export const OverviewPage: React.FC = () => {
                           {item.vu}
                         </td>
                         <td className="p-3 text-slate-700 dark:text-slate-300">
-                          <div>{item.flowShort}</div>
+                          <div className="font-semibold">{item.flowShort}</div>
                           <span className="text-[10px] text-slate-400">{item.timestamp}</span>
                         </td>
                         <td className="p-3 text-center font-bold">
@@ -844,7 +853,7 @@ export const OverviewPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="p-3 text-center text-slate-700 dark:text-slate-300">
-                          {item.rps} /detik
+                          {item.rps} proses/dtk
                         </td>
                         <td className="p-3 text-center text-slate-700 dark:text-slate-300">
                           {item.errorRate}
@@ -863,7 +872,7 @@ export const OverviewPage: React.FC = () => {
                             }}
                             className="text-orange-500 hover:text-orange-600 font-bold transition text-xs cursor-pointer"
                           >
-                            Lihat 🔍
+                            Lihat Rincian 🔍
                           </button>
                         </td>
                       </tr>
@@ -874,92 +883,6 @@ export const OverviewPage: React.FC = () => {
             </div>
           )}
         </div>
-
-        {/* 5. PRIORITAS PERBAIKAN SISTEM (BAHASA AWAM & JELAS) */}
-        <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <Zap className="w-4 h-4 text-orange-500" />
-              3 Langkah Sederhana untuk Memperkuat Sistem:
-            </span>
-            <Link to="/stress-test" className="text-xs text-orange-500 font-bold hover:underline flex items-center gap-1">
-              Tes Skenario Baru ↗
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-            <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 space-y-1">
-              <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                <span className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center text-[10px] font-black">1</span>
-                Simpan Balasan Cepat (Cache AI)
-              </div>
-              <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
-                <strong>Alasan:</strong> Pertanyaan yang sering ditanyakan langsung dijawab seketika dari memori cepat, sehingga otak AI tidak kelelahan saat ribuan orang bertanya.
-              </p>
-            </div>
-
-            <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 space-y-1">
-              <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                <span className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center text-[10px] font-black">2</span>
-                Daftar Isi Cepat Pencarian Dokter
-              </div>
-              <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
-                <strong>Alasan:</strong> Memberikan penomoran indeks pada nama dokter agar pencarian tidak perlu membolak-balik seluruh database dari awal, membuat pencarian langsung instan.
-              </p>
-            </div>
-
-            <div className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 space-y-1">
-              <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                <span className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center text-[10px] font-black">3</span>
-                Komputer Cadangan Otomatis
-              </div>
-              <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
-                <strong>Alasan:</strong> Menyalakan komputer server tambahan secara otomatis jika aplikasi tiba-tiba diserbu banyak pengguna di jam sibuk agar aplikasi tidak pernah down.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* 6. RIWAYAT SESI PENGETESAN */}
-        {totalRuns > 1 && (
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-                Riwayat Sesi yang Pernah Anda Lakukan ({totalRuns} Kali Dites)
-              </span>
-              <Link to="/stress-test" className="text-orange-500 text-xs font-semibold hover:underline">
-                Buka Menu Stress Test Lengkap ↗
-              </Link>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {history.slice(0, 6).map((run) => (
-                <button
-                  key={run.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedModalRecord(run);
-                    setIsModalOpen(true);
-                  }}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition cursor-pointer ${
-                    run.healthGrade === 'HEALTHY'
-                      ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10'
-                      : run.healthGrade === 'DEGRADED'
-                      ? 'bg-amber-500/5 border-amber-500/20 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10'
-                      : 'bg-rose-500/5 border-rose-500/20 text-rose-700 dark:text-rose-400 hover:bg-rose-500/10'
-                  }`}
-                >
-                  <span className="font-bold">{run.flowTitle.split(':')[0]}</span>
-                  <span>&bull;</span>
-                  <span>{run.targetVUs} Orang</span>
-                  <span>&bull;</span>
-                  <span>{run.p95LatencyMs} ms</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Pop-up Result Modal */}
