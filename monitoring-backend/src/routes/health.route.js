@@ -8,7 +8,7 @@
  */
 
 const { Router } = require('express');
-const { SERVICES } = require('../config/services.config');
+const { SERVICES, getAllActiveServices } = require('../config/services.config');
 const { getAllLatest, getStatus } = require('../store/metricsStore');
 
 const router = Router();
@@ -17,7 +17,8 @@ const startTime = Date.now();
 router.get('/', (req, res) => {
   const uptimeSeconds = Math.floor((Date.now() - startTime) / 1000);
   const allLatest = getAllLatest();
-  const upCount = SERVICES.filter((s) => getStatus(s.id) === 'UP').length;
+  const allActive = getAllActiveServices();
+  const upCount = allActive.filter((s) => getStatus(s.id) === 'UP').length;
 
   res.json({
     status: 'healthy',
@@ -25,9 +26,9 @@ router.get('/', (req, res) => {
     uptimeSeconds,
     memoryUsage: process.memoryUsage(),
     monitoring: {
-      totalServices: SERVICES.length,
+      totalServices: allActive.length,
       servicesUp: upCount,
-      servicesDown: SERVICES.length - upCount,
+      servicesDown: allActive.length - upCount,
       hasMetricsData: Object.keys(allLatest).length > 0,
     },
   });

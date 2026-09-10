@@ -13,7 +13,7 @@
  */
 
 const { Router } = require('express');
-const { SERVICES, getServiceById } = require('../config/services.config');
+const { SERVICES, getAllActiveServices, getServiceById } = require('../config/services.config');
 const {
   getLatest,
   getStatus,
@@ -27,7 +27,8 @@ const router = Router();
 
 // ─── GET /api/services ─────────────────────────────────────────────────────
 router.get('/', (req, res) => {
-  const services = SERVICES.map((service) => {
+  const allActive = getAllActiveServices();
+  const services = allActive.map((service) => {
     const latest = getLatest(service.id);
     const status = getStatus(service.id);
 
@@ -39,6 +40,9 @@ router.get('/', (req, res) => {
       metricsUrl: `${service.url}${service.metricsPath}`,
       stack: service.stack,
       status,
+      serverName: service.serverName || (service.isRemote ? 'Remote Server' : 'Server Host'),
+      serverHost: service.serverHost || (service.isRemote ? (service.url?.split('://')[1]?.split(':')[0] || 'remote') : 'localhost'),
+      isRemote: Boolean(service.isRemote),
       lastScrapedAt: latest?.timestamp || null,
       scrapeLatencyMs: latest?.scrapeLatencyMs || null,
       error: latest?.error || null,

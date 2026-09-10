@@ -21,6 +21,7 @@ import {
   RegisterServerPayload,
   DiscoverServerPayload,
   DiscoverServerResponse,
+  UpdateServerPayload,
 } from '../types';
 import { mockDb } from '../mock/database';
 
@@ -209,6 +210,9 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
             metricsUrl?: string;
             stack: string;
             status: string;
+            serverName?: string;
+            serverHost?: string;
+            isRemote?: boolean;
             lastScrapedAt?: string | null;
             scrapeLatencyMs?: number | null;
             error?: string | null;
@@ -247,6 +251,10 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
         const latencyP99Ms = sumItem?.latencyP99Ms ?? s.summary?.p99LatencyMs ?? 0;
         const latencyAvgMs = sumItem?.latencyAvgMs ?? 0;
 
+        const isRemote = Boolean(s.isRemote || (s.url && (s.url.includes('10.148.218.66') || !s.url.includes('localhost'))));
+        const serverName = s.serverName || (isRemote ? 'Remote Server' : 'Server Host');
+        const serverHost = s.serverHost || (isRemote ? (s.url?.split('://')[1]?.split(':')[0] || 'remote') : 'localhost');
+
         return {
           id: s.id,
           name: s.name,
@@ -257,11 +265,14 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
           url: s.url,
           metricsUrl: s.metricsUrl || `${s.url}/metrics`,
           stack: s.stack,
-          host: s.host || (s.url ? (s.url.includes('://') ? new URL(s.url).host : s.url) : 'localhost'),
+          host: s.host || serverHost,
+          serverName,
+          serverHost,
+          isRemote,
           lastScrapedAt: s.lastScrapedAt,
           scrapeLatencyMs: s.scrapeLatencyMs,
           error: s.error,
-          serverId: s.stack === 'go' ? 'go-runtime-host' : 'node-runtime-host',
+          serverId: isRemote ? 'server-laptop-2' : (s.stack === 'go' ? 'go-runtime-host' : 'node-runtime-host'),
           throughputRps,
           reqTotal,
           errorCount: (total5xx + total4xx) > 0 ? (total5xx + total4xx) : (s.summary?.errorCount ?? (s.summary?.errorRatePercent ? Math.round(s.summary.errorRatePercent * 10) : 0)),
@@ -420,17 +431,16 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
         return data.requests;
       }
 
-      // Fallback to mock requests if backend has no recorded requests yet
-      return mockDb.getServiceRequests(serviceId);
+      return [];
     } catch {
-      return mockDb.getServiceRequests(serviceId);
+      return [];
     }
   }
 
   async getServiceDailyRequests(
     serviceId: string,
-    filter?: GlobalFilterState,
-    granularity?: 'hourly' | 'daily' | '30d',
+    _filter?: GlobalFilterState,
+    _granularity?: 'hourly' | 'daily' | '30d',
     days: number = 14
   ): Promise<RequestTimeSeriesPoint[]> {
     try {
@@ -471,17 +481,9 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
         return data.daily;
       }
 
-      return mockDb.getServiceDailyRequests(
-        serviceId,
-        filter || { environment: 'all', serverId: 'all', serviceId, timeRange: '7d', refreshInterval: 0 },
-        granularity
-      );
+      return [];
     } catch {
-      return mockDb.getServiceDailyRequests(
-        serviceId,
-        filter || { environment: 'all', serverId: 'all', serviceId, timeRange: '7d', refreshInterval: 0 },
-        granularity
-      );
+      return [];
     }
   }
 
@@ -508,7 +510,7 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
     return null;
   }
 
-  async getServiceLatency(serviceId: string, filter: GlobalFilterState): Promise<LatencyMetricSeries[]> {
+  async getServiceLatency(serviceId: string, _filter: GlobalFilterState): Promise<LatencyMetricSeries[]> {
     try {
       const data = await this.fetchJson<{
         success: boolean;
@@ -522,9 +524,9 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
       if (data.series && Array.isArray(data.series) && data.series.length > 0) {
         return data.series;
       }
-      return mockDb.getServiceLatency(serviceId, filter);
+      return [];
     } catch {
-      return mockDb.getServiceLatency(serviceId, filter);
+      return [];
     }
   }
 
@@ -537,9 +539,25 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
       if (data && data.timeline && data.timeline.length > 0) {
         return data;
       }
-      return mockDb.getServiceCharts(serviceId, rangeSec, points);
+      return {
+        serviceId,
+        range: `${rangeSec}s`,
+        dataPoints: 0,
+        latencyPercentiles: { labels: [], p50: [], p90: [], p95: [], p99: [], avg: [] },
+        throughput: { labels: [], reqPerSecond: [], deltaRequests: [] },
+        errors: { labels: [], errorRatePercent: [], errors5xx: [], errors4xx: [] },
+        timeline: [],
+      };
     } catch {
-      return mockDb.getServiceCharts(serviceId, rangeSec, points);
+      return {
+        serviceId,
+        range: `${rangeSec}s`,
+        dataPoints: 0,
+        latencyPercentiles: { labels: [], p50: [], p90: [], p95: [], p99: [], avg: [] },
+        throughput: { labels: [], reqPerSecond: [], deltaRequests: [] },
+        errors: { labels: [], errorRatePercent: [], errors5xx: [], errors4xx: [] },
+        timeline: [],
+      };
     }
   }
 
@@ -828,9 +846,9 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
           };
         });
       }
-      return mockDb.getServers(_filter);
+      return [];
     } catch {
-      return mockDb.getServers(_filter);
+      return [];
     }
   }
 
@@ -897,6 +915,69 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
       tier: 'standard',
       complianceStatus: 'compliant',
     };
+  }
+
+  async updateServer(id: string, payload: UpdateServerPayload): Promise<Server> {
+    const res = await fetch(`${this.baseUrl}/api/servers/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Gagal memperbarui server');
+    }
+    const s = data.server;
+    const isHealthy = s.status === 'Healthy';
+    const isCritical = s.status === 'Critical';
+    const status: Server['status'] = isHealthy ? 'healthy' : isCritical ? 'critical' : 'degraded';
+    return {
+      id: s.id,
+      name: s.displayName || s.name,
+      displayName: s.displayName || s.name,
+      ip: s.host || '127.0.0.1',
+      host: s.host || 'localhost',
+      port: s.port,
+      isCustom: s.isCustom ?? true,
+      probeResult: s.probeResult,
+      description: s.description || '',
+      isLocal: s.isLocal ?? false,
+      env: s.env || 'PRODUCTION',
+      status,
+      os: s.os || 'Custom Host',
+      region: s.region || 'jakarta-idc',
+      uptime: s.system?.uptime?.formatted || (isHealthy ? 'UP' : 'DOWN'),
+      cpuUsagePercent: s.system?.cpu?.usagePercent || 0,
+      memoryUsedBytes: (s.system?.memory?.usedMb || 0) * 1024 * 1024,
+      memoryTotalBytes: (s.system?.memory?.totalMb || 16384) * 1024 * 1024,
+      diskUsedBytes: (s.system?.disk?.usedGb || 0) * 1024 * 1024 * 1024,
+      diskTotalBytes: (s.system?.disk?.totalGb || 200) * 1024 * 1024 * 1024,
+      networkInBytesPerSec: 0,
+      networkOutBytesPerSec: 0,
+      hostedServices: s.services ? s.services.map((svc: { id: string }) => svc.id) : [],
+      maxCapacity: Math.max(s.services?.length || 4, 4),
+      servicesData: s.services || [],
+      databases: s.databases || [],
+      upServices: s.upServices ?? 0,
+      totalServices: s.totalServices ?? 0,
+      upDatabases: s.upDatabases ?? 0,
+      totalDatabases: s.totalDatabases ?? 0,
+      system: s.system,
+      colocation: s.colocation,
+      tier: 'standard',
+      complianceStatus: 'compliant',
+    };
+  }
+
+  async deleteServer(id: string): Promise<boolean> {
+    const res = await fetch(`${this.baseUrl}/api/servers/${id}`, {
+      method: 'DELETE',
+    });
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Gagal menghapus server');
+    }
+    return true;
   }
 
   async getServerById(id: string): Promise<ServerDetail | null> {
@@ -1034,60 +1115,10 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
         };
       }
     } catch {
-      // fallback below
+      // Server not found or network failure
     }
 
-    const mockServer = mockDb.getServerById(id);
-    if (mockServer) {
-      return mockServer;
-    }
-
-    const servers = await this.getServers({ environment: 'all', serverId: 'all', serviceId: 'all', timeRange: '1h', refreshInterval: 0 });
-    const s = servers.find((srv) => srv.id === id) || servers[0];
-    if (!s) return null;
-
-    let cpuHistory = Array.from({ length: 10 }, (_, i) => ({
-      timestamp: new Date(Date.now() - (9 - i) * 60000).toISOString(),
-      value: s.cpuUsagePercent,
-    }));
-    let memoryHistory = Array.from({ length: 10 }, (_, i) => ({
-      timestamp: new Date(Date.now() - (9 - i) * 60000).toISOString(),
-      value: Math.round((s.memoryUsedBytes / (s.memoryTotalBytes || 1)) * 100),
-    }));
-
-    try {
-      const histData = await this.fetchJson<{
-        success: boolean;
-        history: Array<{
-          timestamp: string;
-          cpu: { usagePercent: number };
-          memory: { usedPercent: number };
-        }>;
-      }>('/api/metrics/system/history?range=3600&maxPoints=30');
-
-      if (histData.history && histData.history.length > 0) {
-        cpuHistory = histData.history.map((h) => ({
-          timestamp: h.timestamp,
-          value: h.cpu.usagePercent,
-        }));
-        memoryHistory = histData.history.map((h) => ({
-          timestamp: h.timestamp,
-          value: h.memory.usedPercent,
-        }));
-      }
-    } catch {
-      // Keep recent fallback
-    }
-
-    return {
-      ...s,
-      cpuHistory,
-      memoryHistory,
-      diskIopsHistory: [],
-      networkHistory: [],
-      processesCount: 18,
-      kernelVersion: 'Windows 11 / WSL2',
-    };
+    return null;
   }
 
   async acknowledgeAlert(_alertId: string): Promise<boolean> {

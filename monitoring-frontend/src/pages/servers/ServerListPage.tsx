@@ -21,13 +21,15 @@ import {
   Sparkles,
   Radio,
   Layers,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import {
   OFFICIAL_PLACEMENT_RULES,
   evaluateServerCompliance,
 } from '../../utils/serverRules';
-import { useServers, useRegisterServer, useDiscoverServer } from '../../hooks/useServers';
-import { DiscoveredService, DiscoverServerResponse } from '../../types';
+import { useServers, useRegisterServer, useDiscoverServer, useUpdateServer, useDeleteServer } from '../../hooks/useServers';
+import { Server, DiscoveredService, DiscoverServerResponse } from '../../types';
 
 export const ServerListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -40,14 +42,13 @@ export const ServerListPage: React.FC = () => {
   const [showRulesModal, setShowRulesModal] = useState<boolean>(false);
   const [showAddServerModal, setShowAddServerModal] = useState<boolean>(false);
 
-  // Discovery Mode & Credentials
-  const [discoveryMode, setDiscoveryMode] = useState<'ssh' | 'probe'>('ssh');
+  // Discovery Mode & Credentials (default to Zero-Config probe)
+  const [discoveryMode, setDiscoveryMode] = useState<'ssh' | 'probe'>('probe');
   const [sshConfig, setSshConfig] = useState({
     sshPort: '22',
     username: 'ubuntu',
     password: '',
   });
-  const [candidatePortsStr, setCandidatePortsStr] = useState('8080, 4004, 4006, 4007, 3001, 3002, 4005, 9100');
   const [discoveredData, setDiscoveredData] = useState<DiscoverServerResponse | null>(null);
   const [discoveredServicesSelection, setDiscoveredServicesSelection] = useState<DiscoveredService[]>([]);
 
@@ -55,7 +56,7 @@ export const ServerListPage: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     host: '',
-    port: '22',
+    port: '9100',
     env: 'PRODUCTION',
     region: 'jakarta-idc',
     description: '',
@@ -66,6 +67,87 @@ export const ServerListPage: React.FC = () => {
 
   const discoverServerMutation = useDiscoverServer();
   const registerServerMutation = useRegisterServer();
+  const updateServerMutation = useUpdateServer();
+  const deleteServerMutation = useDeleteServer();
+
+  // Edit Server State
+  const [editingServer, setEditingServer] = useState<Server | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    host: '',
+    port: '22',
+    env: 'PRODUCTION',
+    region: 'jakarta-idc',
+    description: '',
+  });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSuccess, setEditSuccess] = useState<string | null>(null);
+
+  // Delete Server State
+  const [deletingServer, setDeletingServer] = useState<Server | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleOpenEditModal = (server: Server) => {
+    setEditingServer(server);
+    setEditFormData({
+      name: server.name || '',
+      host: server.host || server.ip || '',
+      port: String(server.port || 22),
+      env: server.env || 'PRODUCTION',
+      region: server.region || 'jakarta-idc',
+      description: server.description || '',
+    });
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingServer) return;
+    if (!editFormData.name.trim() || !editFormData.host.trim()) {
+      setEditError('Nama Server dan Host / IP wajib diisi.');
+      return;
+    }
+
+    try {
+      setEditError(null);
+      setEditSuccess(null);
+      await updateServerMutation.mutateAsync({
+        id: editingServer.id,
+        payload: {
+          name: editFormData.name.trim(),
+          host: editFormData.host.trim(),
+          port: parseInt(editFormData.port, 10) || 22,
+          env: editFormData.env,
+          region: editFormData.region,
+          description: editFormData.description.trim(),
+        },
+      });
+      setEditSuccess('Server berhasil diperbarui!');
+      setTimeout(() => {
+        setEditingServer(null);
+        setEditSuccess(null);
+      }, 600);
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : 'Gagal memperbarui server');
+    }
+  };
+
+  const handleOpenDeleteModal = (server: Server) => {
+    setDeletingServer(server);
+    setDeleteError(null);
+  };
+
+  const handleDeleteSubmit = async () => {
+    if (!deletingServer) return;
+    try {
+      setDeleteError(null);
+      await deleteServerMutation.mutateAsync(deletingServer.id);
+      setDeletingServer(null);
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : 'Gagal menghapus server');
+    }
+  };
 
   const handleRunDiscovery = async () => {
     setFormError(null);
@@ -73,50 +155,52 @@ export const ServerListPage: React.FC = () => {
 
     const cleanHost = formData.host.trim();
     if (!cleanHost) {
-      setFormError('Masukkan IP Address atau Host laptop target terlebih dahulu');
+      setFormError('Masukkan IP Address atau Host target terlebih dahulu');
       return;
     }
 
     try {
-      let candidatePorts: number[] | undefined;
-      if (discoveryMode === 'probe' && candidatePortsStr.trim()) {
-        candidatePorts = candidatePortsStr
-          .split(',')
-          .map((p) => parseInt(p.trim(), 10))
-          .filter((p) => !isNaN(p) && p > 0);
-      }
-
       const res = await discoverServerMutation.mutateAsync({
         host: cleanHost,
         mode: discoveryMode,
         sshPort: parseInt(sshConfig.sshPort, 10) || 22,
         username: sshConfig.username.trim() || undefined,
         password: sshConfig.password || undefined,
-        candidatePorts,
+        exporterPort: parseInt(formData.port, 10) || 9100,
       });
 
       setDiscoveredData(res);
+      // Pre-select all discovered listening services so user can customize
       setDiscoveredServicesSelection(res.services || []);
 
-      // Pre-fill default name if empty
+      // Pre-fill default server name if empty
       if (!formData.name.trim()) {
         const shortHost = cleanHost.replace(/[^a-zA-Z0-9]/g, '-');
         setFormData((prev) => ({
           ...prev,
-          name: discoveryMode === 'ssh' ? `WSL2-Node-${shortHost}` : `Remote-Node-${shortHost}`,
-          description: `Discovered via ${discoveryMode.toUpperCase()} (${res.os || 'Linux'}) with ${res.services?.length || 0} active services`,
-          port: discoveryMode === 'ssh' ? sshConfig.sshPort : (res.services?.[0]?.port ? String(res.services[0].port) : '9100'),
+          name: discoveryMode === 'ssh' ? `Node-${shortHost}` : `Server-${shortHost}`,
+          description: `Discovered via ${discoveryMode === 'ssh' ? 'SSH' : 'Zero-Config'} (${res.os || 'Linux Node'}) with ${res.services?.length || 0} active listening ports`,
+          port: discoveryMode === 'ssh' ? sshConfig.sshPort : (formData.port || '9100'),
         }));
       }
 
       setFormSuccess(
-        `Koneksi berhasil! Terdeteksi ${res.services?.length || 0} microservice aktif di ${cleanHost} (${res.os || 'Linux'}).`
+        `Deteksi berhasil! Ditemukan ${res.services?.length || 0} port/service aktif di ${cleanHost} (${res.os || 'Linux Node'}). Silakan pilih service yang ingin dipantau.`
       );
     } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : 'Gagal melakukan auto-discovery ke target host';
+      const errorMsg = err instanceof Error ? err.message : 'Gagal melakukan deteksi ke target host';
       setFormError(errorMsg);
       setDiscoveredData(null);
     }
+  };
+
+  const selectAllDiscoveredServices = () => {
+    if (!discoveredData) return;
+    setDiscoveredServicesSelection([...discoveredData.services]);
+  };
+
+  const deselectAllDiscoveredServices = () => {
+    setDiscoveredServicesSelection([]);
   };
 
   const toggleDiscoveredService = (serviceId: string) => {
@@ -371,6 +455,9 @@ export const ServerListPage: React.FC = () => {
                   <th className="py-3.5 px-5 text-right">
                     <span>ATURAN ALOKASI</span>
                   </th>
+                  <th className="py-3.5 px-4 text-center">
+                    <span>AKSI</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs font-mono">
@@ -541,6 +628,28 @@ export const ServerListPage: React.FC = () => {
                           </span>
                         </span>
                       </td>
+
+                      {/* Actions Column (Edit & Delete) */}
+                      <td className="py-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditModal(server)}
+                            title="Edit konfigurasi server"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-500 hover:bg-cyan-500/10 dark:hover:bg-cyan-500/20 transition border border-transparent hover:border-cyan-500/30"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDeleteModal(server)}
+                            title="Hapus server dari monitoring"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 dark:hover:bg-rose-500/20 transition border border-transparent hover:border-rose-500/30"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -615,10 +724,10 @@ export const ServerListPage: React.FC = () => {
         title={
           <div className="flex items-center gap-2 text-slate-900 dark:text-white">
             <ServerIcon className="w-5 h-5 text-cyan-500" />
-            <span>Daftarkan Server Node (Laptop / WSL Distro)</span>
+            <span>Daftarkan Server Node</span>
           </div>
         }
-        subtitle="Registrasikan laptop lain di jaringan LAN/Wi-Fi untuk auto-detect hardware dan scraping microservices secara dinamis."
+        subtitle="Hubungkan server target (Node Exporter / microservices) untuk auto-detect port listening dan monitoring dinamis."
         maxWidth="2xl"
       >
         <form onSubmit={handleRegisterSubmit} className="space-y-4 text-xs font-mono">
@@ -644,19 +753,6 @@ export const ServerListPage: React.FC = () => {
             <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-[#111827] rounded-xl border border-slate-200 dark:border-slate-800">
               <button
                 type="button"
-                onClick={() => setDiscoveryMode('ssh')}
-                className={`py-2 px-3 rounded-lg flex items-center justify-center gap-2 text-xs font-bold transition ${
-                  discoveryMode === 'ssh'
-                    ? 'bg-white dark:bg-[#1e293b] text-cyan-600 dark:text-cyan-400 shadow-sm border border-slate-200 dark:border-slate-700'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <Terminal className="w-3.5 h-3.5 text-cyan-500" />
-                <span>SSH Remote (WSL2 / Linux)</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={() => setDiscoveryMode('probe')}
                 className={`py-2 px-3 rounded-lg flex items-center justify-center gap-2 text-xs font-bold transition ${
                   discoveryMode === 'probe'
@@ -667,6 +763,19 @@ export const ServerListPage: React.FC = () => {
                 <Radio className="w-3.5 h-3.5 text-emerald-500" />
                 <span>HTTP Port Probe (Zero-Config)</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setDiscoveryMode('ssh')}
+                className={`py-2 px-3 rounded-lg flex items-center justify-center gap-2 text-xs font-bold transition ${
+                  discoveryMode === 'ssh'
+                    ? 'bg-white dark:bg-[#1e293b] text-cyan-600 dark:text-cyan-400 shadow-sm border border-slate-200 dark:border-slate-700'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Terminal className="w-3.5 h-3.5 text-cyan-500" />
+                <span>SSH Remote (Linux / EC2)</span>
+              </button>
             </div>
           </div>
 
@@ -675,12 +784,12 @@ export const ServerListPage: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="sm:col-span-2 space-y-1.5">
                 <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
-                  IP Address / Host Laptop Target <span className="text-rose-500">*</span>
+                  IP Address / Host Target <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. 192.168.1.105 atau localhost"
+                  placeholder="e.g. 16.171.70.224, 192.168.1.105 atau localhost"
                   value={formData.host}
                   onChange={(e) => setFormData({ ...formData, host: e.target.value })}
                   className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
@@ -710,6 +819,7 @@ export const ServerListPage: React.FC = () => {
                     type="number"
                     min="1"
                     max="65535"
+                    placeholder="9100"
                     value={formData.port}
                     onChange={(e) => setFormData({ ...formData, port: e.target.value })}
                     className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
@@ -718,7 +828,7 @@ export const ServerListPage: React.FC = () => {
               )}
             </div>
 
-            {discoveryMode === 'ssh' ? (
+            {discoveryMode === 'ssh' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
@@ -726,7 +836,7 @@ export const ServerListPage: React.FC = () => {
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. ubuntu atau nama user WSL"
+                    placeholder="e.g. ubuntu atau ec2-user"
                     value={sshConfig.username}
                     onChange={(e) => setSshConfig({ ...sshConfig, username: e.target.value })}
                     className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
@@ -738,25 +848,12 @@ export const ServerListPage: React.FC = () => {
                   </label>
                   <input
                     type="password"
-                    placeholder="Password user WSL (jika ada)"
+                    placeholder="Password user SSH (jika ada)"
                     value={sshConfig.password}
                     onChange={(e) => setSshConfig({ ...sshConfig, password: e.target.value })}
                     className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
                   />
                 </div>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
-                  Daftar Port Kandidat Microservice untuk Di-scan
-                </label>
-                <input
-                  type="text"
-                  placeholder="8080, 4004, 4006, 4007, 3001, 3002, 4005, 9100"
-                  value={candidatePortsStr}
-                  onChange={(e) => setCandidatePortsStr(e.target.value)}
-                  className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm font-mono"
-                />
               </div>
             )}
 
@@ -764,8 +861,8 @@ export const ServerListPage: React.FC = () => {
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
               <span className="text-[10px] text-slate-500 dark:text-slate-400 font-sans">
                 {discoveryMode === 'ssh'
-                  ? '💡 Pastikan WSL di laptop 2 menggunakan networkingMode=mirrored di .wslconfig atau SSH aktif.'
-                  : '💡 Backend akan menguji response /metrics di setiap port secara paralel.'}
+                  ? '💡 Pastikan SSH di server target aktif dan port 22/2222 dapat dihubungi.'
+                  : '💡 Backend akan mendeteksi port-port yang listening dan mengambil spesifikasi hardware secara otomatis.'}
               </span>
 
               <button
@@ -840,22 +937,41 @@ export const ServerListPage: React.FC = () => {
               )}
 
               {/* Discovered Services Checklist */}
-              <div className="space-y-1.5 pt-1">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-bold text-slate-700 dark:text-slate-300">
-                    Microservice yang Ditemukan di Laptop Ini:
-                  </span>
-                  <span className="text-slate-400 text-[10px]">
-                    {discoveredServicesSelection.length} dari {discoveredData.services.length} dipilih untuk di-scrape
-                  </span>
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between text-[11px] flex-wrap gap-2">
+                  <div>
+                    <span className="font-bold text-slate-800 dark:text-slate-200 block">
+                      Port Listening &amp; Service yang Terdeteksi:
+                    </span>
+                    <span className="text-slate-400 text-[10px]">
+                      {discoveredServicesSelection.length} dari {discoveredData.services.length} dipilih untuk dipantau
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={selectAllDiscoveredServices}
+                      className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline"
+                    >
+                      Pilih Semua
+                    </button>
+                    <span className="text-slate-300 dark:text-slate-700">&bull;</span>
+                    <button
+                      type="button"
+                      onClick={deselectAllDiscoveredServices}
+                      className="text-[11px] text-slate-500 hover:underline"
+                    >
+                      Batal Semua
+                    </button>
+                  </div>
                 </div>
 
                 {discoveredData.services.length === 0 ? (
                   <div className="p-3 text-center text-slate-500 text-[11px] bg-white dark:bg-[#111827] rounded-lg border border-slate-200 dark:border-slate-800">
-                    Tidak ada microservice dengan endpoint <code>/metrics</code> yang merespons di port yang dipindai. Anda tetap dapat mendaftarkan server ini dan memilih service secara manual di bawah.
+                    Tidak ada port listening aktif yang terdeteksi di host ini. Pastikan IP dan firewall / security group port terbuka.
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
                     {discoveredData.services.map((svc) => {
                       const isSelected = discoveredServicesSelection.some((s) => s.id === svc.id);
                       return (
@@ -864,29 +980,39 @@ export const ServerListPage: React.FC = () => {
                           onClick={() => toggleDiscoveredService(svc.id)}
                           className={`p-2.5 rounded-lg border flex items-center justify-between gap-2 cursor-pointer transition select-none ${
                             isSelected
-                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-200'
+                              ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-900 dark:text-emerald-100 shadow-sm'
                               : 'bg-white dark:bg-[#111827] border-slate-200 dark:border-slate-800 hover:border-slate-300 opacity-60'
                           }`}
                         >
-                          <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex items-center gap-2.5 min-w-0">
                             <input
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => {}}
-                              className="rounded text-emerald-500 focus:ring-emerald-400 h-3.5 w-3.5 pointer-events-none"
+                              className="rounded text-emerald-500 focus:ring-emerald-400 h-4 w-4 pointer-events-none shrink-0"
                             />
                             <div className="min-w-0">
-                              <div className="font-bold text-[11px] truncate">
-                                {svc.name}
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-[11px] truncate">
+                                  {svc.name}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 shrink-0">
+                                  :{svc.port}
+                                </span>
                               </div>
-                              <div className="text-[10px] text-slate-400 font-mono">
-                                Port :{svc.port} &bull; {svc.url}
+                              <div className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
+                                {svc.url}
                               </div>
                             </div>
                           </div>
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
-                            {svc.stack}
-                          </span>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                              {svc.stack}
+                            </span>
+                            <span className="text-[9px] font-medium text-emerald-500">
+                              {svc.hasMetrics ? 'Metrics' : 'Listening'}
+                            </span>
+                          </div>
                         </div>
                       );
                     })}
@@ -905,7 +1031,7 @@ export const ServerListPage: React.FC = () => {
               <input
                 type="text"
                 required
-                placeholder="e.g. Laptop-2-Worker"
+                placeholder="e.g. Node-EC2-01"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
@@ -933,7 +1059,7 @@ export const ServerListPage: React.FC = () => {
               </label>
               <input
                 type="text"
-                placeholder="e.g. jakarta-idc / local-lan"
+                placeholder="e.g. jakarta-idc / ap-southeast-1"
                 value={formData.region}
                 onChange={(e) => setFormData({ ...formData, region: e.target.value })}
                 className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
@@ -947,7 +1073,7 @@ export const ServerListPage: React.FC = () => {
             </label>
             <input
               type="text"
-              placeholder="e.g. Laptop 2 menjalankan microservice live-consult dan ai-consultation"
+              placeholder="e.g. Server menjalankan microservice konsultasi dan profil kesehatan"
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
@@ -982,6 +1108,219 @@ export const ServerListPage: React.FC = () => {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* ─── MODAL: EDIT KONFIGURASI SERVER ───────────────────────────────── */}
+      <Modal
+        isOpen={Boolean(editingServer)}
+        onClose={() => {
+          if (!updateServerMutation.isPending) {
+            setEditingServer(null);
+            setEditError(null);
+            setEditSuccess(null);
+          }
+        }}
+        title={
+          <div className="flex items-center gap-2 text-slate-900 dark:text-white">
+            <Pencil className="w-5 h-5 text-cyan-500" />
+            <span>Edit Konfigurasi Server: {editingServer?.name}</span>
+          </div>
+        }
+        subtitle="Perbarui nama server, host IP, port inspeksi, region, atau deskripsi."
+        maxWidth="xl"
+      >
+        <form onSubmit={handleEditSubmit} className="space-y-4 text-xs font-mono">
+          {editError && (
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/25 text-rose-700 dark:text-rose-400 flex items-center gap-2 font-sans">
+              <XCircle className="w-4 h-4 shrink-0" />
+              <span>{editError}</span>
+            </div>
+          )}
+
+          {editSuccess && (
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/25 text-emerald-700 dark:text-emerald-400 flex items-center gap-2 font-sans">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{editSuccess}</span>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+              Nama Server / Node *
+            </label>
+            <input
+              type="text"
+              required
+              value={editFormData.name}
+              onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm font-sans"
+              placeholder="e.g. AWS-Ubuntu-Server-1"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2 space-y-1.5">
+              <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                IP Address / Host Target *
+              </label>
+              <input
+                type="text"
+                required
+                value={editFormData.host}
+                onChange={(e) => setEditFormData({ ...editFormData, host: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                placeholder="192.168.1.50 atau domain"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                Port Target / SSH
+              </label>
+              <input
+                type="number"
+                value={editFormData.port}
+                onChange={(e) => setEditFormData({ ...editFormData, port: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                placeholder="22 / 9100"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                Environment
+              </label>
+              <select
+                value={editFormData.env}
+                onChange={(e) => setEditFormData({ ...editFormData, env: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+              >
+                <option value="PRODUCTION">PRODUCTION</option>
+                <option value="STAGING">STAGING</option>
+                <option value="DEVELOPMENT">DEVELOPMENT</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                Region / Lokasi
+              </label>
+              <input
+                type="text"
+                value={editFormData.region}
+                onChange={(e) => setEditFormData({ ...editFormData, region: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                placeholder="jakarta-idc / ap-southeast-1"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+              Deskripsi Server
+            </label>
+            <input
+              type="text"
+              value={editFormData.description}
+              onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm font-sans"
+              placeholder="e.g. Server hosting Docker containers"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+            <button
+              type="button"
+              disabled={updateServerMutation.isPending}
+              onClick={() => setEditingServer(null)}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={updateServerMutation.isPending || !editFormData.name.trim() || !editFormData.host.trim()}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold font-mono transition shadow-sm shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {updateServerMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Menyimpan...</span>
+                </>
+              ) : (
+                <span>Simpan Perubahan</span>
+              )}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ─── MODAL: HAPUS SERVER CONFIRMATION ─────────────────────────────── */}
+      <Modal
+        isOpen={Boolean(deletingServer)}
+        onClose={() => {
+          if (!deleteServerMutation.isPending) {
+            setDeletingServer(null);
+            setDeleteError(null);
+          }
+        }}
+        title={
+          <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+            <Trash2 className="w-5 h-5 text-rose-500" />
+            <span>Hapus Server dari Monitoring</span>
+          </div>
+        }
+        subtitle="Konfirmasi pencopotan server node dari sistem pemantauan."
+        maxWidth="md"
+      >
+        <div className="space-y-4 text-xs font-sans">
+          {deleteError && (
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/25 text-rose-700 dark:text-rose-400 flex items-center gap-2">
+              <XCircle className="w-4 h-4 shrink-0" />
+              <span>{deleteError}</span>
+            </div>
+          )}
+
+          <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 space-y-2">
+            <p className="text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
+              Apakah Anda yakin ingin menghapus server <strong>{deletingServer?.name}</strong> ({deletingServer?.host || deletingServer?.ip}) dari monitoring?
+            </p>
+            <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
+              Semua microservice yang terikat pada server ini akan otomatis dibersihkan dari dashboard agar tidak menampilkan status Down/Unreachable palsu.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800 font-mono">
+            <button
+              type="button"
+              disabled={deleteServerMutation.isPending}
+              onClick={() => setDeletingServer(null)}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              disabled={deleteServerMutation.isPending}
+              onClick={handleDeleteSubmit}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-sm shadow-rose-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {deleteServerMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Menghapus Server...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4" />
+                  <span>Ya, Hapus Server</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

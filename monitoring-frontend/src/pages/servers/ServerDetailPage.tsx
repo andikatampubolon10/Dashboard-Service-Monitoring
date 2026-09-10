@@ -17,10 +17,15 @@ import {
   Server as ServerIcon,
   Activity,
   Wifi,
+  Pencil,
+  Trash2,
+  Loader2,
 } from 'lucide-react';
 import {
   evaluateServerCompliance,
 } from '../../utils/serverRules';
+import { useUpdateServer, useDeleteServer } from '../../hooks/useServers';
+import { Modal } from '../../components/common/Modal';
 
 export const ServerDetailPage: React.FC = () => {
   const { id = 'server-alpha' } = useParams<{ id: string }>();
@@ -29,6 +34,83 @@ export const ServerDetailPage: React.FC = () => {
   const { data: allServices = [], isLoading: isLoadingServices } = useServices();
 
   const [chartMetric, setChartMetric] = useState<'cpu' | 'memory'>('cpu');
+
+  const updateServerMutation = useUpdateServer();
+  const deleteServerMutation = useDeleteServer();
+
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    host: '',
+    port: '22',
+    env: 'PRODUCTION',
+    region: 'jakarta-idc',
+    description: '',
+  });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSuccess, setEditSuccess] = useState<string | null>(null);
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleOpenEditModal = () => {
+    if (!server) return;
+    setEditFormData({
+      name: server.name || '',
+      host: server.host || server.ip || '',
+      port: String(server.port || 22),
+      env: server.env || 'PRODUCTION',
+      region: server.region || 'jakarta-idc',
+      description: server.description || '',
+    });
+    setEditError(null);
+    setEditSuccess(null);
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!server) return;
+    if (!editFormData.name.trim() || !editFormData.host.trim()) {
+      setEditError('Nama Server dan Host/IP wajib diisi.');
+      return;
+    }
+
+    try {
+      setEditError(null);
+      setEditSuccess(null);
+      await updateServerMutation.mutateAsync({
+        id: server.id,
+        payload: {
+          name: editFormData.name.trim(),
+          host: editFormData.host.trim(),
+          port: parseInt(editFormData.port, 10) || 22,
+          env: editFormData.env,
+          region: editFormData.region,
+          description: editFormData.description.trim(),
+        },
+      });
+      setEditSuccess('Server berhasil diperbarui!');
+      setTimeout(() => {
+        setShowEditModal(false);
+        setEditSuccess(null);
+      }, 600);
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : 'Gagal memperbarui server');
+    }
+  };
+
+  const handleDeleteSubmit = async () => {
+    if (!server) return;
+    try {
+      setDeleteError(null);
+      await deleteServerMutation.mutateAsync(server.id);
+      setShowDeleteModal(false);
+      navigate('/servers');
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : 'Gagal menghapus server');
+    }
+  };
 
   // 1. Calculate System Resources (CPU, Memory, Disk, Uptime)
   const sys = server?.system;
@@ -271,13 +353,36 @@ export const ServerDetailPage: React.FC = () => {
             </p>
           </div>
 
-          <Link
-            to="/servers"
-            className="self-start sm:self-center inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:text-white transition shadow-sm"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>All Servers</span>
-          </Link>
+          <div className="self-start sm:self-center flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={handleOpenEditModal}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:border-cyan-500 hover:text-cyan-500 transition shadow-sm"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              <span>Edit Server</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteError(null);
+                setShowDeleteModal(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 hover:border-rose-500/30 transition shadow-sm"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Hapus Server</span>
+            </button>
+
+            <Link
+              to="/servers"
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:text-white transition shadow-sm"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>All Servers</span>
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -802,6 +907,219 @@ export const ServerDetailPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ─── MODAL: EDIT KONFIGURASI SERVER ───────────────────────────────── */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => {
+          if (!updateServerMutation.isPending) {
+            setShowEditModal(false);
+            setEditError(null);
+            setEditSuccess(null);
+          }
+        }}
+        title={
+          <div className="flex items-center gap-2 text-slate-900 dark:text-white">
+            <Pencil className="w-5 h-5 text-cyan-500" />
+            <span>Edit Konfigurasi Server: {server?.name}</span>
+          </div>
+        }
+        subtitle="Perbarui nama server, host IP, port inspeksi, region, atau deskripsi."
+        maxWidth="xl"
+      >
+        <form onSubmit={handleEditSubmit} className="space-y-4 text-xs font-mono">
+          {editError && (
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/25 text-rose-700 dark:text-rose-400 flex items-center gap-2 font-sans">
+              <XCircle className="w-4 h-4 shrink-0" />
+              <span>{editError}</span>
+            </div>
+          )}
+
+          {editSuccess && (
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/25 text-emerald-700 dark:text-emerald-400 flex items-center gap-2 font-sans">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{editSuccess}</span>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+              Nama Server / Node *
+            </label>
+            <input
+              type="text"
+              required
+              value={editFormData.name}
+              onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm font-sans"
+              placeholder="e.g. AWS-Ubuntu-Server-1"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2 space-y-1.5">
+              <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                IP Address / Host Target *
+              </label>
+              <input
+                type="text"
+                required
+                value={editFormData.host}
+                onChange={(e) => setEditFormData({ ...editFormData, host: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                placeholder="192.168.1.50 atau domain"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                Port Target / SSH
+              </label>
+              <input
+                type="number"
+                value={editFormData.port}
+                onChange={(e) => setEditFormData({ ...editFormData, port: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                placeholder="22 / 9100"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                Environment
+              </label>
+              <select
+                value={editFormData.env}
+                onChange={(e) => setEditFormData({ ...editFormData, env: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+              >
+                <option value="PRODUCTION">PRODUCTION</option>
+                <option value="STAGING">STAGING</option>
+                <option value="DEVELOPMENT">DEVELOPMENT</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                Region / Lokasi
+              </label>
+              <input
+                type="text"
+                value={editFormData.region}
+                onChange={(e) => setEditFormData({ ...editFormData, region: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                placeholder="jakarta-idc / ap-southeast-1"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+              Deskripsi Server
+            </label>
+            <input
+              type="text"
+              value={editFormData.description}
+              onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm font-sans"
+              placeholder="e.g. Server hosting Docker containers"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+            <button
+              type="button"
+              disabled={updateServerMutation.isPending}
+              onClick={() => setShowEditModal(false)}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={updateServerMutation.isPending || !editFormData.name.trim() || !editFormData.host.trim()}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold font-mono transition shadow-sm shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {updateServerMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Menyimpan...</span>
+                </>
+              ) : (
+                <span>Simpan Perubahan</span>
+              )}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ─── MODAL: HAPUS SERVER CONFIRMATION ─────────────────────────────── */}
+      <Modal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          if (!deleteServerMutation.isPending) {
+            setShowDeleteModal(false);
+            setDeleteError(null);
+          }
+        }}
+        title={
+          <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+            <Trash2 className="w-5 h-5 text-rose-500" />
+            <span>Hapus Server dari Monitoring</span>
+          </div>
+        }
+        subtitle="Konfirmasi pencopotan server node dari sistem pemantauan."
+        maxWidth="md"
+      >
+        <div className="space-y-4 text-xs font-sans">
+          {deleteError && (
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/25 text-rose-700 dark:text-rose-400 flex items-center gap-2">
+              <XCircle className="w-4 h-4 shrink-0" />
+              <span>{deleteError}</span>
+            </div>
+          )}
+
+          <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 space-y-2">
+            <p className="text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
+              Apakah Anda yakin ingin menghapus server <strong>{server?.name}</strong> ({server?.host || server?.ip}) dari monitoring?
+            </p>
+            <p className="text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
+              Semua microservice yang terikat pada server ini akan otomatis dibersihkan dari dashboard agar tidak menampilkan status Down/Unreachable palsu.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800 font-mono">
+            <button
+              type="button"
+              disabled={deleteServerMutation.isPending}
+              onClick={() => setShowDeleteModal(false)}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              disabled={deleteServerMutation.isPending}
+              onClick={handleDeleteSubmit}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-sm shadow-rose-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {deleteServerMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Menghapus Server...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4" />
+                  <span>Ya, Hapus Server</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

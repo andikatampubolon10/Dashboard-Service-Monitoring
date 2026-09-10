@@ -67,27 +67,22 @@ function initDailyStats(serviceId) {
   const days = [];
   const now = new Date();
 
-  // Create baseline for past 14 days
+  // Initialize past 14 days with 0 requests. Traffic accumulates strictly from when the service is registered.
   for (let i = 13; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().split('T')[0];
     const displayDate = `${String(d.getDate()).padStart(2, '0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'][d.getMonth()]}`;
 
-    // Deterministic realistic baseline based on day and service
-    const seed = (d.getDate() * 97 + serviceId.length * 31) % 500;
-    const baseRequests = 1000 + seed * 2;
-    const isToday = i === 0;
-
     days.push({
       date: dateStr,
       displayDate,
-      totalRequests: isToday ? 0 : baseRequests,
-      success2xx: isToday ? 0 : Math.round(baseRequests * 0.98),
-      client4xx: isToday ? 0 : Math.round(baseRequests * 0.015),
-      server5xx: isToday ? 0 : Math.round(baseRequests * 0.005),
-      errorRatePercent: isToday ? 0 : 0.5,
-      avgLatencyMs: parseFloat((2.4 + (seed % 10) * 0.1).toFixed(2)),
+      totalRequests: 0,
+      success2xx: 0,
+      client4xx: 0,
+      server5xx: 0,
+      errorRatePercent: 0,
+      avgLatencyMs: 0,
     });
   }
 
@@ -95,48 +90,13 @@ function initDailyStats(serviceId) {
 }
 
 /**
- * Seed initial realistic requests log for a service matching its real routes.
+ * Initialize recent requests log for a service. Starts empty without fake requests.
  * @param {string} serviceId
- * @param {Array<{ method: string, path: string, status: number, avgLatencyMs: number }>} routes
+ * @param {Array<{ method: string, path: string, status: number, avgLatencyMs: number }>} [routes]
  */
-function seedRecentRequests(serviceId, routes) {
+function seedRecentRequests(serviceId, _routes) {
   if (!requestsLog.has(serviceId)) {
     requestsLog.set(serviceId, []);
-  }
-
-  const log = requestsLog.get(serviceId);
-  if (log.length > 0) return;
-
-  const defaultRoutes = routes && routes.length > 0
-    ? routes
-    : [
-        { method: 'GET', path: '/health', status: 200, avgLatencyMs: 1.5 },
-        { method: 'GET', path: '/metrics', status: 200, avgLatencyMs: 3.2 },
-        { method: 'POST', path: '/api/v1/auth/login', status: 200, avgLatencyMs: 45.0 },
-        { method: 'POST', path: '/api/v1/auth/refresh', status: 200, avgLatencyMs: 22.0 },
-        { method: 'GET', path: '/api/v1/auth/sessions', status: 200, avgLatencyMs: 18.5 },
-        { method: 'POST', path: '/api/v1/auth/verification/bpjs', status: 200, avgLatencyMs: 85.0 },
-        { method: 'GET', path: '/favicon.ico', status: 404, avgLatencyMs: 1.1 },
-      ];
-
-  const now = Date.now();
-  for (let i = 25; i >= 0; i--) {
-    const route = defaultRoutes[i % defaultRoutes.length];
-    const itemTime = new Date(now - i * 45000); // spaced out every 45s
-    const jitter = Math.floor(Math.random() * 20) - 10;
-    const latency = Math.max(1, Math.round(route.avgLatencyMs + jitter));
-
-    log.push({
-      id: `req-${itemTime.getTime()}-${Math.random().toString(36).substring(2, 7)}`,
-      serviceId,
-      method: route.method,
-      path: route.path,
-      status: route.status,
-      latencyMs: latency,
-      client: getRandomClusterIp(),
-      time: formatDisplayTime(itemTime),
-      timestamp: itemTime.toISOString(),
-    });
   }
 }
 

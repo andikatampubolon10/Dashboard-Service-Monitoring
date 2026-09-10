@@ -22,6 +22,7 @@ import {
   RegisterServerPayload,
   DiscoverServerPayload,
   DiscoverServerResponse,
+  UpdateServerPayload,
 } from '../types';
 
 /**
@@ -67,6 +68,14 @@ class MonitoringApiService {
 
   public async registerServer(payload: RegisterServerPayload): Promise<Server> {
     return this.provider.registerServer(payload);
+  }
+
+  public async updateServer(id: string, payload: UpdateServerPayload): Promise<Server> {
+    return this.provider.updateServer(id, payload);
+  }
+
+  public async deleteServer(id: string): Promise<boolean> {
+    return this.provider.deleteServer(id);
   }
 
   public async getServices(filter: GlobalFilterState): Promise<Service[]> {

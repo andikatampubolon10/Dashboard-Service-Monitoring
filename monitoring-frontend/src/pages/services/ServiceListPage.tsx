@@ -69,8 +69,8 @@ export const ServiceListPage: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStack, setFilterStack] = useState<'all' | 'nodejs' | 'go'>('all');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'UP' | 'DOWN'>('all');
-  const [sortKey, setSortKey] = useState<string>('name');
+  const [filterStatus, setFilterStatus] = useState<'active-connected' | 'all' | 'UP' | 'DOWN'>('active-connected');
+  const [sortKey, setSortKey] = useState<string>('status');
   const [sortAsc, setSortAsc] = useState<boolean>(true);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
@@ -82,6 +82,8 @@ export const ServiceListPage: React.FC = () => {
   const servicesDown =
     healthData?.monitoring?.servicesDown ??
     services.filter((s) => s.rawStatus === 'DOWN' || s.status === 'critical' || s.status === 'offline').length;
+
+  const activeConnectedCount = services.filter((s) => s.rawStatus === 'UP' || s.status === 'healthy').length;
 
   const totalRps = useMemo(() => {
     if (metricsSummary?.services && metricsSummary.services.length > 0) {
@@ -132,15 +134,14 @@ export const ServiceListPage: React.FC = () => {
       list = list.filter((s) => s.stack?.toLowerCase() === filterStack);
     }
 
-    // Filter by status from payload (UP | DOWN)
-    if (filterStatus !== 'all') {
-      list = list.filter((s) => {
-        const isUp = s.rawStatus === 'UP' || s.status === 'healthy';
-        return filterStatus === 'UP' ? isUp : !isUp;
-      });
+    // Filter by status from payload
+    if (filterStatus === 'active-connected' || filterStatus === 'UP') {
+      list = list.filter((s) => s.rawStatus === 'UP' || s.status === 'healthy');
+    } else if (filterStatus === 'DOWN') {
+      list = list.filter((s) => !(s.rawStatus === 'UP' || s.status === 'healthy'));
     }
 
-    // Filter by search query (service name, url, stack, description, error)
+    // Filter by search query (service name, url, stack, description, error, serverHost)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -151,19 +152,23 @@ export const ServiceListPage: React.FC = () => {
           (s.metricsUrl && s.metricsUrl.toLowerCase().includes(q)) ||
           (s.stack && s.stack.toLowerCase().includes(q)) ||
           (s.error && s.error.toLowerCase().includes(q)) ||
+          (s.serverHost && s.serverHost.toLowerCase().includes(q)) ||
+          (s.serverName && s.serverName.toLowerCase().includes(q)) ||
           s.id.toLowerCase().includes(q)
       );
     }
 
     // Sort list
     list.sort((a, b) => {
+      // Prioritize UP services at the top when sorted by status
+      if (sortKey === 'status') {
+        const aUp = (a.rawStatus === 'UP' || a.status === 'healthy') ? 1 : 0;
+        const bUp = (b.rawStatus === 'UP' || b.status === 'healthy') ? 1 : 0;
+        if (aUp !== bUp) return sortAsc ? (bUp - aUp) : (aUp - bUp);
+      }
+
       let valA: string | number = (a as unknown as Record<string, string | number>)[sortKey] ?? 0;
       let valB: string | number = (b as unknown as Record<string, string | number>)[sortKey] ?? 0;
-
-      if (sortKey === 'status') {
-        valA = a.rawStatus || a.status || '';
-        valB = b.rawStatus || b.status || '';
-      }
 
       if (typeof valA === 'string' && typeof valB === 'string') {
         return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
@@ -315,6 +320,35 @@ export const ServiceListPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         {/* Quick Filter Pills */}
         <div className="flex items-center gap-1.5 flex-wrap">
+          {/* TAB 1: UP / Aktif (Default) */}
+          <button
+            onClick={() => {
+              setFilterStack('all');
+              setFilterStatus('active-connected');
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition shadow-sm flex items-center gap-1.5 ${
+              filterStatus === 'active-connected'
+                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-cyan-500/20'
+                : 'bg-white dark:bg-[#0a0f1d] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-cyan-500'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Aktif &amp; Terhubung ({activeConnectedCount})</span>
+          </button>
+
+          {/* TAB 3: UP */}
+          <button
+            onClick={() => setFilterStatus(filterStatus === 'UP' ? 'active-connected' : 'UP')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition shadow-sm ${
+              filterStatus === 'UP'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-white dark:bg-[#0a0f1d] border border-slate-200 dark:border-slate-800 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
+            }`}
+          >
+            UP ({servicesUp})
+          </button>
+
+          {/* TAB 4: Semua */}
           <button
             onClick={() => {
               setFilterStack('all');
@@ -322,12 +356,14 @@ export const ServiceListPage: React.FC = () => {
             }}
             className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition shadow-sm ${
               filterStack === 'all' && filterStatus === 'all'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-slate-800 dark:bg-slate-700 text-white'
                 : 'bg-white dark:bg-[#0a0f1d] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             Semua ({services.length})
           </button>
+
+          {/* TAB 5: Node.js */}
           <button
             onClick={() => setFilterStack(filterStack === 'nodejs' ? 'all' : 'nodejs')}
             className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition shadow-sm ${
@@ -338,6 +374,8 @@ export const ServiceListPage: React.FC = () => {
           >
             Node.js ({nodeCount})
           </button>
+
+          {/* TAB 6: Go */}
           <button
             onClick={() => setFilterStack(filterStack === 'go' ? 'all' : 'go')}
             className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition shadow-sm ${
@@ -348,18 +386,10 @@ export const ServiceListPage: React.FC = () => {
           >
             Go ({goCount})
           </button>
+
+          {/* TAB 7: DOWN */}
           <button
-            onClick={() => setFilterStatus(filterStatus === 'UP' ? 'all' : 'UP')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition shadow-sm ${
-              filterStatus === 'UP'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-white dark:bg-[#0a0f1d] border border-slate-200 dark:border-slate-800 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
-            }`}
-          >
-            UP ({servicesUp})
-          </button>
-          <button
-            onClick={() => setFilterStatus(filterStatus === 'DOWN' ? 'all' : 'DOWN')}
+            onClick={() => setFilterStatus(filterStatus === 'DOWN' ? 'active-connected' : 'DOWN')}
             className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition shadow-sm ${
               filterStatus === 'DOWN'
                 ? 'bg-rose-500 text-white'
@@ -537,11 +567,13 @@ export const ServiceListPage: React.FC = () => {
                           {/* SERVICE NAME & ID */}
                           <td className="py-3.5 px-4">
                             <div>
-                              <span className="font-semibold text-slate-900 dark:text-slate-100 font-sans block text-sm">
-                                {service.name}
-                              </span>
-                              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono block">
-                                {service.id}
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-slate-900 dark:text-slate-100 font-sans block text-sm">
+                                  {service.name}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono block mt-0.5">
+                                {service.id} &bull; <span className="text-slate-500 dark:text-slate-400">{service.url}</span>
                               </span>
                             </div>
                           </td>

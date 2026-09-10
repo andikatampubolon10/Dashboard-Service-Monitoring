@@ -1,0 +1,36 @@
+[
+  {
+    "id": "server-node-16-171-70-224",
+    "name": "Node-16-171-70-224",
+    "displayName": "Node-16-171-70-224",
+    "description": "Discovered via SSH (Ubuntu 24.04.4 LTS (WSL2 Distro)) with 3 active listening ports",
+    "host": "16.171.70.224",
+    "port": 22,
+    "env": "PRODUCTION",
+    "region": "jakarta-idc",
+    "isCustom": true,
+    "spec": {
+      "cores": 2,
+      "totalMemoryMb": 1908,
+      "usedMemoryMb": 1010,
+      "totalDiskGb": 6.7,
+      "usedDiskGb": 6.6,
+      "cpuUsagePercent": 15,
+      "uptimeSeconds": 59226,
+      "uptimeFormatted": "16h",
+      "os": "Ubuntu 24.04.4 LTS (WSL2 Distro)"
+    },
+    "serviceIds": [
+      "ai-consultation-node-16-171-70-224",
+      "node-exporter-node-16-171-70-224",
+      "health-profile-node-16-171-70-224"
+    ],
+    "databases": [],
+    "colocation": {
+      "canShare": [
+        "Multi-node container placement active."
+      ],
+      "cannotShare": []
+    }
+  }
+]

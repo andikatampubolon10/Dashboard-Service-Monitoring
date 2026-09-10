@@ -18,10 +18,13 @@ export const ServiceDetailPage: React.FC = () => {
   const { data: allServices = [] } = useServices();
 
   if (isError || (!isLoading && !service)) {
+    const available = allServices.length > 0
+      ? allServices.map((s) => s.id).join(', ')
+      : 'ai-consultation, audit, health-profile, identity, lifestyle, live-consult, medical-record';
     return (
       <ErrorState
         title="Microservice Not Found"
-        message={`Could not find microservice with id "${id}". Available services: ai-consultation, audit, health-profile, identity, lifestyle, live-consult, medical-record.`}
+        message={`Could not find microservice with id "${id}". Available services: ${available}`}
         onRetry={refetch}
       />
     );

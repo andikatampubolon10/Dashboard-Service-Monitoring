@@ -42,105 +42,44 @@
 
 require('dotenv').config();
 
-/** @type {ServerConfig[]} */
-const SERVERS = [
-  {
-    id: 'server-alpha',
-    name: 'server-alpha',
-    displayName: 'Server Alpha',
-    description: 'Authentication, health data & audit layer',
-    host: process.env.SERVER_ALPHA_HOST || '10.0.1.10',
-    agentUrl: process.env.SERVER_ALPHA_AGENT_URL || null,
-    spec: {
-      cores: 32,
-      totalMemoryMb: 65536,
-      usedMemoryMb: 22350,
-      totalDiskGb: 1024,
-      usedDiskGb: 312.4,
-      cpuUsagePercent: 22.4,
-      uptimeSeconds: 1234567,
-      uptimeFormatted: '14d 06h',
-      os: 'Ubuntu 22.04 LTS (Docker Host)',
-    },
-    serviceIds: ['identity', 'health-profile', 'audit'],
-    databases: [
-      {
-        id: 'postgres',
-        name: 'PostgreSQL',
-        host: process.env.DB_POSTGRES_HOST || 'localhost',
-        port: parseInt(process.env.DB_POSTGRES_PORT || '5432', 10),
-      },
-      {
-        id: 'redis',
-        name: 'Redis',
-        host: process.env.DB_REDIS_HOST || 'localhost',
-        port: parseInt(process.env.DB_REDIS_PORT || '6379', 10),
-      },
-    ],
-    colocation: {
-      canShare: [
-        'All three services use the same PostgreSQL + Redis instance — no extra network hop.',
-        'Combined resource usage is low-medium, well within a single server\'s capacity.',
-        'Audit service is stateless (Kafka consumer), adding minimal load.',
-        'Identity and Health Profile share user-related data models, benefiting from locality.',
-      ],
-      cannotShare: [
-        'AI Consultation is excluded — it has CPU/memory bursts that would starve auth latency.',
-        'Live Consult is excluded — its WebSocket connections need dedicated bandwidth.',
-        'Medical Record is excluded — its Elasticsearch indexing causes I/O spikes.',
-      ],
-    },
-  },
-  {
-    id: 'server-beta',
-    name: 'server-beta',
-    displayName: 'Server Beta',
-    description: 'Real-time consultations, AI & medical data services',
-    host: process.env.SERVER_BETA_HOST || '10.0.1.20',
-    agentUrl: process.env.SERVER_BETA_AGENT_URL || null,
-    spec: {
-      cores: 64,
-      totalMemoryMb: 131072,
-      usedMemoryMb: 86400,
-      totalDiskGb: 2048,
-      usedDiskGb: 1184.2,
-      cpuUsagePercent: 58.7,
-      uptimeSeconds: 2456789,
-      uptimeFormatted: '28d 10h',
-      os: 'Ubuntu 22.04 LTS (Docker Compute Host)',
-    },
-    serviceIds: ['ai-consultation', 'live-consult', 'medical-record', 'lifestyle'],
-    databases: [
-      {
-        id: 'mongodb',
-        name: 'MongoDB',
-        host: process.env.DB_MONGO_HOST || 'localhost',
-        port: parseInt(process.env.DB_MONGO_PORT || '27017', 10),
-      },
-      {
-        id: 'elasticsearch',
-        name: 'Elasticsearch',
-        host: process.env.DB_ES_HOST || 'localhost',
-        port: parseInt(process.env.DB_ES_PORT || '9200', 10),
-      },
-    ],
-    colocation: {
-      canShare: [
-        'All four services use MongoDB as primary store — shared DB instance reduces infra cost.',
-        'Medical Record and AI Consultation share patient data context, benefiting from locality.',
-        'Lifestyle service has predictable, low CPU usage — does not compete with others.',
-        'Live Consult and AI Consultation are functionally coupled (AI assists live sessions).',
-      ],
-      cannotShare: [
-        'In production, AI Consultation should be on its own server (GPU-optimised instance).',
-        'Identity/Auth is excluded — security isolation is mandatory for auth services.',
-        'Audit service is excluded — it belongs to the PostgreSQL cluster on Server Alpha.',
-      ],
-    },
-  },
-];
+const fs = require('fs');
+const path = require('path');
 
-const CUSTOM_SERVERS = [];
+const STORAGE_FILE = path.join(__dirname, '../../data/registered_servers.json');
+
+/** @type {ServerConfig[]} */
+const SERVERS = [];
+
+let CUSTOM_SERVERS = [];
+
+function loadPersistedServers() {
+  try {
+    if (fs.existsSync(STORAGE_FILE)) {
+      const raw = fs.readFileSync(STORAGE_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        CUSTOM_SERVERS = data;
+      }
+    }
+  } catch (err) {
+    console.warn('[servers.config] Failed to load persisted servers:', err.message);
+  }
+}
+
+function savePersistedServers() {
+  try {
+    const dir = path.dirname(STORAGE_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(STORAGE_FILE, JSON.stringify(CUSTOM_SERVERS, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[servers.config] Failed to save persisted servers:', err.message);
+  }
+}
+
+// Load on startup
+loadPersistedServers();
 
 /**
  * @returns {ServerConfig[]}
@@ -168,6 +107,7 @@ function registerServer(server) {
   } else {
     CUSTOM_SERVERS.push(server);
   }
+  savePersistedServers();
   return server;
 }
 
@@ -176,15 +116,58 @@ function registerServer(server) {
  * @returns {boolean}
  */
 function removeServer(id) {
-  const idx = CUSTOM_SERVERS.findIndex((s) => s.id === id);
-  if (idx >= 0) {
-    CUSTOM_SERVERS.splice(idx, 1);
+  const customIdx = CUSTOM_SERVERS.findIndex((s) => s.id === id);
+  if (customIdx >= 0) {
+    CUSTOM_SERVERS.splice(customIdx, 1);
+    savePersistedServers();
+    return true;
+  }
+  const defaultIdx = SERVERS.findIndex((s) => s.id === id);
+  if (defaultIdx >= 0) {
+    SERVERS.splice(defaultIdx, 1);
+    savePersistedServers();
     return true;
   }
   return false;
 }
 
-module.exports = { SERVERS, getAllServers, getServerById, registerServer, removeServer };
+/**
+ * @param {string} id
+ * @param {Partial<ServerConfig>} updates
+ * @returns {ServerConfig|null}
+ */
+function updateServer(id, updates) {
+  const target = getServerById(id);
+  if (!target) return null;
+
+  if (updates.name && updates.name.trim()) {
+    target.name = updates.name.trim();
+    target.displayName = updates.displayName ? updates.displayName.trim() : target.name;
+  }
+  if (updates.displayName && updates.displayName.trim()) {
+    target.displayName = updates.displayName.trim();
+  }
+  if (updates.host && updates.host.trim()) {
+    target.host = updates.host.trim();
+  }
+  if (updates.port !== undefined && updates.port !== null) {
+    target.port = parseInt(updates.port, 10) || null;
+  }
+  if (updates.description !== undefined) {
+    target.description = updates.description.trim();
+  }
+  if (updates.env && updates.env.trim()) {
+    target.env = updates.env.trim().toUpperCase();
+  }
+  if (updates.region && updates.region.trim()) {
+    target.region = updates.region.trim().toLowerCase();
+  }
+
+  savePersistedServers();
+  return target;
+}
+
+module.exports = { SERVERS, getAllServers, getServerById, registerServer, removeServer, updateServer };
 
 /**
  * @typedef {Object} DatabaseConfig

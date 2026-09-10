@@ -12,7 +12,7 @@
  */
 
 const { Router } = require('express');
-const { SERVICES } = require('../config/services.config');
+const { SERVICES, getAllActiveServices } = require('../config/services.config');
 const monitoringConfig = require('../config/monitoring.config');
 const {
   getLatest,
@@ -25,7 +25,8 @@ const router = Router();
 
 // ─── GET /api/metrics/summary ──────────────────────────────────────────────
 router.get('/summary', (req, res) => {
-  const services = SERVICES.map((service) => {
+  const allActive = getAllActiveServices();
+  const services = allActive.map((service) => {
     const latest = getLatest(service.id);
     const status = getStatus(service.id);
     const m = latest?.metrics;

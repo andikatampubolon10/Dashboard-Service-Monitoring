@@ -115,6 +115,15 @@ class MockDatabase {
     return this.servers.find((s) => s.id === id) || null;
   }
 
+  public deleteServer(id: string): boolean {
+    const idx = this.servers.findIndex((s) => s.id === id);
+    if (idx >= 0) {
+      this.servers.splice(idx, 1);
+      return true;
+    }
+    return false;
+  }
+
   public assignServiceToServer(
     serverId: string,
     serviceId: string

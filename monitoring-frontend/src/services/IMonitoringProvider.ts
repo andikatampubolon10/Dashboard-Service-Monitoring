@@ -19,6 +19,7 @@ import {
   RegisterServerPayload,
   DiscoverServerPayload,
   DiscoverServerResponse,
+  UpdateServerPayload,
 } from '../types';
 
 /**
@@ -33,6 +34,8 @@ export interface IMonitoringProvider {
   getServerById(id: string): Promise<ServerDetail | null>;
   discoverServer(payload: DiscoverServerPayload): Promise<DiscoverServerResponse>;
   registerServer(payload: RegisterServerPayload): Promise<Server>;
+  updateServer(id: string, payload: UpdateServerPayload): Promise<Server>;
+  deleteServer(id: string): Promise<boolean>;
   getServices(filter: GlobalFilterState): Promise<Service[]>;
   getServiceById(id: string): Promise<ServiceDetail | null>;
   getServiceRequests(

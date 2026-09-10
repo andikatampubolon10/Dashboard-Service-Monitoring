@@ -1,0 +1,163 @@
+version: '3.8'
+
+# ==============================================================================
+# Node Server: Ubuntu 1 (4 CPU, 4 GB RAM)
+# Hosting 3 Microservices:
+#   1. Identity Service       (Port 8080) + PostgreSQL (5432) + Redis (6379)
+#   2. Health Profile Service (Port 3001) + PostgreSQL (5438)
+#   3. Audit Service          (Port 4005) + PostgreSQL (5437)
+#   4. Node Exporter          (Port 9101 -> Host Telemetry Ubuntu 1)
+# ==============================================================================
+
+services:
+  # ─── 1. IDENTITY SERVICE STACK ──────────────────────────────────────────────
+  postgres-identity:
+    image: postgres:17-alpine
+    container_name: u1-postgres-identity
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: identity
+      POSTGRES_PASSWORD: identity
+      POSTGRES_DB: identity_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - u1_pg_identity_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identity -d identity_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis-identity:
+    image: redis:8-alpine
+    container_name: u1-redis-identity
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  identity-service:
+    build:
+      context: ./identity-service
+      args:
+        APP_PORT: 8080
+    container_name: u1-identity-service
+    restart: unless-stopped
+    environment:
+      APP_PORT: 8080
+      APP_ENV: production
+      DB_URL: postgres://identity:identity@postgres-identity:5432/identity_db?sslmode=disable
+      REDIS_URL: redis://redis-identity:6379/0
+      JWT_PRIVATE_KEY_PATH: /keys/private.pem
+      JWT_PUBLIC_KEY_PATH: /keys/public.pem
+    volumes:
+      - ./identity-service/keys:/keys:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres-identity:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.2'
+          memory: 1024M
+
+  # ─── 2. HEALTH PROFILE SERVICE STACK ────────────────────────────────────────
+  postgres-health-profile:
+    image: postgres:16-alpine
+    container_name: u1-postgres-health
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: health_profile
+    ports:
+      - "5438:5432"
+    volumes:
+      - u1_pg_health_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d health_profile"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  health-profile-service:
+    build:
+      context: ./health-profile-service
+    container_name: u1-health-profile-service
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      DATABASE_URL: postgresql://app:app@postgres-health-profile:5432/health_profile
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres-health-profile:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.4'
+          memory: 1536M
+
+  # ─── 3. AUDIT SERVICE STACK ─────────────────────────────────────────────────
+  postgres-audit:
+    image: postgres:16-alpine
+    container_name: u1-postgres-audit
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: audit
+      POSTGRES_PASSWORD: audit
+      POSTGRES_DB: audit_db
+    ports:
+      - "5437:5432"
+    volumes:
+      - u1_pg_audit_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audit -d audit_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  audit-service:
+    build:
+      context: ./audit-service
+      args:
+        APP_PORT: 4005
+    container_name: u1-audit-service
+    restart: unless-stopped
+    environment:
+      APP_PORT: 4005
+      APP_ENV: production
+      DB_URL: postgres://audit:audit@postgres-audit:5432/audit_db?sslmode=disable
+    ports:
+      - "4005:4005"
+    depends_on:
+      postgres-audit:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+
+  # ─── 4. NODE EXPORTER (TELEMETRI HOST UBUNTU 1) ─────────────────────────────
+  node-exporter-u1:
+    image: prom/node-exporter:latest
+    container_name: u1-node-exporter
+    restart: unless-stopped
+    ports:
+      - "9101:9100"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.4'
+          memory: 512M
+
+volumes:
+  u1_pg_identity_data:
+  u1_pg_health_data:
+  u1_pg_audit_data:

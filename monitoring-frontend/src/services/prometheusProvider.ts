@@ -20,6 +20,7 @@ import {
   RegisterServerPayload,
   DiscoverServerPayload,
   DiscoverServerResponse,
+  UpdateServerPayload,
 } from '../types';
 
 /**
@@ -60,6 +61,14 @@ export class PrometheusMonitoringProvider implements IMonitoringProvider {
 
   async registerServer(_payload: RegisterServerPayload): Promise<Server> {
     throw new Error('PrometheusMonitoringProvider registerServer pending.');
+  }
+
+  async updateServer(_id: string, _payload: UpdateServerPayload): Promise<Server> {
+    throw new Error('PrometheusMonitoringProvider updateServer pending.');
+  }
+
+  async deleteServer(_id: string): Promise<boolean> {
+    throw new Error('PrometheusMonitoringProvider deleteServer pending.');
   }
 
   async getServices(_filter: GlobalFilterState): Promise<Service[]> {

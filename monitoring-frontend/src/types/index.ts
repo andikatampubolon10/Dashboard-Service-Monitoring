@@ -117,6 +117,7 @@ export interface DiscoverServerPayload {
   password?: string;
   privateKey?: string;
   candidatePorts?: number[];
+  exporterPort?: number;
 }
 
 export interface DiscoverServerResponse {
@@ -157,6 +158,16 @@ export interface RegisterServerPayload {
     os?: string;
     uptimeFormatted?: string;
   };
+}
+
+export interface UpdateServerPayload {
+  name?: string;
+  displayName?: string;
+  host?: string;
+  port?: number;
+  description?: string;
+  env?: string;
+  region?: string;
 }
 
 
@@ -219,6 +230,9 @@ export interface Service {
   total4xx?: number;
   openFds?: number;
   activeConnections?: number;
+  serverName?: string;
+  serverHost?: string;
+  isRemote?: boolean;
 }
 
 export interface ServiceDetail extends Service {

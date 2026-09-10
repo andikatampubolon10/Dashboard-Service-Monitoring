@@ -20,6 +20,7 @@ import {
   RegisterServerPayload,
   DiscoverServerPayload,
   DiscoverServerResponse,
+  UpdateServerPayload,
 } from '../types';
 import { mockDb } from '../mock/database';
 
@@ -172,6 +173,28 @@ export class MockMonitoringProvider implements IMonitoringProvider {
       maxCapacity: 4,
     };
     return server;
+  }
+
+  async updateServer(id: string, payload: UpdateServerPayload): Promise<Server> {
+    await delay(150);
+    const existing = await this.getServerById(id);
+    if (!existing) throw new Error('Server not found');
+    return {
+      ...existing,
+      name: payload.name || existing.name,
+      displayName: payload.displayName || payload.name || existing.displayName,
+      host: payload.host || existing.host,
+      ip: payload.host || existing.ip,
+      port: payload.port !== undefined ? payload.port : existing.port,
+      description: payload.description !== undefined ? payload.description : existing.description,
+      env: payload.env || existing.env,
+      region: payload.region || existing.region,
+    };
+  }
+
+  async deleteServer(id: string): Promise<boolean> {
+    await delay(150);
+    return mockDb.deleteServer(id);
   }
 
   async getServices(filter: GlobalFilterState): Promise<Service[]> {
