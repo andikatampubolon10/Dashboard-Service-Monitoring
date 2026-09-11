@@ -260,6 +260,7 @@ export const ServerListPage: React.FC = () => {
         description: formData.description.trim(),
         serviceIds: formData.selectedServiceIds,
         services: discoveredServicesSelection,
+        databases: discoveredData?.databases || [],
         spec: discoveredData?.spec,
         ssh: discoveryMode === 'ssh' ? {
           port: parseInt(sshConfig.sshPort, 10) || 22,

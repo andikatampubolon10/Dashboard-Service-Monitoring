@@ -129,19 +129,10 @@ export const ServerDetailPage: React.FC = () => {
 
   const uptimeFormatted = sys?.uptime?.formatted || server?.uptime || '4h';
 
-  // 2. Extract and format Databases
-  const databasesList = (server?.databases && server.databases.length > 0)
+  // 2. Extract and format Databases (Only real detected/configured databases, no fake fallbacks)
+  const databasesList = (server?.databases && Array.isArray(server.databases))
     ? server.databases
-    : (id === 'server-beta'
-        ? [
-            { id: 'mongodb', name: 'MongoDB', host: 'localhost', port: 27017, status: 'DOWN', latencyMs: null },
-            { id: 'elasticsearch', name: 'Elasticsearch', host: 'localhost', port: 9200, status: 'DOWN', latencyMs: null },
-          ]
-        : [
-            { id: 'postgres', name: 'PostgreSQL', host: 'localhost', port: 5432, status: 'UP', latencyMs: 3 },
-            { id: 'redis', name: 'Redis', host: 'localhost', port: 6379, status: 'UP', latencyMs: 4 },
-          ]
-      );
+    : [];
   const upDatabasesCount = databasesList.filter((d) => d.status === 'UP').length;
   const totalDatabasesCount = databasesList.length;
 
@@ -536,26 +527,37 @@ export const ServerDetailPage: React.FC = () => {
             <Database className="w-5 h-5 text-cyan-500" />
             <div>
               <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-tight">
-                Database Instances & Connectivity Status ({upDatabasesCount}/{totalDatabasesCount} UP)
+                Database Instances &amp; Connectivity Status ({upDatabasesCount}/{totalDatabasesCount} UP)
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Pemeriksaan koneksi soket real-time ke database yang melayani service di host {server.displayName || server.name}
               </p>
             </div>
           </div>
-          <span
-            className={`px-3 py-1 rounded-full text-xs font-mono font-bold border ${
-              upDatabasesCount === totalDatabasesCount
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25'
-                : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25'
-            }`}
-          >
-            {upDatabasesCount === totalDatabasesCount ? 'ALL DATABASES RUNNING' : 'DATABASE ATTENTION NEEDED'}
-          </span>
+          {totalDatabasesCount === 0 ? (
+            <span className="px-3 py-1 rounded-full text-xs font-mono font-bold border bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/25">
+              NO DATABASES DETECTED
+            </span>
+          ) : (
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-mono font-bold border ${
+                upDatabasesCount === totalDatabasesCount
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25'
+                  : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25'
+              }`}
+            >
+              {upDatabasesCount === totalDatabasesCount ? 'ALL DATABASES RUNNING' : 'DATABASE ATTENTION NEEDED'}
+            </span>
+          )}
         </div>
 
-        {/* Database Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Database Grid or Honest Empty State */}
+        {totalDatabasesCount === 0 ? (
+          <div className="p-8 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-slate-500 dark:text-slate-400 text-xs font-sans">
+            Tidak ada instance database (PostgreSQL, Redis, MySQL, MongoDB) yang terdaftar atau aktif pada host server ini.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {databasesList.map((db) => {
             const isUp = db.status === 'UP';
             return (
@@ -607,6 +609,7 @@ export const ServerDetailPage: React.FC = () => {
             );
           })}
         </div>
+        )}
       </div>
 
       {/* ─── RESOURCE PERFORMANCE TIMELINE CHARTS (LIKE SERVICE DETAIL) ──────── */}

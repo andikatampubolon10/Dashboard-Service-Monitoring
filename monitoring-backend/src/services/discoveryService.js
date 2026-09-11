@@ -19,6 +19,15 @@ const KNOWN_SERVICES = [];
 
 const DEFAULT_PROBE_PORTS = [8080, 8081, 3000, 3001, 3002, 4000, 4001, 4004, 4005, 4006, 4007, 5000, 8000, 8001, 8888, 9000, 9090, 9100];
 
+// Standard database signatures for dynamic detection
+const KNOWN_DB_PORTS = [
+  { port: 5432, id: 'postgresql', name: 'PostgreSQL', pattern: /postgres/i },
+  { port: 6379, id: 'redis', name: 'Redis', pattern: /redis/i },
+  { port: 3306, id: 'mysql', name: 'MySQL / MariaDB', pattern: /mysql|mariadb/i },
+  { port: 27017, id: 'mongodb', name: 'MongoDB', pattern: /mongo/i },
+  { port: 9200, id: 'elasticsearch', name: 'Elasticsearch', pattern: /elastic/i },
+];
+
 /**
  * Test TCP reachability of a single host:port
  * @param {string} host
@@ -396,11 +405,28 @@ async function discoverViaHttpProbe({ host, candidatePorts = DEFAULT_PROBE_PORTS
     })
   );
 
+  // Probe standard database ports dynamically
+  const discoveredDatabases = [];
+  await Promise.all(
+    KNOWN_DB_PORTS.map(async (dbDef) => {
+      const tcp = await probeTcpPort(host, dbDef.port, 1500);
+      if (tcp.open) {
+        discoveredDatabases.push({
+          id: dbDef.id,
+          name: dbDef.name,
+          host,
+          port: dbDef.port,
+        });
+      }
+    })
+  );
+
   return {
     host,
     discoveryMode: 'probe',
     servicesCount: discovered.length,
     services: discovered,
+    databases: discoveredDatabases,
     spec: hostSpecs || {
       cores: 16,
       totalMemoryMb: 32768,
@@ -634,6 +660,21 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
           })
         );
 
+        // Dynamically detect running databases from ss/netstat and docker
+        const discoveredDatabases = [];
+        for (const dbDef of KNOWN_DB_PORTS) {
+          const hasPort = detectedPortSet.has(dbDef.port) || (portsOut && portsOut.includes(`:${dbDef.port}`));
+          const containerMatch = dockerOut && dbDef.pattern.test(dockerOut);
+          if (hasPort || containerMatch) {
+            discoveredDatabases.push({
+              id: dbDef.id,
+              name: dbDef.name,
+              host,
+              port: dbDef.port,
+            });
+          }
+        }
+
         client.end();
         if (!isFinished) {
           isFinished = true;
@@ -655,6 +696,7 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
             dockerContainers: dockerOut ? dockerOut.split('\n').filter(Boolean) : [],
             servicesCount: discoveredServices.length,
             services: discoveredServices,
+            databases: discoveredDatabases,
           });
         }
       } catch (err) {
@@ -675,6 +717,7 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
     };
     if (password) {
       connectConfig.password = password;
+      connectConfig.passphrase = password;
     }
     if (privateKey) {
       connectConfig.privateKey = privateKey;

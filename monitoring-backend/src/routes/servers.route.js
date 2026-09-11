@@ -184,9 +184,19 @@ async function buildServerResponse(server, includeColocation = false) {
         const totalMb = Math.round(totalMemBytes / 1024 / 1024);
         const usedMb = Math.round(usedMemBytes / 1024 / 1024);
 
+        // Find cpu usage from node-exporter service if already tracked in store
+        let cpuPercent = server.spec?.cpuUsagePercent ?? 0;
+        const nodeExpId = (server.serviceIds || []).find((s) => s.includes('node-exporter'));
+        if (nodeExpId) {
+          const expLatest = getLatest(nodeExpId);
+          if (expLatest?.metrics?.cpu?.usagePercent != null) {
+            cpuPercent = expLatest.metrics.cpu.usagePercent;
+          }
+        }
+
         liveHostMetrics = {
           cpu: {
-            usagePercent: parseFloat((Math.max(2, Math.min(98, 12.5 + Math.sin(Date.now() / 8000) * 3))).toFixed(1)),
+            usagePercent: parseFloat((cpuPercent || 0).toFixed(1)),
             cores,
           },
           memory: {
@@ -216,17 +226,16 @@ async function buildServerResponse(server, includeColocation = false) {
   let serverSystem = liveHostMetrics;
   if (!serverSystem) {
     if (server.spec) {
-      const jitter = Math.sin(Date.now() / 14000) * 2.8;
-      const cpuPct = parseFloat(Math.max(5, Math.min(95, server.spec.cpuUsagePercent + jitter)).toFixed(1));
-      const memUsedMb = server.spec.usedMemoryMb;
-      const memTotalMb = server.spec.totalMemoryMb;
-      const diskUsedGb = server.spec.usedDiskGb;
-      const diskTotalGb = server.spec.totalDiskGb;
+      const cpuPct = parseFloat((server.spec.cpuUsagePercent || 0).toFixed(1));
+      const memUsedMb = server.spec.usedMemoryMb || 0;
+      const memTotalMb = server.spec.totalMemoryMb || 1;
+      const diskUsedGb = server.spec.usedDiskGb || 0;
+      const diskTotalGb = server.spec.totalDiskGb || 1;
 
       serverSystem = {
         cpu: {
           usagePercent: cpuPct,
-          cores: server.spec.cores,
+          cores: server.spec.cores || 1,
         },
         memory: {
           usedMb: memUsedMb,
@@ -244,17 +253,17 @@ async function buildServerResponse(server, includeColocation = false) {
         },
         timestamp: new Date().toISOString(),
       };
-    } else if (server.port) {
+    } else if (server.host === 'localhost' || server.host === '127.0.0.1' || server.isLocal) {
+      serverSystem = formatSystemMetrics(getLatestSystemMetrics());
+    } else {
       const isUp = probeResult ? probeResult.open : false;
       serverSystem = {
-        cpu: { usagePercent: isUp ? 14.5 : 0, cores: 16 },
-        memory: { usedMb: isUp ? 8192 : 0, totalMb: 32768, usedPercent: isUp ? 25.0 : 0 },
-        disk: { usedGb: isUp ? 120.0 : 0, totalGb: 500, usedPercent: isUp ? 24.0 : 0 },
-        uptime: { seconds: isUp ? 86400 * 4 : 0, formatted: isUp ? '4d 02h' : 'DOWN' },
+        cpu: { usagePercent: 0, cores: 0 },
+        memory: { usedMb: 0, totalMb: 0, usedPercent: 0 },
+        disk: { usedGb: 0, totalGb: 0, usedPercent: 0 },
+        uptime: { seconds: 0, formatted: isUp ? 'Active' : 'OFFLINE' },
         timestamp: new Date().toISOString(),
       };
-    } else {
-      serverSystem = formatSystemMetrics(getLatestSystemMetrics());
     }
   }
 
@@ -464,7 +473,7 @@ router.post('/', async (req, res) => {
       isCustom: true,
       spec: serverSpec,
       serviceIds: finalServiceIds,
-      databases: [],
+      databases: Array.isArray(req.body.databases) ? req.body.databases : [],
       ssh: ssh && ssh.username ? {
         port: parseInt(ssh.port, 10) || 22,
         username: ssh.username.trim(),

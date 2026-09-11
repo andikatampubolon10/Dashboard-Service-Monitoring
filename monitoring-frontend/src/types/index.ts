@@ -136,6 +136,7 @@ export interface DiscoverServerResponse {
     os?: string;
   };
   services: DiscoveredService[];
+  databases?: Array<{ id: string; name: string; host: string; port: number }>;
   dockerContainers?: string[];
   error?: string;
 }
@@ -149,6 +150,7 @@ export interface RegisterServerPayload {
   region?: string;
   serviceIds?: string[];
   services?: DiscoveredService[];
+  databases?: Array<{ id: string; name: string; host: string; port: number }>;
   spec?: {
     cores: number;
     totalMemoryMb: number;
