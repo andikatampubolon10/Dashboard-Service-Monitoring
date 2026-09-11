@@ -14,75 +14,10 @@ const net = require('net');
 const axios = require('axios');
 const { Client: SshClient } = require('ssh2');
 
-// Registry of known microservice signatures for auto-detection
-const KNOWN_SERVICES = [
-  {
-    id: 'identity',
-    name: 'Identity Service',
-    defaultPort: 8081,
-    stack: 'go',
-    description: 'Authentication, JWT issuance, user identity management',
-    signatures: ['identity', 'jwt', 'auth_', 'user_'],
-  },
-  {
-    id: 'health-profile',
-    name: 'Health Profile Service',
-    defaultPort: 3001,
-    stack: 'nodejs',
-    description: 'BPJS participant health profile data & biometric enrollment',
-    signatures: ['health_profile_service', 'participant_profile', 'biometric_enrollment'],
-  },
-  {
-    id: 'medical-record',
-    name: 'Medical Record Service',
-    defaultPort: 3002,
-    stack: 'nodejs',
-    description: 'Patient medical history and record indexing',
-    signatures: ['medical_record', 'medical', 'record_'],
-  },
-  {
-    id: 'live-consult',
-    name: 'Live Consult Service',
-    defaultPort: 4004,
-    stack: 'go',
-    description: 'Real-time WebSocket consultation sessions',
-    signatures: ['live_consult', 'consultation', 'session_', 'ws_'],
-  },
-  {
-    id: 'audit',
-    name: 'Audit Service',
-    defaultPort: 4005,
-    stack: 'go',
-    description: 'Audit event consumer — activity events from Kafka',
-    signatures: ['audit', 'kafka_consumer', 'audit_event'],
-  },
-  {
-    id: 'ai-consultation',
-    name: 'AI Consultation Service',
-    defaultPort: 4006,
-    stack: 'nodejs',
-    description: 'AI-powered consultation lifecycle & transcript persistence',
-    signatures: ['ai_consultation', 'ai_', 'inference', 'transcript'],
-  },
-  {
-    id: 'lifestyle',
-    name: 'Lifestyle Service',
-    defaultPort: 4007,
-    stack: 'nodejs',
-    description: 'Exercise catalog, completion tracking & wellness',
-    signatures: ['lifestyle', 'exercise', 'wellness'],
-  },
-  {
-    id: 'node-exporter',
-    name: 'Node Exporter Host Agent',
-    defaultPort: 9100,
-    stack: 'go',
-    description: 'Prometheus Node Exporter system hardware metrics agent',
-    signatures: ['node_cpu_seconds_total', 'node_memory_MemTotal_bytes'],
-  },
-];
+// Empty catalogue for backward-compatibility with external callers
+const KNOWN_SERVICES = [];
 
-const DEFAULT_PROBE_PORTS = [8081, 8080, 3001, 3002, 4004, 4005, 4006, 4007, 9100, 3000, 5000, 8000];
+const DEFAULT_PROBE_PORTS = [8080, 8081, 3000, 3001, 3002, 4000, 4001, 4004, 4005, 4006, 4007, 5000, 8000, 8001, 8888, 9000, 9090, 9100];
 
 /**
  * Test TCP reachability of a single host:port
@@ -136,63 +71,205 @@ function probeTcpPort(host, port, timeoutMs = 2500) {
 }
 
 /**
- * Identify microservice identity from /metrics body text, container name, or fallback to port matching
- * @param {number} port
- * @param {string} bodyText
- * @param {string} [containerName]
- * @returns {typeof KNOWN_SERVICES[0]}
+ * Detect runtime stack from live telemetry response
+ * @param {string} text
+ * @returns {'go' | 'nodejs' | 'python' | 'java'}
  */
+function detectRuntimeStack(text = '') {
+  const lower = (text || '').toLowerCase();
+  if (
+    lower.includes('go_goroutines') ||
+    lower.includes('go_threads') ||
+    lower.includes('promhttp_') ||
+    lower.includes('go_gc_') ||
+    lower.includes('go_info')
+  ) {
+    return 'go';
+  }
+  if (lower.includes('python_info') || lower.includes('python_gc_')) {
+    return 'python';
+  }
+  if (lower.includes('jvm_') || lower.includes('java_lang_')) {
+    return 'java';
+  }
+  if (lower.includes('nodejs_') || lower.includes('process_cpu_seconds_total')) {
+    return 'nodejs';
+  }
+  return 'nodejs';
+}
+
 /**
- * Identify microservice identity from port matching, container name, or metrics signatures
- * @param {number} port
- * @param {string} bodyText
- * @param {string} [containerName]
- * @returns {typeof KNOWN_SERVICES[0]}
+ * Helper to clean and format a raw name into Title Case
+ * e.g. "identity-service" -> "Identity Service"
+ * e.g. "my_custom_api" -> "My Custom Api"
  */
-function identifyService(port, bodyText = '', containerName = '') {
-  const lowerBody = (bodyText + ' ' + containerName).toLowerCase();
-  const lowerContainer = (containerName || '').toLowerCase();
+function formatServiceName(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  return raw
+    .replace(/[-_]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
 
-  // 1. Primary: Exact default port matching (highest fidelity in our microservices ecosystem)
-  const matchByPort = KNOWN_SERVICES.find((s) => s.defaultPort === port);
-  if (matchByPort) {
-    // If port 8080, it's definitely Identity Service (even if metrics mention health_profile_outbox)
-    return matchByPort;
-  }
+/**
+ * Dynamically extract a custom metric namespace prefix from Prometheus text
+ * e.g. # HELP bpjs_active_sessions -> "bpjs"
+ * e.g. # HELP invoice_paid_total -> "invoice"
+ * e.g. # HELP order_items_count -> "order"
+ * Ignores standard runtime prefixes (go, nodejs, process, jvm, python, http, etc.)
+ */
+function extractMetricNamespace(bodyText = '') {
+  if (!bodyText) return null;
+  const lines = bodyText.split('\n');
+  const STANDARD_PREFIXES = new Set([
+    'go', 'nodejs', 'process', 'jvm', 'python', 'http', 'promhttp', 'net', 'scrape', 'node', 'system'
+  ]);
 
-  // 2. Container Name match
-  if (lowerContainer) {
-    for (const svc of KNOWN_SERVICES) {
-      if (lowerContainer.includes(svc.id) || lowerContainer.includes(svc.name.toLowerCase().replace(/\s+/g, '-'))) {
-        return svc;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('# HELP ') || trimmed.startsWith('# TYPE ')) {
+      const metricName = trimmed.split(/\s+/)[2];
+      if (metricName) {
+        const parts = metricName.split('_');
+        const prefix = parts[0]?.toLowerCase();
+        if (prefix && !STANDARD_PREFIXES.has(prefix) && prefix.length >= 2) {
+          if (parts.length >= 2 && ['session', 'consultation', 'profile', 'record', 'auth', 'user', 'order', 'payment', 'api', 'event', 'sync'].includes(parts[1]?.toLowerCase())) {
+            return `${parts[0]}_${parts[1]}`;
+          }
+          return parts[0];
+        }
       }
     }
   }
+  return null;
+}
 
-  // 3. Runtime Disambiguation: Go vs Node.js
-  const isGoRuntime = lowerBody.includes('go_goroutines') || lowerBody.includes('go_threads') || lowerBody.includes('promhttp_');
-  const isNodeRuntime = lowerBody.includes('nodejs_') || lowerBody.includes('process_cpu_seconds_total') && !isGoRuntime;
+/**
+ * PURE DYNAMIC Service Identification
+ * Completely independent of any hardcoded catalogue or pre-registered service list.
+ * Autonomously deduces identity from:
+ * 1. Docker container / process name
+ * 2. /health or /info JSON self-identification
+ * 3. Prometheus metric labels (app="...", service="...", job="...")
+ * 4. Distinctive domain metric namespace prefix
+ * 5. Live runtime stack (Go / Node.js / Python / Java)
+ * 6. Neutral dynamic fallback: "Service on Port ${port}"
+ *
+ * @param {number} port
+ * @param {string} bodyText - Raw Prometheus text or HTTP response body
+ * @param {string} [containerName] - Container name from docker ps / process
+ * @param {object|null} [healthData] - Parsed JSON from /health or /info
+ * @returns {{ id: string, name: string, defaultPort: number, stack: string, description: string }}
+ */
+function identifyService(port, bodyText = '', containerName = '', healthData = null) {
+  const lowerBody = (bodyText || '').toLowerCase();
+  const stack = detectRuntimeStack(bodyText);
 
-  // 4. Signature match in /metrics
-  for (const svc of KNOWN_SERVICES) {
-    if (svc.stack === 'go' && isNodeRuntime) continue;
-    if (svc.stack === 'nodejs' && isGoRuntime) continue;
+  // 1. Prometheus Node Exporter check
+  if (lowerBody.includes('node_cpu_seconds_total') || lowerBody.includes('node_memory_memtotal_bytes')) {
+    return {
+      id: 'node-exporter',
+      name: 'Node Exporter',
+      defaultPort: port,
+      stack: 'go',
+      description: 'Prometheus Node Exporter system hardware telemetry agent',
+    };
+  }
 
-    for (const sig of svc.signatures) {
-      if (lowerBody.includes(sig)) {
-        return svc;
+  // 2. Extract identity from Container Name (Docker / Process)
+  if (containerName && containerName.trim()) {
+    let clean = containerName.trim()
+      .replace(/-\d+$/, '')             // strip trailing -1, -2
+      .replace(/-app(-\d+)?$/, '')       // strip -app, -app-1
+      .replace(/^inaai-/, '');          // strip project prefix
+
+    const serviceMatch = clean.match(/^([a-z0-9-]+-service)/i);
+    if (serviceMatch) {
+      clean = serviceMatch[1];
+    }
+
+    const id = clean.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    let displayName = formatServiceName(clean);
+    if (!displayName.toLowerCase().includes('service')) {
+      displayName += ' Service';
+    }
+
+    return {
+      id,
+      name: displayName,
+      defaultPort: port,
+      stack,
+      description: `Container: ${containerName}`,
+    };
+  }
+
+  // 3. Extract identity from /health or /info JSON self-identification
+  if (healthData && typeof healthData === 'object') {
+    const rawName = healthData.service || healthData.name || healthData.app || healthData.appName || healthData.title;
+    if (rawName && typeof rawName === 'string') {
+      const id = rawName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      let displayName = formatServiceName(rawName);
+      if (!displayName.toLowerCase().includes('service')) {
+        displayName += ' Service';
       }
+      return {
+        id,
+        name: displayName,
+        defaultPort: port,
+        stack,
+        description: `Discovered from /health endpoint (${rawName})`,
+      };
     }
   }
 
-  // 5. Custom / Unknown microservice
+  // 4. Extract identity from Prometheus labels
+  // e.g. app="...", service="...", service_name="...", job="..."
+  const labelMatch = bodyText.match(/(?:app|service|service_name|job)="([^"]+)"/i);
+  if (labelMatch && labelMatch[1]) {
+    const labelVal = labelMatch[1].trim();
+    if (labelVal && !['node', 'prometheus', 'default', 'metrics', 'exporter'].includes(labelVal.toLowerCase())) {
+      const id = labelVal.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      let displayName = formatServiceName(labelVal);
+      if (!displayName.toLowerCase().includes('service')) {
+        displayName += ' Service';
+      }
+      return {
+        id,
+        name: displayName,
+        defaultPort: port,
+        stack,
+        description: `Discovered from Prometheus metric label (${labelVal})`,
+      };
+    }
+  }
+
+  // 5. Extract identity dynamically from domain metric namespace prefix
+  const domainNamespace = extractMetricNamespace(bodyText);
+  if (domainNamespace) {
+    const id = domainNamespace.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    let displayName = formatServiceName(domainNamespace);
+    if (!displayName.toLowerCase().includes('service')) {
+      displayName += ' Service';
+    }
+    return {
+      id,
+      name: displayName,
+      defaultPort: port,
+      stack,
+      description: `Discovered from domain metrics (${domainNamespace}_*)`,
+    };
+  }
+
+  // 6. Neutral Dynamic Fallback (NO port-guessing, NO hardcoded assumptions)
   return {
-    id: `custom-svc-${port}`,
-    name: containerName ? `Service (${containerName})` : `Service on Port ${port}`,
+    id: `service-${port}`,
+    name: `Service on Port ${port}`,
     defaultPort: port,
-    stack: isGoRuntime ? 'go' : 'nodejs',
-    description: `Discovered active service on port ${port}`,
-    signatures: [],
+    stack,
+    description: `Active listening service on port ${port}`,
   };
 }
 
@@ -267,8 +344,9 @@ async function discoverViaHttpProbe({ host, candidatePorts = DEFAULT_PROBE_PORTS
       }
 
       try {
-        await axios.get(`${targetUrl}/health`, { timeout: 1500, validateStatus: () => true });
-        const matched = identifyService(port, '');
+        const healthRes = await axios.get(`${targetUrl}/health`, { timeout: 1500, validateStatus: () => true });
+        const healthPayload = typeof healthRes.data === 'object' ? healthRes.data : null;
+        const matched = identifyService(port, typeof healthRes.data === 'string' ? healthRes.data : '', '', healthPayload);
         discovered.push({
           id: matched.id,
           name: matched.name,
@@ -284,8 +362,8 @@ async function discoverViaHttpProbe({ host, candidatePorts = DEFAULT_PROBE_PORTS
       } catch {
         // Port is open on raw TCP, check if it responds to HTTP root
         try {
-          await axios.get(targetUrl, { timeout: 1500, validateStatus: () => true });
-          const matched = identifyService(port, '');
+          const rootRes = await axios.get(targetUrl, { timeout: 1500, validateStatus: () => true });
+          const matched = identifyService(port, typeof rootRes.data === 'string' ? rootRes.data : '', '');
           discovered.push({
             id: matched.id,
             name: matched.name,
@@ -300,7 +378,7 @@ async function discoverViaHttpProbe({ host, candidatePorts = DEFAULT_PROBE_PORTS
           });
         } catch {
           // Port is listening on TCP, register as active listening service
-          const matched = identifyService(port, '');
+          const matched = identifyService(port, '', '');
           discovered.push({
             id: matched.id,
             name: matched.name,
@@ -340,16 +418,41 @@ async function discoverViaHttpProbe({ host, candidatePorts = DEFAULT_PROBE_PORTS
  * @param {string} cmd
  * @returns {Promise<string>}
  */
-function execSshCommand(client, cmd) {
-  return new Promise((resolve, reject) => {
+function execSshCommand(client, cmd, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const t = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve('');
+      }
+    }, timeoutMs);
+
     client.exec(cmd, (err, stream) => {
-      if (err) return reject(err);
+      if (err) {
+        clearTimeout(t);
+        if (!resolved) {
+          resolved = true;
+          return resolve('');
+        }
+        return;
+      }
       let stdout = '';
-      let stderr = '';
       stream.on('data', (d) => { stdout += d.toString(); });
-      stream.stderr.on('data', (d) => { stderr += d.toString(); });
-      stream.on('close', () => { resolve(stdout.trim()); });
-      stream.on('error', (e) => reject(e));
+      stream.on('close', () => {
+        clearTimeout(t);
+        if (!resolved) {
+          resolved = true;
+          resolve(stdout.trim());
+        }
+      });
+      stream.on('error', () => {
+        clearTimeout(t);
+        if (!resolved) {
+          resolved = true;
+          resolve('');
+        }
+      });
     });
   });
 }
@@ -383,11 +486,6 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
         clearTimeout(timer);
         reject(new Error(`SSH Error (${host}:${port}): ${err.message}`));
       }
-    });
-
-    // Support modern Ubuntu PAM / keyboard-interactive password prompts
-    client.on('keyboard-interactive', (name, instructions, instructionsLang, prompts, finish) => {
-      finish([password || '']);
     });
 
     client.on('ready', async () => {
@@ -430,7 +528,7 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
         // 2. Discover Listening Ports & Docker Containers
         const [portsOut, dockerOut] = await Promise.all([
           execSshCommand(client, 'ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null').catch(() => ''),
-          execSshCommand(client, 'docker ps --format "{{.Names}}\t{{.Ports}}\t{{.Image}}" 2>/dev/null || sudo docker ps --format "{{.Names}}\t{{.Ports}}\t{{.Image}}" 2>/dev/null').catch(() => ''),
+          execSshCommand(client, 'docker ps --format "{{.Names}}\t{{.Ports}}\t{{.Image}}" 2>/dev/null || sudo -n docker ps --format "{{.Names}}\t{{.Ports}}\t{{.Image}}" 2>/dev/null').catch(() => ''),
         ]);
 
         // Map container names and ports from docker ps
@@ -454,19 +552,6 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
                   if (p > 0 && p <= 65535) {
                     detectedPortSet.add(p);
                     dockerContainerMap.set(p, { name: containerName, image: imageStr });
-                  }
-                }
-              }
-
-              // Match container names directly to known microservices (e.g. identity, audit, redis, postgres)
-              for (const known of KNOWN_SERVICES) {
-                if (
-                  containerName.toLowerCase().includes(known.id) ||
-                  imageStr.toLowerCase().includes(known.id)
-                ) {
-                  detectedPortSet.add(known.defaultPort);
-                  if (!dockerContainerMap.has(known.defaultPort)) {
-                    dockerContainerMap.set(known.defaultPort, { name: containerName, image: imageStr });
                   }
                 }
               }
@@ -496,54 +581,58 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
           p >= 1000 && p <= 65535 && !IGNORE_PORTS.has(p)
         );
 
-        // 3. Inspect endpoints with local curl inside remote host (fast 1s timeout)
+        // 3. Inspect endpoints with local curl inside remote host concurrently
         const discoveredServices = [];
         const seenServiceIds = new Set();
 
-        for (const port of candidatePorts) {
-          const containerInfo = dockerContainerMap.get(port);
-          let inspectedText = '';
+        await Promise.all(
+          candidatePorts.map(async (port) => {
+            const containerInfo = dockerContainerMap.get(port);
+            let inspectedText = '';
 
-          try {
-            inspectedText = await execSshCommand(
-              client,
-              `curl -s -m 1 http://127.0.0.1:${port}/metrics 2>/dev/null | head -n 20`
-            );
-          } catch {}
-
-          if (!inspectedText && containerInfo) {
             try {
               inspectedText = await execSshCommand(
                 client,
-                `curl -s -m 1 http://127.0.0.1:${port}/health 2>/dev/null | head -n 10`
+                `curl -s -m 1 http://127.0.0.1:${port}/metrics 2>/dev/null | head -n 20`,
+                1500
               );
             } catch {}
-          }
 
-          const hasMetrics = Boolean(inspectedText && inspectedText.trim().length > 5);
+            if (!inspectedText && containerInfo) {
+              try {
+                inspectedText = await execSshCommand(
+                  client,
+                  `curl -s -m 1 http://127.0.0.1:${port}/health 2>/dev/null | head -n 10`,
+                  1500
+                );
+              } catch {}
+            }
 
-          // STRICT CHECK: Service must EITHER have responded with valid HTTP text, OR have a verified running container in docker ps
-          if (!hasMetrics && !containerInfo) {
-            continue; // Skip inactive ports!
-          }
+            const hasMetrics = Boolean(inspectedText && inspectedText.trim().length > 5);
 
-          const matched = identifyService(port, inspectedText, containerInfo?.name || '');
+            // STRICT CHECK: Service must EITHER have responded with valid HTTP text, OR have a verified running container in docker ps
+            if (!hasMetrics && !containerInfo) {
+              return; // Skip inactive ports
+            }
 
-          if (!seenServiceIds.has(matched.id)) {
-            seenServiceIds.add(matched.id);
-            discoveredServices.push({
-              id: matched.id,
-              name: containerInfo ? `${matched.name}` : matched.name,
-              port,
-              url: `http://${host}:${port}`,
-              metricsPath: '/metrics',
-              stack: matched.stack,
-              description: matched.description || (containerInfo ? `Container: ${containerInfo.name}` : `Port ${port}`),
-              status: 'UP',
-              hasMetrics,
-            });
-          }
-        }
+            const matched = identifyService(port, inspectedText, containerInfo?.name || '');
+
+            if (!seenServiceIds.has(matched.id)) {
+              seenServiceIds.add(matched.id);
+              discoveredServices.push({
+                id: matched.id,
+                name: containerInfo ? `${matched.name}` : matched.name,
+                port,
+                url: `http://${host}:${port}`,
+                metricsPath: '/metrics',
+                stack: matched.stack,
+                description: matched.description || (containerInfo ? `Container: ${containerInfo.name}` : `Port ${port}`),
+                status: 'UP',
+                hasMetrics,
+              });
+            }
+          })
+        );
 
         client.end();
         if (!isFinished) {
@@ -583,12 +672,12 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
       port,
       username,
       readyTimeout: timeoutMs,
-      tryKeyboard: true,
     };
+    if (password) {
+      connectConfig.password = password;
+    }
     if (privateKey) {
       connectConfig.privateKey = privateKey;
-    } else {
-      connectConfig.password = password;
     }
 
     client.connect(connectConfig);

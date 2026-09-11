@@ -48,6 +48,7 @@ export const ServerListPage: React.FC = () => {
     sshPort: '22',
     username: 'ubuntu',
     password: '',
+    privateKey: '',
   });
   const [discoveredData, setDiscoveredData] = useState<DiscoverServerResponse | null>(null);
   const [discoveredServicesSelection, setDiscoveredServicesSelection] = useState<DiscoveredService[]>([]);
@@ -86,6 +87,7 @@ export const ServerListPage: React.FC = () => {
   // Delete Server State
   const [deletingServer, setDeletingServer] = useState<Server | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
 
   const handleOpenEditModal = (server: Server) => {
     setEditingServer(server);
@@ -166,6 +168,7 @@ export const ServerListPage: React.FC = () => {
         sshPort: parseInt(sshConfig.sshPort, 10) || 22,
         username: sshConfig.username.trim() || undefined,
         password: sshConfig.password || undefined,
+        privateKey: sshConfig.privateKey.trim() || undefined,
         exporterPort: parseInt(formData.port, 10) || 9100,
       });
 
@@ -218,6 +221,20 @@ export const ServerListPage: React.FC = () => {
     });
   };
 
+  const handleUpdateDiscoveredServiceName = (serviceId: string, newName: string) => {
+    setDiscoveredServicesSelection((prev) =>
+      prev.map((s) => (s.id === serviceId ? { ...s, name: newName } : s))
+    );
+    if (discoveredData) {
+      setDiscoveredData({
+        ...discoveredData,
+        services: discoveredData.services.map((s) =>
+          s.id === serviceId ? { ...s, name: newName } : s
+        ),
+      });
+    }
+  };
+
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -244,7 +261,13 @@ export const ServerListPage: React.FC = () => {
         serviceIds: formData.selectedServiceIds,
         services: discoveredServicesSelection,
         spec: discoveredData?.spec,
-      });
+        ssh: discoveryMode === 'ssh' ? {
+          port: parseInt(sshConfig.sshPort, 10) || 22,
+          username: sshConfig.username.trim(),
+          password: sshConfig.password || undefined,
+          privateKey: sshConfig.privateKey.trim() || undefined,
+        } : undefined,
+      } as any);
 
       setFormSuccess(`Server "${res.name}" berhasil didaftarkan! Status: ${res.status}`);
       refetch();
@@ -629,7 +652,7 @@ export const ServerListPage: React.FC = () => {
                         </span>
                       </td>
 
-                      {/* Actions Column (Edit & Delete) */}
+                      {/* Actions Column (Tunnel, Edit & Delete) */}
                       <td className="py-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1.5">
                           <button
@@ -829,29 +852,64 @@ export const ServerListPage: React.FC = () => {
             </div>
 
             {discoveryMode === 'ssh' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
-                    SSH Username <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. ubuntu atau ec2-user"
-                    value={sshConfig.username}
-                    onChange={(e) => setSshConfig({ ...sshConfig, username: e.target.value })}
-                    className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
-                  />
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                      SSH Username <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. ubuntu atau ec2-user"
+                      value={sshConfig.username}
+                      onChange={(e) => setSshConfig({ ...sshConfig, username: e.target.value })}
+                      className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                      SSH Password (Opsional)
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Password user SSH (jika ada)"
+                      value={sshConfig.password}
+                      onChange={(e) => setSshConfig({ ...sshConfig, password: e.target.value })}
+                      className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                    />
+                  </div>
                 </div>
+
                 <div className="space-y-1.5">
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
-                    SSH Password (Opsional)
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="Password user SSH (jika ada)"
-                    value={sshConfig.password}
-                    onChange={(e) => setSshConfig({ ...sshConfig, password: e.target.value })}
-                    className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm"
+                  <div className="flex items-center justify-between">
+                    <label className="block text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px]">
+                      SSH Private Key (.pem) — Khusus AWS EC2 / Key Pair
+                    </label>
+                    <label className="cursor-pointer text-[10px] text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1 font-sans">
+                      <span>📁 Pilih File .pem</span>
+                      <input
+                        type="file"
+                        accept=".pem,.key,text/plain"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              setSshConfig((prev) => ({ ...prev, privateKey: (event.target?.result as string) || '' }));
+                            };
+                            reader.readAsText(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <textarea
+                    rows={2}
+                    placeholder="Paste isi file .pem di sini (atau klik 'Pilih File .pem' di atas). Default AWS EC2 Ubuntu hanya menerima SSH Key."
+                    value={sshConfig.privateKey}
+                    onChange={(e) => setSshConfig({ ...sshConfig, privateKey: e.target.value })}
+                    className="w-full bg-white dark:bg-[#111827] border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-[11px] font-mono text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 shadow-sm resize-none"
                   />
                 </div>
               </div>
@@ -991,16 +1049,21 @@ export const ServerListPage: React.FC = () => {
                               onChange={() => {}}
                               className="rounded text-emerald-500 focus:ring-emerald-400 h-4 w-4 pointer-events-none shrink-0"
                             />
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-[11px] truncate">
-                                  {svc.name}
-                                </span>
+                                <input
+                                  type="text"
+                                  value={svc.name}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => handleUpdateDiscoveredServiceName(svc.id, e.target.value)}
+                                  className="font-bold text-[11px] bg-transparent border-b border-dashed border-slate-300 dark:border-slate-700 hover:border-cyan-500 focus:border-cyan-500 focus:bg-white/40 dark:focus:bg-black/30 focus:outline-none px-1 py-0.5 rounded text-slate-900 dark:text-white transition w-full"
+                                  title="Nama service (klik untuk mengubah nama service)"
+                                />
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 shrink-0">
                                   :{svc.port}
                                 </span>
                               </div>
-                              <div className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
+                              <div className="text-[10px] text-slate-400 font-mono truncate mt-0.5 px-1">
                                 {svc.url}
                               </div>
                             </div>
@@ -1322,6 +1385,7 @@ export const ServerListPage: React.FC = () => {
           </div>
         </div>
       </Modal>
+
     </div>
   );
 };

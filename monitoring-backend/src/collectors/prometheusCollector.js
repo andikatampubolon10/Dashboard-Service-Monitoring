@@ -22,8 +22,11 @@ const SCRAPE_TIMEOUT_MS = 4000;
  * @param {number} intervalSeconds - Seconds since last successful scrape
  * @returns {Promise<ScrapeResult>}
  */
+const { getTunnelUrl } = require('../services/sshTunnelService');
+
 async function scrapeService(service, prevMetricMap, intervalSeconds) {
-  const url = `${service.url}${service.metricsPath}`;
+  const tunnelBase = getTunnelUrl(service.id);
+  const url = tunnelBase ? `${tunnelBase}${service.metricsPath}` : `${service.url}${service.metricsPath}`;
   const startMs = Date.now();
 
   try {

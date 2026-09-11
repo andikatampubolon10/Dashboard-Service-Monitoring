@@ -13,6 +13,8 @@
 
 const cron = require('node-cron');
 const { SERVICES, getAllActiveServices } = require('../config/services.config');
+const { getAllServers } = require('../config/servers.config');
+const { initAllTunnels } = require('../services/sshTunnelService');
 const monitoringConfig = require('../config/monitoring.config');
 const { scrapeService } = require('./prometheusCollector');
 const { collectSystemMetrics } = require('./systemCollector');
@@ -146,6 +148,13 @@ function startCollector() {
   const intervalSeconds = monitoringConfig.pollIntervalSeconds;
   console.log(`[Collector] Starting — scraping ${SERVICES.length} services every ${intervalSeconds}s`);
   SERVICES.forEach((s) => console.log(`  → ${s.name} @ ${s.url}${s.metricsPath}`));
+
+  // Initialize SSH tunnels for remote servers
+  try {
+    initAllTunnels(getAllServers(), getAllActiveServices);
+  } catch (err) {
+    console.warn('[Collector] SSH tunnel initialization error:', err.message);
+  }
 
   // Run immediately on startup, then on schedule
   runScrapeCycle().catch(console.error);

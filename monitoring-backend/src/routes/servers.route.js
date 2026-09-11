@@ -17,6 +17,7 @@ const { getServiceById, registerService, removeServicesByServer, updateServicesB
 const { getLatest, getStatus, getLatestSystemMetrics } = require('../store/metricsStore');
 const { probeDatabases } = require('../utils/databaseProber');
 const { discoverViaSsh, discoverViaHttpProbe } = require('../services/discoveryService');
+const { initServerTunnel, teardownServerTunnel } = require('../services/sshTunnelService');
 
 const router = Router();
 
@@ -369,6 +370,7 @@ router.post('/', async (req, res) => {
       serviceIds,
       services: discoveredServices,
       spec,
+      ssh,
     } = req.body;
 
     if (!name || !name.trim()) {
@@ -394,6 +396,7 @@ router.post('/', async (req, res) => {
 
     // Collect and register services dynamically
     const registeredServiceIds = new Set();
+    const registeredServiceObjects = [];
 
     if (Array.isArray(discoveredServices) && discoveredServices.length > 0) {
       for (const svc of discoveredServices) {
@@ -401,7 +404,7 @@ router.post('/', async (req, res) => {
         const targetUrl = svc.url || `http://${cleanHost}:${svc.port || 8080}`;
         // Namespace dynamic service id per server to prevent colliding with local services
         const dynamicId = `${svc.id}-${cleanSlug}`;
-        registerService({
+        const createdSvc = registerService({
           id: dynamicId,
           name: `${svc.name || svc.id} (${name.trim()})`,
           url: targetUrl,
@@ -409,8 +412,10 @@ router.post('/', async (req, res) => {
           stack: svc.stack || 'nodejs',
           description: svc.description || `Discovered on ${cleanHost}:${svc.port}`,
           serverId,
+          port: svc.port,
         });
         registeredServiceIds.add(dynamicId);
+        registeredServiceObjects.push(createdSvc);
       }
     }
 
@@ -460,6 +465,12 @@ router.post('/', async (req, res) => {
       spec: serverSpec,
       serviceIds: finalServiceIds,
       databases: [],
+      ssh: ssh && ssh.username ? {
+        port: parseInt(ssh.port, 10) || 22,
+        username: ssh.username.trim(),
+        password: ssh.password || undefined,
+        privateKey: ssh.privateKey || undefined,
+      } : undefined,
       colocation: {
         canShare: ['Multi-node container placement active.'],
         cannotShare: [],
@@ -467,6 +478,11 @@ router.post('/', async (req, res) => {
     };
 
     registerServer(newServer);
+
+    // If server has SSH credentials, immediately initialize metric tunnels
+    if (newServer.ssh) {
+      initServerTunnel(newServer, registeredServiceObjects);
+    }
 
     const fullResponse = await buildServerResponse(newServer, true);
 
@@ -548,13 +564,48 @@ router.delete('/:id', async (req, res) => {
     return res.status(404).json({ success: false, error: 'Server not found' });
   }
 
-  // Remove associated dynamic services
+  // Remove associated dynamic services and teardown SSH tunnels
+  teardownServerTunnel(id);
   removeServicesByServer(id);
   const removed = removeServer(id);
 
   return res.json({
     success: removed,
     message: `Server "${server.name}" (${id}) dan layanannya berhasil dihapus dari pemantauan.`,
+  });
+});
+
+// ─── POST /api/servers/:id/tunnel (Activate / Update SSH Tunnel) ───────────────
+router.post('/:id/tunnel', async (req, res) => {
+  const { id } = req.params;
+  const server = getServerById(id);
+  if (!server) {
+    return res.status(404).json({ success: false, error: 'Server tidak ditemukan.' });
+  }
+
+  const { username, password, privateKey, port } = req.body;
+  if (!username || !username.trim()) {
+    return res.status(400).json({ success: false, error: 'Username SSH wajib diisi.' });
+  }
+
+  const sshConfig = {
+    username: username.trim(),
+    password: password || undefined,
+    privateKey: privateKey || undefined,
+    port: parseInt(port, 10) || 22,
+  };
+
+  server.ssh = sshConfig;
+  updateServer(id, { ssh: sshConfig });
+
+  const allActive = getAllActiveServices();
+  const serverServices = allActive.filter((s) => s.serverId === id);
+  initServerTunnel(server, serverServices);
+
+  return res.json({
+    success: true,
+    message: `SSH Tunnel untuk server "${server.name}" berhasil diaktifkan. Metrik dialirkan via port 22 SSH.`,
+    ssh: { username: server.ssh.username, port: server.ssh.port },
   });
 });
 

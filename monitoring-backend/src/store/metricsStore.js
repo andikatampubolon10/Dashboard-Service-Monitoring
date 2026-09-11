@@ -94,9 +94,28 @@ function initDailyStats(serviceId) {
  * @param {string} serviceId
  * @param {Array<{ method: string, path: string, status: number, avgLatencyMs: number }>} [routes]
  */
-function seedRecentRequests(serviceId, _routes) {
+function seedRecentRequests(serviceId, routes) {
   if (!requestsLog.has(serviceId)) {
     requestsLog.set(serviceId, []);
+  }
+  const reqLog = requestsLog.get(serviceId);
+  if (reqLog.length === 0 && Array.isArray(routes) && routes.length > 0) {
+    for (const r of routes) {
+      const countToSeed = Math.min(r.count || 0, 5);
+      for (let i = 0; i < countToSeed; i++) {
+        reqLog.push({
+          id: `req-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          serviceId,
+          method: r.method,
+          path: r.path,
+          status: r.status,
+          latencyMs: Math.max(1, Math.round(r.avgLatencyMs || 5)),
+          client: getRandomClusterIp(),
+          time: formatDisplayTime(new Date(Date.now() - (i + 1) * 30000)),
+          timestamp: new Date(Date.now() - (i + 1) * 30000).toISOString(),
+        });
+      }
+    }
   }
 }
 
@@ -198,7 +217,20 @@ function pushMetrics(serviceId, scrapeResult) {
       const delta5xx = scrapeResult.metrics.errorRate?.delta5xx || 0;
       const delta4xx = scrapeResult.metrics.errorRate?.delta4xx || 0;
 
-      if (deltaTotal > 0) {
+      // If service already processed requests prior to discovery and today has 0 recorded, establish baseline
+      if (today.totalRequests === 0 && (scrapeResult.metrics.throughput?.reqTotal || 0) > 0) {
+        const total = scrapeResult.metrics.throughput.reqTotal;
+        const s5xx = scrapeResult.metrics.throughput.total5xx || 0;
+        const s4xx = scrapeResult.metrics.throughput.total4xx || 0;
+        today.totalRequests = total;
+        today.server5xx = s5xx;
+        today.client4xx = s4xx;
+        today.success2xx = Math.max(0, total - s5xx - s4xx);
+        today.errorRatePercent = total > 0
+          ? parseFloat(((s5xx / total) * 100).toFixed(2))
+          : 0;
+        today.avgLatencyMs = scrapeResult.metrics.latency?.avgMs || today.avgLatencyMs;
+      } else if (deltaTotal > 0) {
         today.totalRequests += deltaTotal;
         today.server5xx += delta5xx;
         today.client4xx += delta4xx;
