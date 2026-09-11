@@ -144,6 +144,15 @@ router.post('/start', (req, res) => {
   const targetVUs = Math.max(1, parseInt(req.body.targetVUs || '50', 10));
   const durationSec = Math.max(5, parseInt(req.body.durationSec || '30', 10));
 
+  // Dynamic Service Endpoints (per-service custom/preset URLs)
+  const endpoints = req.body.serviceEndpoints || req.body.targetUrls || {};
+  const identityUrl = endpoints.identity || process.env.SERVICE_IDENTITY_URL || 'http://localhost:8081';
+  const aiConsultUrl = endpoints.aiConsult || process.env.STRESS_TEST_AI_CONSULT_URL || process.env.SERVICE_AI_CONSULTATION_URL || 'http://localhost:4006';
+  const lifestyleUrl = endpoints.lifestyle || process.env.SERVICE_LIFESTYLE_URL || 'http://localhost:4007';
+  const liveConsultUrl = endpoints.liveConsult || process.env.SERVICE_LIVE_CONSULT_URL || 'http://localhost:4004';
+  const healthProfileUrl = endpoints.healthProfile || process.env.SERVICE_HEALTH_PROFILE_URL || 'http://localhost:3001';
+  const medicalUrl = endpoints.medical || process.env.SERVICE_MEDICAL_RECORD_URL || 'http://localhost:3002';
+
   // Path ke bin/k6.exe dan stress-test.js
   const rootDir = path.resolve(__dirname, '../../../');
   const k6ExePath = path.join(rootDir, 'bin', 'k6.exe');
@@ -154,16 +163,22 @@ router.post('/start', (req, res) => {
     '--env', `FLOW=${flow}`,
     '--env', `VUS=${targetVUs}`,
     '--env', `DURATION=${durationSec}s`,
-    '--env', `IDENTITY_URL=${process.env.SERVICE_IDENTITY_URL || 'http://localhost:8081'}`,
-    '--env', `AI_CONSULT_URL=${process.env.SERVICE_AI_CONSULTATION_URL || 'http://localhost:4006'}`,
-    '--env', `LIFESTYLE_URL=${process.env.SERVICE_LIFESTYLE_URL || 'http://localhost:4007'}`,
-    '--env', `LIVE_CONSULT_URL=${process.env.SERVICE_LIVE_CONSULT_URL || 'http://localhost:4004'}`,
-    '--env', `HEALTH_PROFILE_URL=${process.env.SERVICE_HEALTH_PROFILE_URL || 'http://localhost:3001'}`,
-    '--env', `MEDICAL_URL=${process.env.SERVICE_MEDICAL_RECORD_URL || 'http://localhost:3002'}`,
+    '--env', `IDENTITY_URL=${identityUrl}`,
+    '--env', `AI_CONSULT_URL=${aiConsultUrl}`,
+    '--env', `LIFESTYLE_URL=${lifestyleUrl}`,
+    '--env', `LIVE_CONSULT_URL=${liveConsultUrl}`,
+    '--env', `HEALTH_PROFILE_URL=${healthProfileUrl}`,
+    '--env', `MEDICAL_URL=${medicalUrl}`,
     scriptPath,
   ];
 
   console.log(`[k6] Spawning: ${k6ExePath} ${args.join(' ')}`);
+
+  const activeEndpointsDesc = flow === '1'
+    ? `Identity (${identityUrl}) | AI Consult (${aiConsultUrl})`
+    : flow === '2'
+      ? `Identity (${identityUrl}) | Health Profile (${healthProfileUrl}) | Lifestyle (${lifestyleUrl})`
+      : `Identity (${identityUrl}) | Live Consult (${liveConsultUrl})`;
 
   try {
     activeK6Process = spawn(k6ExePath, args, {
@@ -176,6 +191,13 @@ router.post('/start', (req, res) => {
       flow,
       targetVUs,
       durationSec,
+      targetEndpoints: {
+        identity: identityUrl,
+        aiConsult: aiConsultUrl,
+        lifestyle: lifestyleUrl,
+        liveConsult: liveConsultUrl,
+        healthProfile: healthProfileUrl,
+      },
       startTime: Date.now(),
       activeVUs: targetVUs,
       currentRps: 0,
@@ -185,8 +207,11 @@ router.post('/start', (req, res) => {
       failedRequests: 0,
       errorRatePercent: 0,
       healthGrade: 'HEALTHY',
-      healthVerdict: `Menguji Flow ${flow} dengan ${targetVUs} Virtual Users selama ${durationSec} detik...`,
-      recentLogs: [`[k6] Memulai pengujian Grafana k6 untuk Flow ${flow} (${targetVUs} VUs, ${durationSec}s)...`],
+      healthVerdict: `Menguji Flow ${flow} (${activeEndpointsDesc}) dengan ${targetVUs} VUs selama ${durationSec} detik...`,
+      recentLogs: [
+        `[k6] Memulai pengujian Grafana k6 untuk Flow ${flow} (${targetVUs} VUs, ${durationSec}s)...`,
+        `[k6 Target] ${activeEndpointsDesc}`,
+      ],
     };
 
     broadcastProgress();

@@ -11,6 +11,7 @@ import {
   ArrowRight,
   Server,
   Layers,
+  ShieldCheck,
 } from "lucide-react";
 import { StressTestRecord } from "../../services/stressTestEngine";
 import { formatNumber } from "../../utils/formatters";
@@ -34,23 +35,32 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
   const isDegraded = record.healthGrade === "DEGRADED";
   const isCritical = record.healthGrade === "CRITICAL";
 
-  // Alur microservice berdasarkan flow
+  // Alur microservice berdasarkan flow dan endpoint yang diuji
   const getMicroserviceChain = () => {
+    const ep = record.targetEndpoints;
     if (record.flowTitle.includes("AI") || record.flowTitle.includes("Flow 1")) {
+      const idUrl = ep?.identity || "http://localhost:8081";
+      const aiUrl = ep?.aiConsult || "http://localhost:4006";
       return [
-        { name: "Identity Service", port: "8081", role: "Autentikasi & Validasi JWT" },
-        { name: "AI Consultation Service", port: "4006", role: "Logika Chat & Sesi AI" },
+        { name: "Identity Service", port: idUrl, role: "Autentikasi & Validasi JWT" },
+        { name: "AI Consultation Service", port: aiUrl, role: "Logika Chat & Sesi AI" },
       ];
     }
     if (record.flowTitle.includes("Lifestyle") || record.flowTitle.includes("Flow 2")) {
+      const idUrl = ep?.identity || "http://localhost:8081";
+      const lsUrl = ep?.lifestyle || "http://localhost:4007";
+      const hpUrl = ep?.healthProfile || "http://localhost:3001";
       return [
-        { name: "Identity Service", port: "8081", role: "Autentikasi & Validasi JWT" },
-        { name: "Lifestyle Service", port: "4007", role: "Katalog Artikel & Kebugaran" },
+        { name: "Identity Service", port: idUrl, role: "Autentikasi & Validasi JWT" },
+        { name: "Health Profile Service", port: hpUrl, role: "Validasi PIN & Profil" },
+        { name: "Lifestyle Service", port: lsUrl, role: "Katalog Artikel & Kebugaran" },
       ];
     }
+    const idUrl = ep?.identity || "http://localhost:8081";
+    const lcUrl = ep?.liveConsult || "http://localhost:4004";
     return [
-      { name: "Identity Service", port: "8081", role: "Autentikasi & Validasi JWT" },
-      { name: "Live Consult Service", port: "4004", role: "Sesi Konsultasi & Dokter Spesialis" },
+      { name: "Identity Service", port: idUrl, role: "Autentikasi & Validasi JWT" },
+      { name: "Live Consult Service", port: lcUrl, role: "Sesi Konsultasi & Dokter Spesialis" },
     ];
   };
 
@@ -265,30 +275,39 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
             </div>
           </div>
         </div>
+
+
         {/* Footer Actions */}
-        <div className="flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800 pt-4">
-          {onReRun && (
+        <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
+          <div className="text-xs text-slate-400 font-semibold flex items-center gap-1.5">
+            <ShieldCheck className="w-4 h-4 text-emerald-500" />
+            <span>Tersimpan di Riwayat Pengujian</span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {onReRun && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onReRun();
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-4 py-2.5 text-xs font-bold text-slate-800 dark:text-slate-200 transition cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Uji Ulang
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => {
-                onClose();
-                onReRun();
-              }}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-4 py-2.5 text-xs font-bold text-slate-800 dark:text-slate-200 transition cursor-pointer"
+              onClick={onClose}
+              className="inline-flex items-center gap-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white px-5 py-2.5 text-xs font-bold shadow-md shadow-orange-500/20 transition cursor-pointer"
             >
-              <RotateCcw className="w-4 h-4" />
-              Uji Ulang
+              <CheckCircle2 className="w-4 h-4" />
+              Tutup Laporan
             </button>
-          )}
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex items-center gap-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white px-5 py-2.5 text-xs font-bold shadow-md shadow-orange-500/20 transition cursor-pointer"
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            Tutup Laporan
-          </button>
+          </div>
         </div>
       </div>
     </div>

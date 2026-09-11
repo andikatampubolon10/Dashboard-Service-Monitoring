@@ -13,6 +13,15 @@ export interface StressStage {
 
 export type SelectedFlowType = '1' | '2' | '3';
 
+export interface ServiceEndpointsConfig {
+  identity?: string;
+  aiConsult?: string;
+  lifestyle?: string;
+  liveConsult?: string;
+  healthProfile?: string;
+  medical?: string;
+}
+
 export interface StressTestProgress {
   isRunning: boolean;
   isFinished: boolean;
@@ -33,6 +42,7 @@ export interface StressTestProgress {
   breachedReasons: string[];
   healthGrade: 'HEALTHY' | 'DEGRADED' | 'CRITICAL';
   healthVerdict: string;
+  targetEndpoints?: ServiceEndpointsConfig;
   flowStats: {
     flow1: number;
     flow2: number;
@@ -62,6 +72,7 @@ class StressTestEngine {
   private healthVerdict = 'Sistem Siap Diuji dengan Grafana k6';
   private breachedReasons: string[] = [];
   private logs: string[] = [];
+  private targetEndpoints: ServiceEndpointsConfig = {};
 
   private listeners: Set<StressTestListener> = new Set();
   private logListeners: Set<StressTestLogListener> = new Set();
@@ -129,6 +140,7 @@ class StressTestEngine {
     if (data.targetVUs) this.targetVUs = data.targetVUs;
     if (data.durationSec) this.durationSec = data.durationSec;
     if (data.startTime) this.startTime = data.startTime;
+    if (data.targetEndpoints) this.targetEndpoints = data.targetEndpoints;
     this.activeVUs = data.activeVUs ?? (this.isRunning ? this.targetVUs : 0);
     this.currentRps = data.currentRps ?? 0;
     this.p95LatencyMs = data.p95LatencyMs ?? 0;
@@ -207,6 +219,7 @@ class StressTestEngine {
       breachedReasons: this.breachedReasons,
       healthGrade: this.healthGrade,
       healthVerdict: this.healthVerdict,
+      targetEndpoints: this.targetEndpoints,
       flowStats: {
         flow1: this.selectedFlow === '1' ? this.totalRequests : 0,
         flow2: this.selectedFlow === '2' ? this.totalRequests : 0,
@@ -218,12 +231,20 @@ class StressTestEngine {
   /**
    * Start real Grafana k6 execution via Backend API
    */
-  public async start(flow: SelectedFlowType = '1', targetVUs: number = 50, durationSec: number = 30) {
+  public async start(
+    flow: SelectedFlowType = '1',
+    targetVUs: number = 50,
+    durationSec: number = 30,
+    serviceEndpoints?: ServiceEndpointsConfig
+  ) {
     if (this.isRunning) return;
 
     this.selectedFlow = flow;
     this.targetVUs = targetVUs;
     this.durationSec = durationSec;
+    if (serviceEndpoints) {
+      this.targetEndpoints = serviceEndpoints;
+    }
     this.isRunning = true;
     this.isFinished = false;
     this.logs = [`[k6 Controller] Mengirim instruksi eksekusi k6 ke backend (Flow ${flow}, ${targetVUs} VUs, ${durationSec}s)...`];
@@ -238,6 +259,7 @@ class StressTestEngine {
           flow,
           targetVUs,
           durationSec,
+          serviceEndpoints: this.targetEndpoints,
         }),
       });
 
@@ -297,6 +319,7 @@ export interface StressTestRecord {
   healthGrade: 'HEALTHY' | 'DEGRADED' | 'CRITICAL';
   healthVerdict: string;
   recommendations: string[];
+  targetEndpoints?: ServiceEndpointsConfig;
 }
 
 export function generateRecommendations(

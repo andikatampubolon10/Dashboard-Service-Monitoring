@@ -398,24 +398,22 @@ export const OverviewPage: React.FC = () => {
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm overflow-hidden space-y-6 p-6">
         {/* Banner Kesimpulan */}
         <div
-          className={`rounded-2xl border p-5 space-y-3 transition-colors ${
-            totalRuns === 0
+          className={`rounded-2xl border p-5 space-y-3 transition-colors ${totalRuns === 0
               ? 'border-slate-300 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30'
               : breakingPointVU
-              ? 'border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent'
-              : 'border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent'
-          }`}
+                ? 'border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent'
+                : 'border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent'
+            }`}
         >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center gap-3">
               <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                  totalRuns === 0
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${totalRuns === 0
                     ? 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                     : breakingPointVU
-                    ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
-                    : 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'
-                }`}
+                      ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
+                      : 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'
+                  }`}
               >
                 {totalRuns === 0 ? (
                   <Clock className="w-5 h-5" />
@@ -428,13 +426,12 @@ export const OverviewPage: React.FC = () => {
               <div>
                 <div className="flex items-center gap-2">
                   <span
-                    className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded ${
-                      totalRuns === 0
+                    className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded ${totalRuns === 0
                         ? 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                         : breakingPointVU
-                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
-                        : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
-                    }`}
+                          ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                          : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                      }`}
                   >
                     {totalRuns > 0
                       ? `RINGKASAN DARI ${totalRuns} KALI PENGUJIAN`
@@ -450,8 +447,8 @@ export const OverviewPage: React.FC = () => {
                   {totalRuns === 0
                     ? 'Belum Ada Tes Beban Pengguna — Ayo Tes Berapa Banyak Pengguna yang Kuat Ditampung Sistem Anda'
                     : breakingPointVU
-                    ? `Sistem Aman Menampung Hingga ${maxSafeVU} Pengguna Serentak (Mulai terasa melambat jika mencapai ${breakingPointVU} orang)`
-                    : `Sistem Terbukti Sangat Kuat — Lancar Menampung Hingga ${maxSafeVU} Pengguna Sekaligus`}
+                      ? `Sistem Aman Menampung Hingga ${maxSafeVU} Pengguna Serentak (Mulai terasa melambat jika mencapai ${breakingPointVU} orang)`
+                      : `Sistem Terbukti Sangat Kuat — Lancar Menampung Hingga ${maxSafeVU} Pengguna Sekaligus`}
                 </h2>
               </div>
             </div>
@@ -475,8 +472,8 @@ export const OverviewPage: React.FC = () => {
             {totalRuns === 0
               ? 'Silakan klik tombol "Uji Daya Tahan Sistem" di kanan atas untuk mencoba mengirimkan puluhan hingga ratusan pengguna secara serentak. Grafik dan evaluasi di bawah ini akan terisi secara otomatis dari hasil tes Anda.'
               : breakingPointVU
-              ? `Kabar Baik: Aplikasi Anda bekerja sangat lancar pada pemakaian wajar (${maxSafeVU} orang sekaligus). Namun, jika ada lebih dari ${breakingPointVU} pengguna membuka aplikasi secara serentak, layanan mulai membutuhkan waktu lebih lama untuk membalas.`
-              : `Seluruh hasil pengetesan menunjukkan aplikasi Anda sangat sehat. Pengguna merasakan respons yang cepat (kurang dari 1 detik) dan tidak ada transaksi yang gagal.`}
+                ? `Kabar Baik: Aplikasi Anda bekerja sangat lancar pada pemakaian wajar (${maxSafeVU} orang sekaligus). Namun, jika ada lebih dari ${breakingPointVU} pengguna membuka aplikasi secara serentak, layanan mulai membutuhkan waktu lebih lama untuk membalas.`
+                : `Seluruh hasil pengetesan menunjukkan aplikasi Anda sangat sehat. Pengguna merasakan respons yang cepat (kurang dari 1 detik) dan tidak ada transaksi yang gagal.`}
           </p>
         </div>
 
@@ -495,15 +492,14 @@ export const OverviewPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* FLOW 1: KONSULTASI DOKTER AI */}
             <div
-              className={`p-4 rounded-xl border space-y-3 flex flex-col justify-between transition-colors ${
-                flow1.status === 'CRITICAL'
+              className={`p-4 rounded-xl border space-y-3 flex flex-col justify-between transition-colors ${flow1.status === 'CRITICAL'
                   ? 'border-rose-500/30 bg-rose-500/5'
                   : flow1.status === 'DEGRADED'
-                  ? 'border-amber-500/30 bg-amber-500/5'
-                  : flow1.status === 'HEALTHY'
-                  ? 'border-emerald-500/30 bg-emerald-500/5'
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/20'
-              }`}
+                    ? 'border-amber-500/30 bg-amber-500/5'
+                    : flow1.status === 'HEALTHY'
+                      ? 'border-emerald-500/30 bg-emerald-500/5'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/20'
+                }`}
             >
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -512,15 +508,14 @@ export const OverviewPage: React.FC = () => {
                     Fitur Chat Dokter AI
                   </span>
                   <span
-                    className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border ${
-                      flow1.status === 'HEALTHY'
+                    className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border ${flow1.status === 'HEALTHY'
                         ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                         : flow1.status === 'DEGRADED'
-                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                        : flow1.status === 'CRITICAL'
-                        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
-                        : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
-                    }`}
+                          ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                          : flow1.status === 'CRITICAL'
+                            ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                      }`}
                   >
                     {flow1.statusLabel}
                   </span>
@@ -575,15 +570,14 @@ export const OverviewPage: React.FC = () => {
 
             {/* FLOW 2: MEMBACA ARTIKEL */}
             <div
-              className={`p-4 rounded-xl border space-y-3 flex flex-col justify-between transition-colors ${
-                flow2.status === 'CRITICAL'
+              className={`p-4 rounded-xl border space-y-3 flex flex-col justify-between transition-colors ${flow2.status === 'CRITICAL'
                   ? 'border-rose-500/30 bg-rose-500/5'
                   : flow2.status === 'DEGRADED'
-                  ? 'border-amber-500/30 bg-amber-500/5'
-                  : flow2.status === 'HEALTHY'
-                  ? 'border-emerald-500/30 bg-emerald-500/5'
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/20'
-              }`}
+                    ? 'border-amber-500/30 bg-amber-500/5'
+                    : flow2.status === 'HEALTHY'
+                      ? 'border-emerald-500/30 bg-emerald-500/5'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/20'
+                }`}
             >
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -592,15 +586,14 @@ export const OverviewPage: React.FC = () => {
                     Fitur Artikel Kesehatan
                   </span>
                   <span
-                    className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border ${
-                      flow2.status === 'HEALTHY'
+                    className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border ${flow2.status === 'HEALTHY'
                         ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                         : flow2.status === 'DEGRADED'
-                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                        : flow2.status === 'CRITICAL'
-                        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
-                        : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
-                    }`}
+                          ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                          : flow2.status === 'CRITICAL'
+                            ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                      }`}
                   >
                     {flow2.statusLabel}
                   </span>
@@ -655,15 +648,14 @@ export const OverviewPage: React.FC = () => {
 
             {/* FLOW 3: PENCARIAN DOKTER */}
             <div
-              className={`p-4 rounded-xl border space-y-3 flex flex-col justify-between transition-colors ${
-                flow3.status === 'CRITICAL'
+              className={`p-4 rounded-xl border space-y-3 flex flex-col justify-between transition-colors ${flow3.status === 'CRITICAL'
                   ? 'border-rose-500/30 bg-rose-500/5'
                   : flow3.status === 'DEGRADED'
-                  ? 'border-amber-500/30 bg-amber-500/5'
-                  : flow3.status === 'HEALTHY'
-                  ? 'border-emerald-500/30 bg-emerald-500/5'
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/20'
-              }`}
+                    ? 'border-amber-500/30 bg-amber-500/5'
+                    : flow3.status === 'HEALTHY'
+                      ? 'border-emerald-500/30 bg-emerald-500/5'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/20'
+                }`}
             >
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -672,15 +664,14 @@ export const OverviewPage: React.FC = () => {
                     Fitur Cari Dokter
                   </span>
                   <span
-                    className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border ${
-                      flow3.status === 'HEALTHY'
+                    className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border ${flow3.status === 'HEALTHY'
                         ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                         : flow3.status === 'DEGRADED'
-                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                        : flow3.status === 'CRITICAL'
-                        ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
-                        : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
-                    }`}
+                          ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                          : flow3.status === 'CRITICAL'
+                            ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                      }`}
                   >
                     {flow3.statusLabel}
                   </span>
@@ -846,8 +837,8 @@ export const OverviewPage: React.FC = () => {
                               item.p95 > 1000
                                 ? 'text-rose-500'
                                 : item.p95 > 500
-                                ? 'text-amber-500'
-                                : 'text-emerald-500'
+                                  ? 'text-amber-500'
+                                  : 'text-emerald-500'
                             }
                           >
                             {item.p95} ms

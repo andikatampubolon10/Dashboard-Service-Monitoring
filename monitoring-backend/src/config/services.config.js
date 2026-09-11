@@ -130,6 +130,7 @@ function saveDynamicServices() {
  * Load dynamic services from disk or self-heal from registered_servers.json.
  */
 function loadDynamicServices() {
+  DYNAMIC_SERVICES.clear();
   try {
     if (fs.existsSync(DYNAMIC_SERVICES_FILE)) {
       const raw = fs.readFileSync(DYNAMIC_SERVICES_FILE, 'utf-8');
@@ -223,6 +224,7 @@ loadDynamicServices();
  * @returns {ServiceConfig[]}
  */
 function getAllActiveServices() {
+  loadDynamicServices();
   const mergedMap = new Map();
   for (const svc of SERVICES) {
     mergedMap.set(svc.id, {

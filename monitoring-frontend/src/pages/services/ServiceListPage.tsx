@@ -16,6 +16,8 @@ import {
   ExternalLink,
   Database,
   ArrowUpRight,
+  Laptop,
+  Globe,
 } from 'lucide-react';
 import { Service } from '../../types';
 
@@ -70,6 +72,7 @@ export const ServiceListPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStack, setFilterStack] = useState<'all' | 'nodejs' | 'go'>('all');
   const [filterStatus, setFilterStatus] = useState<'active-connected' | 'all' | 'UP' | 'DOWN'>('active-connected');
+  const [filterLocation, setFilterLocation] = useState<'all' | 'local' | 'remote'>('all');
   const [sortKey, setSortKey] = useState<string>('status');
   const [sortAsc, setSortAsc] = useState<boolean>(true);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -141,6 +144,13 @@ export const ServiceListPage: React.FC = () => {
       list = list.filter((s) => !(s.rawStatus === 'UP' || s.status === 'healthy'));
     }
 
+    // Filter by server host location (local vs remote)
+    if (filterLocation === 'local') {
+      list = list.filter((s) => !s.isRemote && (s.url?.includes('localhost') || s.url?.includes('127.0.0.1')));
+    } else if (filterLocation === 'remote') {
+      list = list.filter((s) => s.isRemote || (!s.url?.includes('localhost') && !s.url?.includes('127.0.0.1')));
+    }
+
     // Filter by search query (service name, url, stack, description, error, serverHost)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -182,7 +192,7 @@ export const ServiceListPage: React.FC = () => {
     });
 
     return list;
-  }, [services, searchQuery, filterStack, filterStatus, sortKey, sortAsc]);
+  }, [services, searchQuery, filterStack, filterStatus, filterLocation, sortKey, sortAsc]);
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -214,6 +224,8 @@ export const ServiceListPage: React.FC = () => {
 
   const nodeCount = services.filter((s) => s.stack === 'nodejs').length;
   const goCount = services.filter((s) => s.stack === 'go').length;
+  const localCount = services.filter((s) => !s.isRemote && (s.url?.includes('localhost') || s.url?.includes('127.0.0.1'))).length;
+  const remoteCount = services.filter((s) => s.isRemote || (!s.url?.includes('localhost') && !s.url?.includes('127.0.0.1'))).length;
 
   return (
     <div className="space-y-6">
@@ -398,6 +410,32 @@ export const ServiceListPage: React.FC = () => {
           >
             DOWN ({servicesDown})
           </button>
+
+          {/* TAB 8: Server Lokal */}
+          <button
+            onClick={() => setFilterLocation(filterLocation === 'local' ? 'all' : 'local')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition shadow-sm flex items-center gap-1.5 ${
+              filterLocation === 'local'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white dark:bg-[#0a0f1d] border border-slate-200 dark:border-slate-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/20'
+            }`}
+          >
+            <Laptop className="w-3.5 h-3.5" />
+            <span>Lokal ({localCount})</span>
+          </button>
+
+          {/* TAB 9: Server Remote Online */}
+          <button
+            onClick={() => setFilterLocation(filterLocation === 'remote' ? 'all' : 'remote')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition shadow-sm flex items-center gap-1.5 ${
+              filterLocation === 'remote'
+                ? 'bg-purple-600 text-white'
+                : 'bg-white dark:bg-[#0a0f1d] border border-slate-200 dark:border-slate-800 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/20'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>Remote Online ({remoteCount})</span>
+          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -567,10 +605,21 @@ export const ServiceListPage: React.FC = () => {
                           {/* SERVICE NAME & ID */}
                           <td className="py-3.5 px-4">
                             <div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-semibold text-slate-900 dark:text-slate-100 font-sans block text-sm">
                                   {service.name}
                                 </span>
+                                {service.isRemote || (!service.url?.includes('localhost') && !service.url?.includes('127.0.0.1')) ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30">
+                                    <Globe className="w-2.5 h-2.5" />
+                                    Remote Server ({service.serverHost || (service.url ? service.url.split('://')[1]?.split(':')[0] : 'Online')})
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-blue-500/10 text-blue-600 dark:text-blue-300 border border-blue-500/20">
+                                    <Laptop className="w-2.5 h-2.5" />
+                                    Server Lokal
+                                  </span>
+                                )}
                               </div>
                               <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono block mt-0.5">
                                 {service.id} &bull; <span className="text-slate-500 dark:text-slate-400">{service.url}</span>
