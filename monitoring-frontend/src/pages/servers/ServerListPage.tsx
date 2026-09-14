@@ -1,17 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useServices } from '../../hooks/useServices';
 import { ErrorState } from '../../components/common/ErrorState';
 import { TableSkeleton } from '../../components/common/LoadingSkeleton';
 import { Modal } from '../../components/common/Modal';
 import {
   Search,
   ArrowUpDown,
-  ShieldCheck,
-  AlertTriangle,
   CheckCircle2,
   XCircle,
-  HelpCircle,
   Plus,
   Server as ServerIcon,
   Loader2,
@@ -24,22 +20,16 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
-import {
-  OFFICIAL_PLACEMENT_RULES,
-  evaluateServerCompliance,
-} from '../../utils/serverRules';
 import { useServers, useRegisterServer, useDiscoverServer, useUpdateServer, useDeleteServer } from '../../hooks/useServers';
 import { Server, DiscoveredService, DiscoverServerResponse } from '../../types';
 
 export const ServerListPage: React.FC = () => {
   const navigate = useNavigate();
   const { data: servers = [], isLoading, isError, refetch } = useServers();
-  const { data: allServices = [] } = useServices();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<string>('name');
   const [sortAsc, setSortAsc] = useState<boolean>(true);
-  const [showRulesModal, setShowRulesModal] = useState<boolean>(false);
   const [showAddServerModal, setShowAddServerModal] = useState<boolean>(false);
 
   // Discovery Mode & Credentials (default to Zero-Config probe)
@@ -365,20 +355,11 @@ export const ServerListPage: React.FC = () => {
             Servers
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Infrastructure hosts and resource utilization with service placement rules
+            Infrastructure hosts and resource utilization
           </p>
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Rules Guide Action Button */}
-          <button
-            onClick={() => setShowRulesModal(true)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-cyan-50 dark:bg-cyan-500/10 border border-cyan-200 dark:border-cyan-500/25 text-xs font-semibold text-cyan-700 dark:text-cyan-400 hover:bg-cyan-100 dark:hover:bg-cyan-500/20 transition shadow-sm"
-          >
-            <ShieldCheck className="w-4 h-4 text-cyan-500" />
-            <span>Aturan Penggabungan Service</span>
-          </button>
-
           {/* Add Server Button */}
           <button
             onClick={() => {
@@ -476,9 +457,6 @@ export const ServerListPage: React.FC = () => {
                       {renderSortIcon('uptime')}
                     </div>
                   </th>
-                  <th className="py-3.5 px-5 text-right">
-                    <span>ATURAN ALOKASI</span>
-                  </th>
                   <th className="py-3.5 px-4 text-center">
                     <span>AKSI</span>
                   </th>
@@ -493,12 +471,6 @@ export const ServerListPage: React.FC = () => {
                   const isDegraded = server.status === 'degraded' || server.status === 'warning';
                   const maxCap = server.maxCapacity || 4;
                   const currentCount = server.hostedServices.length;
-
-                  // Evaluate placement rules for this server
-                  const currentServicesOnServer = allServices.filter((s) =>
-                    server.hostedServices.includes(s.id)
-                  );
-                  const compliance = evaluateServerCompliance(server, currentServicesOnServer);
 
                   return (
                     <tr
@@ -620,39 +592,6 @@ export const ServerListPage: React.FC = () => {
                         {server.uptime}
                       </td>
 
-                      {/* Rule Compliance Status Badge */}
-                      <td className="py-4 px-5 text-right" onClick={(e) => e.stopPropagation()}>
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
-                            compliance.status === 'violation'
-                              ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/25'
-                              : compliance.status === 'warning'
-                              ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/25'
-                              : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/25'
-                          }`}
-                          title={
-                            compliance.violations[0] ||
-                            compliance.warnings[0] ||
-                            'Semua aturan alokasi terpenuhi'
-                          }
-                        >
-                          {compliance.status === 'violation' ? (
-                            <XCircle className="w-3.5 h-3.5 text-rose-500" />
-                          ) : compliance.status === 'warning' ? (
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-                          ) : (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                          )}
-                          <span>
-                            {compliance.status === 'violation'
-                              ? 'Melanggar Aturan'
-                              : compliance.status === 'warning'
-                              ? 'Peringatan Resource'
-                              : 'Sesuai Aturan'}
-                          </span>
-                        </span>
-                      </td>
-
                       {/* Actions Column (Tunnel, Edit & Delete) */}
                       <td className="py-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1.5">
@@ -682,60 +621,6 @@ export const ServerListPage: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* ─── MODAL: PANDUAN RESMI ATURAN PENGGABUNGAN SERVICE ─────────────────── */}
-      <Modal
-        isOpen={showRulesModal}
-        onClose={() => setShowRulesModal(false)}
-        title={
-          <div className="flex items-center gap-2 text-slate-900 dark:text-white">
-            <ShieldCheck className="w-5 h-5 text-cyan-500" />
-            <span>Aturan Baku Penggabungan Service ke Server Host</span>
-          </div>
-        }
-        subtitle="Standard Operating Procedure (SOP) & Kebijakan Penempatan Microservices Multi-Tenant"
-        maxWidth="3xl"
-      >
-        <div className="space-y-4 text-xs font-mono">
-          <p className="text-slate-600 dark:text-slate-300 font-sans text-xs leading-relaxed">
-            Satu server dapat menampung 2 atau lebih microservice untuk efisiensi resource. Namun, penempatan service <strong>tidak boleh dilakukan sembarangan</strong>. Setiap penggabungan service harus mematuhi 5 aturan di bawah ini:
-          </p>
-
-          {/* Rules List */}
-          <div className="space-y-3">
-            {OFFICIAL_PLACEMENT_RULES.map((rule, idx) => (
-              <div
-                key={rule.id}
-                className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#0a0f1d] border border-slate-200 dark:border-slate-800/80 space-y-1.5"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-cyan-500/10 text-cyan-500 border border-cyan-500/20 text-[11px] font-bold flex items-center justify-center">
-                      {idx + 1}
-                    </span>
-                    <strong className="text-slate-900 dark:text-white text-xs font-sans">
-                      {rule.title}
-                    </strong>
-                  </div>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-500 border border-amber-500/20">
-                    {rule.strictness}
-                  </span>
-                </div>
-                <p className="text-slate-600 dark:text-slate-400 text-[11px] font-sans pl-7">
-                  {rule.description}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          <div className="p-3 rounded-xl bg-cyan-50 dark:bg-cyan-500/10 border border-cyan-200 dark:border-cyan-500/20 flex items-start gap-2.5 text-[11px] text-cyan-700 dark:text-cyan-300 font-sans">
-            <HelpCircle className="w-4 h-4 shrink-0 text-cyan-500 mt-0.5" />
-            <div>
-              <strong>Validasi Otomatis:</strong> Klik pada salah satu server untuk membuka halaman detail host. Sistem menyediakan pemantauan resource CPU, Memory, Disk, status database, grafik timeline, dan daftar service.
-            </div>
-          </div>
-        </div>
-      </Modal>
 
       {/* ─── MODAL: TAMBAH SERVER TARGET & MULTI-NODE DISCOVERY ────────────── */}
       <Modal

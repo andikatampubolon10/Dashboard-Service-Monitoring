@@ -663,14 +663,31 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
         // Dynamically detect running databases from ss/netstat and docker
         const discoveredDatabases = [];
         for (const dbDef of KNOWN_DB_PORTS) {
-          const hasPort = detectedPortSet.has(dbDef.port) || (portsOut && portsOut.includes(`:${dbDef.port}`));
-          const containerMatch = dockerOut && dbDef.pattern.test(dockerOut);
-          if (hasPort || containerMatch) {
+          let actualPort = dbDef.port;
+          let found = false;
+
+          // Priority 1: Check if standard DB port (5432, 6379, 27017, etc.) is directly listening on host
+          const hasStandardPort = detectedPortSet.has(dbDef.port) || (portsOut && portsOut.includes(`:${dbDef.port}`));
+          if (hasStandardPort) {
+            actualPort = dbDef.port;
+            found = true;
+          } else {
+            // Priority 2: Check if any mapped docker container matches this database pattern
+            for (const [p, info] of dockerContainerMap.entries()) {
+              if (dbDef.pattern.test(info.name) || dbDef.pattern.test(info.image)) {
+                actualPort = p;
+                found = true;
+                break;
+              }
+            }
+          }
+
+          if (found) {
             discoveredDatabases.push({
               id: dbDef.id,
               name: dbDef.name,
               host,
-              port: dbDef.port,
+              port: actualPort,
             });
           }
         }

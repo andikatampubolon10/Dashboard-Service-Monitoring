@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Server, Service } from '../../types';
-import { X, ArrowRight, Check, AlertCircle, ExternalLink } from 'lucide-react';
+import { X, ArrowRight, Check, AlertCircle } from 'lucide-react';
 
 interface ServerDetailDrawerProps {
   isOpen: boolean;
@@ -324,39 +324,6 @@ export const ServerDetailDrawer: React.FC<ServerDetailDrawerProps> = ({
                 })}
               </div>
             </div>
-
-            {/* 4. CO-LOCATION RULES & WHY TOGETHER (if available) */}
-            {server.colocation && (
-              <div className="p-4 rounded-xl bg-[#090e1c] border border-slate-800/80 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                    Aturan Penempatan (Co-location)
-                  </span>
-                  <button
-                    onClick={() => {
-                      onClose();
-                      navigate(`/servers/${server.id}`);
-                    }}
-                    className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:underline"
-                  >
-                    <span>Halaman Lengkap & Simulator</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </button>
-                </div>
-                {server.colocation.canShare && server.colocation.canShare.length > 0 && (
-                  <div>
-                    <span className="text-[11px] font-semibold text-emerald-400 block mb-1">
-                      Kenapa Bisa Digabung:
-                    </span>
-                    <ul className="text-xs text-slate-400 space-y-1 list-disc list-inside font-sans">
-                      {server.colocation.canShare.slice(0, 2).map((r, i) => (
-                        <li key={i}>{r}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
 
           </div>
 
