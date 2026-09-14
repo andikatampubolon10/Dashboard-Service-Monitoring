@@ -175,12 +175,12 @@ export default function StressTestModal({ isOpen, onClose }: StressTestModalProp
                     <span>Flow 3</span>
                   </span>
                   <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500 border border-blue-500/20">
-                    Medical Record
+                    Live Consult
                   </span>
                 </div>
-                <div className="text-xs font-bold text-foreground">Pencarian & Profil Dokter</div>
+                <div className="text-xs font-bold text-foreground">Konsultasi & Live Chat Dokter</div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed">
-                  Menguji Login pengguna, pencarian spesialis dokter, hingga membuka profil detail dokter.
+                  Menguji Login pengguna, reservasi jadwal dokter, hingga pengiriman pesan chat ke dokter via WebSocket.
                 </p>
               </div>
 
@@ -192,11 +192,11 @@ export default function StressTestModal({ isOpen, onClose }: StressTestModalProp
                 </div>
                 <div className="flex items-center gap-1 font-semibold text-foreground">
                   <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
-                  <span>2. Cari & List Dokter</span>
+                  <span>2. Reservasi Jadwal Dokter</span>
                 </div>
                 <div className="flex items-center gap-1 font-semibold text-foreground">
                   <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
-                  <span>3. Profil Detail Dokter</span>
+                  <span>3. Kirim Chat Dokter (WebSocket)</span>
                 </div>
               </div>
             </button>
@@ -207,12 +207,12 @@ export default function StressTestModal({ isOpen, onClose }: StressTestModalProp
         <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-3 text-xs text-foreground space-y-1">
           <div className="font-bold flex items-center gap-1.5 text-orange-600 dark:text-orange-400">
             <ArrowRight className="w-3.5 h-3.5" />
-            <span>Keterangan Alur Yang Dipilih ({selectedFlow === "1" ? "Flow 1: Konsultasi AI" : selectedFlow === "2" ? "Flow 2: Artikel" : "Flow 3: Cari Dokter"}):</span>
+            <span>Keterangan Alur Yang Dipilih ({selectedFlow === "1" ? "Flow 1: Konsultasi AI" : selectedFlow === "2" ? "Flow 2: Artikel" : "Flow 3: Chat Dokter Asli"}):</span>
           </div>
           <p className="text-[11px] text-muted-foreground leading-relaxed pl-5">
             {selectedFlow === "1" && "Setiap Virtual User akan melakukan Login (Identity Service), membuat sesi konsultasi (AI Service), lalu mengirim pertanyaan gejala hingga AI memberikan respon diagnosis."}
             {selectedFlow === "2" && "Setiap Virtual User akan memverifikasi PIN 6-digit (Identity Service), mengambil daftar artikel kesehatan (Lifestyle Service), lalu membaca detail artikel."}
-            {selectedFlow === "3" && "Setiap Virtual User akan melakukan Login (Identity Service), mencari daftar dokter spesialis (Medical Record Service), lalu membuka profil lengkap dokter."}
+            {selectedFlow === "3" && "Setiap Virtual User akan melakukan Login (Identity Service), membuat sesi konsultasi dokter (Live Consult Service), lalu mengirim pesan chat keluhan ke dokter via WebSocket."}
           </p>
         </div>
 

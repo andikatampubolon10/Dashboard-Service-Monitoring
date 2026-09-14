@@ -57,11 +57,11 @@ interface ServiceEndpointState {
 }
 
 const DEFAULT_ENDPOINTS: ServiceEndpointState = {
-  identity: "http://localhost:8081",
-  aiConsult: "http://localhost:4006",
-  lifestyle: "http://localhost:4007",
-  liveConsult: "http://localhost:4004",
-  healthProfile: "http://localhost:3001",
+  identity: "http://34.101.207.115:8080",
+  aiConsult: "http://34.101.122.171:4006",
+  lifestyle: "http://34.101.207.115:4005",
+  liveConsult: "http://34.101.207.115:4004",
+  healthProfile: "http://34.101.207.115:3001",
 };
 
 export const StressTestPage = () => {
@@ -88,7 +88,7 @@ export const StressTestPage = () => {
         { key: "identity", filter: "identity", port: "8081" },
         { key: "aiConsult", filter: "ai-consult", port: "4006" },
         { key: "lifestyle", filter: "lifestyle", port: "4007" },
-        { key: "liveConsult", filter: "live-consult", port: "4004" },
+        { key: "liveConsult", filter: "live", port: "4004" },
         { key: "healthProfile", filter: "health-profile", port: "3001" },
       ];
 
@@ -102,8 +102,8 @@ export const StressTestPage = () => {
         if (matches.length > 0) {
           const current = (prev[key] || "").replace(/\/$/, "");
           const currentMatch = matches.find((m) => (m.url || "").replace(/\/$/, "") === current);
-          const isCurrentUp = currentMatch ? (currentMatch.rawStatus === "UP" || currentMatch.status === "healthy") : false;
-          const upMatches = matches.filter((m) => m.rawStatus === "UP" || m.status === "healthy");
+          const isCurrentUp = currentMatch ? (currentMatch.rawStatus === "UP" || currentMatch.status === "healthy" || currentMatch.status === "UP") : false;
+          const upMatches = matches.filter((m) => m.rawStatus === "UP" || m.status === "healthy" || m.status === "UP");
 
           // Jika URL saat ini belum terpilih/tidak valid, ATAU URL saat ini sedang DOWN tapi ada instance lain yang UP:
           if (!currentMatch || (!isCurrentUp && upMatches.length > 0)) {
@@ -128,7 +128,6 @@ export const StressTestPage = () => {
     if (selectedFlow === "1") {
       requiredKeys.push({ key: "aiConsult", name: "AI Consultation", port: "4006", role: "Step 2 & 3: Chat & AI Session" });
     } else if (selectedFlow === "2") {
-      requiredKeys.push({ key: "healthProfile", name: "Health Profile", port: "3001", role: "Step 1: Status PIN" });
       requiredKeys.push({ key: "lifestyle", name: "Lifestyle Service", port: "4007", role: "Step 2 & 3: Artikel" });
     } else if (selectedFlow === "3") {
       requiredKeys.push({ key: "liveConsult", name: "Live Consult", port: "4004", role: "Step 2 & 3: Telekonsultasi" });
@@ -165,7 +164,7 @@ export const StressTestPage = () => {
     const isServiceUrlUp = (url: string) => {
       const cleanUrl = (url || "").replace(/\/$/, "");
       return (servicesList || []).some(
-        (s) => (s.url || "").replace(/\/$/, "") === cleanUrl && (s.rawStatus === "UP" || s.status === "healthy")
+        (s) => (s.url || "").replace(/\/$/, "") === cleanUrl && (s.rawStatus === "UP" || s.status === "healthy" || s.status === "UP")
       );
     };
 
@@ -632,8 +631,8 @@ export const StressTestPage = () => {
                     {flowOverviewStatus.flow3.up}/2 UP
                   </span>
                 </div>
-                <div className="text-xs font-bold truncate">Jadwal & Cari Dokter</div>
-                <div className="text-[9px] text-slate-400 truncate">Direktori Spesialis</div>
+                <div className="text-xs font-bold truncate">Konsultasi & Chat Dokter</div>
+                <div className="text-[9px] text-slate-400 truncate">Dokter Manusia Asli</div>
               </button>
             </div>
 
@@ -641,9 +640,9 @@ export const StressTestPage = () => {
             <div className="text-[11px] text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/50 px-2.5 py-1.5 rounded-lg border border-slate-200/80 dark:border-slate-800 flex items-center gap-1.5">
               <span className="text-orange-500 font-bold shrink-0">💡 Skenario:</span>
               <span className="truncate">
-                {selectedFlow === "1" && "Uji ketahanan saat ratusan pasien login lalu tanya-jawab dengan AI Dokter."}
+                {selectedFlow === "1" && "Uji ketahanan saat ratusan pasien login lalu tanya-jawab dengan AI Dokter (sampai terima balasan AI)."}
                 {selectedFlow === "2" && "Uji query database saat banyak pengguna memverifikasi PIN & membaca artikel edukasi."}
-                {selectedFlow === "3" && "Uji kecepatan engine Golang saat pasien mencari dokter & memfilter jadwal praktik."}
+                {selectedFlow === "3" && "Uji kecepatan engine Golang saat pasien membuat sesi & mengirim pesan chat ke dokter via WebSocket."}
               </span>
             </div>
           </div>
@@ -814,26 +813,15 @@ export const StressTestPage = () => {
                     endpoints.aiConsult,
                     "ai-consult"
                   )}
-                {selectedFlow === "2" && (
-                  <>
-                    {renderServiceEndpointPicker(
-                      "healthProfile",
-                      "Health Profile Service",
-                      "3001",
-                      "Verifikasi keamanan kode PIN & data profil kepesertaan pasien",
-                      endpoints.healthProfile,
-                      "health-profile"
-                    )}
-                    {renderServiceEndpointPicker(
-                      "lifestyle",
-                      "Lifestyle Service",
-                      "4007",
-                      "Katalog artikel gaya hidup, tips kesehatan & indexing konten medis",
-                      endpoints.lifestyle,
-                      "lifestyle"
-                    )}
-                  </>
-                )}
+                {selectedFlow === "2" &&
+                  renderServiceEndpointPicker(
+                    "lifestyle",
+                    "Lifestyle Service",
+                    "4007",
+                    "Katalog artikel gaya hidup, tips kesehatan & indexing konten medis",
+                    endpoints.lifestyle,
+                    "lifestyle"
+                  )}
                 {selectedFlow === "3" &&
                   renderServiceEndpointPicker(
                     "liveConsult",

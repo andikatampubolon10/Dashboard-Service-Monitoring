@@ -177,7 +177,7 @@ router.post('/start', (req, res) => {
   const activeEndpointsDesc = flow === '1'
     ? `Identity (${identityUrl}) | AI Consult (${aiConsultUrl})`
     : flow === '2'
-      ? `Identity (${identityUrl}) | Health Profile (${healthProfileUrl}) | Lifestyle (${lifestyleUrl})`
+      ? `Identity (${identityUrl}) | Lifestyle (${lifestyleUrl})`
       : `Identity (${identityUrl}) | Live Consult (${liveConsultUrl})`;
 
   try {

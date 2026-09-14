@@ -49,10 +49,8 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
     if (record.flowTitle.includes("Lifestyle") || record.flowTitle.includes("Flow 2")) {
       const idUrl = ep?.identity || "http://localhost:8081";
       const lsUrl = ep?.lifestyle || "http://localhost:4007";
-      const hpUrl = ep?.healthProfile || "http://localhost:3001";
       return [
         { name: "Identity Service", port: idUrl, role: "Autentikasi & Validasi JWT" },
-        { name: "Health Profile Service", port: hpUrl, role: "Validasi PIN & Profil" },
         { name: "Lifestyle Service", port: lsUrl, role: "Katalog Artikel & Kebugaran" },
       ];
     }
