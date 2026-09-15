@@ -7,6 +7,8 @@ import { useServiceEndpoints } from '../../hooks/useServiceEndpoints';
 import { useServiceRequests } from '../../hooks/useServiceRequests';
 import { LineChart, LineSeriesConfig } from '../../components/charts/LineChart';
 import { ChartSkeleton } from '../../components/common/LoadingSkeleton';
+import { Modal } from '../../components/common/Modal';
+import { monitoringApi } from '../../services/monitoringApi';
 import { formatNumber, formatRps } from '../../utils/formatters';
 import {
   Activity,
@@ -21,13 +23,17 @@ import {
   Check,
   Zap,
   TrendingUp,
+  Plus,
+  Trash2,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 
 export const ServiceOverviewTab: React.FC = () => {
   const { id = 'ai-consultation' } = useParams<{ id: string }>();
   
   // 1. Service Detail (snapshot metrics)
-  const { data: service } = useServiceDetail(id);
+  const { data: service, refetch: refetchService, isFetching: isFetchingService } = useServiceDetail(id);
   
   // 2. Daily Requests (14-day history or hourly timeline)
   const [granularity, setGranularity] = useState<'hourly' | 'daily'>('daily');
@@ -47,6 +53,74 @@ export const ServiceOverviewTab: React.FC = () => {
   const [requestSearch, setRequestSearch] = useState('');
   const [requestMethodFilter, setRequestMethodFilter] = useState('ALL');
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
+
+  // Database Instances & Connectivity state
+  const databasesList = service?.databases || [];
+  const upDatabasesCount = databasesList.filter((d) => d.status === 'UP').length;
+  const totalDatabasesCount = databasesList.length;
+
+  // Modal state for managing service databases
+  const [showManageDbModal, setShowManageDbModal] = useState<boolean>(false);
+  const [isSavingDbs, setIsSavingDbs] = useState<boolean>(false);
+  const [dbListForm, setDbListForm] = useState<Array<{ id: string; name: string; host: string; port: number }>>([]);
+  const [newDbName, setNewDbName] = useState('');
+  const [newDbHost, setNewDbHost] = useState('');
+  const [newDbPort, setNewDbPort] = useState('5432');
+  const [dbFormError, setDbFormError] = useState<string | null>(null);
+
+  const handleOpenManageDbModal = () => {
+    setDbListForm(
+      databasesList.map((d) => ({
+        id: d.id,
+        name: d.name,
+        host: d.host,
+        port: d.port,
+      }))
+    );
+    setNewDbName('');
+    setNewDbHost(service?.serverHost || '34.101.122.171');
+    setNewDbPort('5432');
+    setDbFormError(null);
+    setShowManageDbModal(true);
+  };
+
+  const handleAddDbToForm = () => {
+    if (!newDbName.trim() || !newDbHost.trim()) {
+      setDbFormError('Nama database dan Host/IP wajib diisi');
+      return;
+    }
+    const portNum = parseInt(newDbPort, 10);
+    if (isNaN(portNum) || portNum <= 0) {
+      setDbFormError('Port harus berupa angka valid');
+      return;
+    }
+    const idSlug = newDbName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    setDbListForm((prev) => [
+      ...prev,
+      { id: idSlug || `db-${Date.now()}`, name: newDbName.trim(), host: newDbHost.trim(), port: portNum },
+    ]);
+    setNewDbName('');
+    setNewDbPort('5432');
+    setDbFormError(null);
+  };
+
+  const handleRemoveDbFromForm = (index: number) => {
+    setDbListForm((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSaveDatabases = async () => {
+    setIsSavingDbs(true);
+    setDbFormError(null);
+    try {
+      await monitoringApi.updateServiceDatabases(id, dbListForm);
+      await refetchService();
+      setShowManageDbModal(false);
+    } catch (err: unknown) {
+      setDbFormError(err instanceof Error ? err.message : 'Gagal menyimpan konfigurasi database');
+    } finally {
+      setIsSavingDbs(false);
+    }
+  };
 
   const isDown = service?.rawStatus === 'DOWN' || service?.status === 'critical' || service?.status === 'offline';
   const dailyRequests = dailyRequestsQuery;
@@ -264,6 +338,148 @@ export const ServiceOverviewTab: React.FC = () => {
             Sessions: {service?.activeConnections ?? 0}
           </div>
         </div>
+      </div>
+
+      {/* ─── DATABASE INSTANCES & CONNECTIVITY STATUS SECTION (OPTIONAL PER SERVICE) ─── */}
+      <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-6 shadow-sm dark:shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+          <div className="flex items-center gap-2.5">
+            <Database className="w-5 h-5 text-cyan-500 shrink-0" />
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-tight">
+                  Database Instances &amp; Connectivity Status ({upDatabasesCount}/{totalDatabasesCount} UP)
+                </h2>
+                {totalDatabasesCount > 0 && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 font-bold">
+                    TCP Socket Probe
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Pemeriksaan koneksi soket real-time ke semua database instance yang aktif di host{' '}
+                <span className="font-semibold text-slate-700 dark:text-slate-200">{service?.name || id}</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {totalDatabasesCount === 0 ? (
+              <span className="px-3 py-1 rounded-full text-xs font-mono font-bold border bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/25">
+                NO DATABASES CONFIGURED
+              </span>
+            ) : (
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-mono font-bold border ${
+                  upDatabasesCount === totalDatabasesCount
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25'
+                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25'
+                }`}
+              >
+                {upDatabasesCount === totalDatabasesCount ? 'ALL DATABASES RUNNING' : 'DATABASE ATTENTION NEEDED'}
+              </span>
+            )}
+
+            <button
+              type="button"
+              onClick={() => refetchService()}
+              disabled={isFetchingService}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition shadow-sm"
+              title="Refresh status koneksi database"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isFetchingService ? 'animate-spin text-cyan-500' : ''}`} />
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenManageDbModal}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-500/40 bg-indigo-50 dark:bg-indigo-500/15 hover:bg-indigo-100 dark:hover:bg-indigo-500/25 text-indigo-600 dark:text-indigo-400 text-xs font-mono font-bold transition shadow-sm"
+              title="Kelola referensi database untuk service ini"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>Kelola DB (+/-)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Database Grid or Honest Empty State */}
+        {totalDatabasesCount === 0 ? (
+          <div className="p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center space-y-2 bg-slate-50/40 dark:bg-slate-900/30 font-sans">
+            <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 mx-auto flex items-center justify-center text-slate-400">
+              <Database className="w-4 h-4 text-slate-400 opacity-60" />
+            </div>
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              Microservice ini beroperasi tanpa dependensi database (Stateless Microservice / Belum Dikonfigurasi)
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+              Bagian ini bersifat opsional untuk masing-masing service. Jika service ini membutuhkan pemantauan koneksi instance PostgreSQL, Redis, MongoDB, dll., Anda dapat menambahkannya melalui tombol di bawah.
+            </p>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleOpenManageDbModal}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 text-xs font-mono font-bold transition shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Tambah Referensi Database</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {databasesList.map((db) => {
+              const isUp = db.status === 'UP';
+              return (
+                <div
+                  key={db.id ? `${db.id}-${db.port}` : `${db.name}-${db.port}`}
+                  className={`p-4 rounded-xl border transition ${
+                    isUp
+                      ? 'bg-slate-50 dark:bg-[#0a101d] border-emerald-500/30 shadow-sm'
+                      : 'bg-rose-50/50 dark:bg-[#1a0f14] border-rose-500/30'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span
+                        className={`w-2.5 h-2.5 rounded-full ${
+                          isUp
+                            ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)]'
+                            : 'bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.7)]'
+                        }`}
+                      />
+                      <strong className="text-sm font-bold text-slate-900 dark:text-white font-mono">
+                        {db.name}
+                      </strong>
+                      {db.containerName && (
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                          {db.containerName}
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold border ${
+                        isUp
+                          ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
+                          : 'bg-rose-500/10 text-rose-500 border-rose-500/25'
+                      }`}
+                    >
+                      {isUp ? 'RUNNING' : 'STOPPED'}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-xs font-mono text-slate-500 dark:text-slate-400">
+                    <span>
+                      Host: <span className="text-slate-700 dark:text-slate-200">{db.host}:{db.port}</span>
+                    </span>
+                    <span>
+                      Latency: <strong className={isUp ? 'text-emerald-500 font-bold' : 'text-slate-400'}>{isUp ? `${db.latencyMs ?? 0} ms` : '-'}</strong>
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ─── 2. GRAFIK REQUEST HARIAN (DAILY REQUESTS VOLUME TIMELINE) ──────────── */}
@@ -857,6 +1073,142 @@ export const ServiceOverviewTab: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ─── MODAL: KELOLA REFERENSI DATABASE SERVICE (+/-) ───────────────── */}
+      <Modal
+        isOpen={showManageDbModal}
+        onClose={() => !isSavingDbs && setShowManageDbModal(false)}
+        title={`Kelola Referensi Database — ${service?.name || id}`}
+      >
+        <div className="space-y-5 font-sans">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Daftarkan instance database (PostgreSQL, Redis, MongoDB, MySQL) yang melayani microservice ini. Sistem akan secara otomatis menguji soket TCP secara real-time untuk mengecek status running/stopped dan latensi koneksi.
+          </p>
+
+          {/* Current List Table */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider font-mono">
+              Database Terdaftar ({dbListForm.length})
+            </h4>
+
+            {dbListForm.length === 0 ? (
+              <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400 font-mono">
+                Belum ada database yang didaftarkan untuk service ini (Stateless).
+              </div>
+            ) : (
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-100 dark:divide-slate-800 font-mono text-xs">
+                {dbListForm.map((db, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 bg-white dark:bg-slate-900/60">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-2 h-2 rounded-full bg-cyan-500" />
+                      <div>
+                        <strong className="text-slate-900 dark:text-white font-bold">{db.name}</strong>
+                        <span className="text-slate-500 dark:text-slate-400 ml-2">
+                          ({db.host}:{db.port})
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveDbFromForm(idx)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition"
+                      title="Hapus database dari daftar"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Form to Add New Database */}
+          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 space-y-3 font-mono text-xs">
+            <h5 className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 font-sans">
+              <Plus className="w-4 h-4 text-cyan-500" />
+              <span>Tambah Referensi Database Baru</span>
+            </h5>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div>
+                <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                  Nama DB
+                </label>
+                <input
+                  type="text"
+                  placeholder="cth: PostgreSQL"
+                  value={newDbName}
+                  onChange={(e) => setNewDbName(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500 font-sans"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                  Host / IP
+                </label>
+                <input
+                  type="text"
+                  placeholder="cth: 34.101.122.171"
+                  value={newDbHost}
+                  onChange={(e) => setNewDbHost(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                  Port
+                </label>
+                <input
+                  type="number"
+                  placeholder="5432"
+                  value={newDbPort}
+                  onChange={(e) => setNewDbPort(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleAddDbToForm}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold transition shadow-sm text-xs font-mono"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Tambahkan ke Daftar</span>
+              </button>
+            </div>
+          </div>
+
+          {dbFormError && (
+            <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/25 text-rose-600 dark:text-rose-400 text-xs font-mono">
+              {dbFormError}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setShowManageDbModal(false)}
+              disabled={isSavingDbs}
+              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold transition"
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveDatabases}
+              disabled={isSavingDbs}
+              className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition shadow-sm disabled:opacity-50"
+            >
+              {isSavingDbs && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              <span>Simpan Perubahan Database</span>
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

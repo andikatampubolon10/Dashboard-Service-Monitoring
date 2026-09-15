@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { ErrorState } from '../../components/common/ErrorState';
 import { TableSkeleton } from '../../components/common/LoadingSkeleton';
 import { Modal } from '../../components/common/Modal';
@@ -19,13 +19,40 @@ import {
   Layers,
   Pencil,
   Trash2,
+  ArrowLeft,
+  FolderKanban,
+  Check,
 } from 'lucide-react';
 import { useServers, useRegisterServer, useDiscoverServer, useUpdateServer, useDeleteServer } from '../../hooks/useServers';
-import { Server, DiscoveredService, DiscoverServerResponse } from '../../types';
+import { Server, DiscoveredService, DiscoverServerResponse, Project } from '../../types';
+import { ProjectService } from '../../services/projectService';
 
 export const ServerListPage: React.FC = () => {
   const navigate = useNavigate();
+  const { id: projectId } = useParams<{ id?: string }>();
   const { data: servers = [], isLoading, isError, refetch } = useServers();
+
+  const [project, setProject] = useState<Project | null>(null);
+  const [showManageProjectServersModal, setShowManageProjectServersModal] = useState<boolean>(false);
+  const [isUpdatingProjectServers, setIsUpdatingProjectServers] = useState<boolean>(false);
+
+  const fetchProject = async () => {
+    if (!projectId) return;
+    try {
+      const p = await ProjectService.getProjectById(projectId);
+      setProject(p);
+    } catch (err) {
+      console.error('Failed to load project in ServerListPage:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (projectId) {
+      fetchProject();
+    } else {
+      setProject(null);
+    }
+  }, [projectId]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<string>('name');
@@ -261,6 +288,10 @@ export const ServerListPage: React.FC = () => {
       } as any);
 
       setFormSuccess(`Server "${res.name}" berhasil didaftarkan! Status: ${res.status}`);
+      if (projectId && res?.id) {
+        await ProjectService.addServerToProject(projectId, res.id);
+        fetchProject();
+      }
       refetch();
       setTimeout(() => {
         setShowAddServerModal(false);
@@ -283,8 +314,33 @@ export const ServerListPage: React.FC = () => {
     }
   };
 
+  const handleToggleServerInProject = async (serverId: string) => {
+    if (!project) return;
+    setIsUpdatingProjectServers(true);
+    try {
+      const isCurrentlyIn = (project.serverIds || []).includes(serverId);
+      let updated: Project;
+      if (isCurrentlyIn) {
+        updated = await ProjectService.removeServerFromProject(project.id, serverId);
+      } else {
+        updated = await ProjectService.addServerToProject(project.id, serverId);
+      }
+      setProject(updated);
+    } catch (err: any) {
+      alert('Gagal mengalokasikan server ke projek: ' + err.message);
+    } finally {
+      setIsUpdatingProjectServers(false);
+    }
+  };
+
   const filteredServers = useMemo(() => {
     let list = [...servers];
+
+    if (projectId && project) {
+      const allowedIds = project.serverIds || [];
+      list = list.filter((s) => allowedIds.includes(s.id));
+    }
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -320,7 +376,7 @@ export const ServerListPage: React.FC = () => {
     });
 
     return list;
-  }, [servers, searchQuery, sortKey, sortAsc]);
+  }, [servers, searchQuery, sortKey, sortAsc, projectId, project]);
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -350,16 +406,53 @@ export const ServerListPage: React.FC = () => {
     <div className="space-y-6">
       {/* Top Title & Allocation Rules Action */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
-            Servers
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Infrastructure hosts and resource utilization
-          </p>
-        </div>
+        {projectId ? (
+          <div className="flex items-center gap-3">
+            <Link
+              to="/projects"
+              className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white transition shadow-sm"
+              title="Kembali ke Daftar Projek"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+                  Servers &mdash; {project ? project.name : 'Projek'}
+                </h1>
+                {project && (
+                  <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                    {project.env || 'PRODUCTION'}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Infrastructure hosts dan utilisasi resource untuk projek <span className="font-semibold text-slate-700 dark:text-slate-300">{project ? project.name : ''}</span>
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+              Servers
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Infrastructure hosts and resource utilization
+            </p>
+          </div>
+        )}
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          {projectId && (
+            <button
+              onClick={() => setShowManageProjectServersModal(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-500/40 bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 text-xs font-bold font-mono hover:bg-indigo-100 dark:hover:bg-indigo-500/25 transition shadow-sm"
+            >
+              <ServerIcon className="w-4 h-4" />
+              <span>Kelola Server Projek (+/-)</span>
+            </button>
+          )}
+
           {/* Add Server Button */}
           <button
             onClick={() => {
@@ -1272,6 +1365,78 @@ export const ServerListPage: React.FC = () => {
         </div>
       </Modal>
 
+      {/* ─── MODAL: KELOLA SERVER PROJEK (+/-) ───────────────────────────── */}
+      {projectId && project && (
+        <Modal
+          isOpen={showManageProjectServersModal}
+          onClose={() => setShowManageProjectServersModal(false)}
+          title={
+            <div className="flex items-center gap-2 text-slate-900 dark:text-white">
+              <FolderKanban className="w-5 h-5 text-indigo-500" />
+              <span>Kelola Alokasi Server Projek &mdash; {project.name}</span>
+            </div>
+          }
+          subtitle="Centang atau hilangkan centang untuk mengalokasikan / mengeluarkan server dari projek ini."
+          maxWidth="lg"
+        >
+          <div className="space-y-4 text-xs font-sans">
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {servers.map((srv) => {
+                const isInProject = (project.serverIds || []).includes(srv.id);
+                return (
+                  <div
+                    key={srv.id}
+                    onClick={() => !isUpdatingProjectServers && handleToggleServerInProject(srv.id)}
+                    className={`p-3 rounded-xl border cursor-pointer transition flex items-center justify-between text-xs ${
+                      isInProject
+                        ? 'bg-indigo-50/70 dark:bg-indigo-500/15 border-indigo-300 dark:border-indigo-500/40 text-indigo-950 dark:text-indigo-200'
+                        : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-4 h-4 rounded border flex items-center justify-center transition ${
+                          isInProject
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'border-slate-400 bg-white dark:bg-slate-800'
+                        }`}
+                      >
+                        {isInProject && <Check className="w-3 h-3 stroke-[3]" />}
+                      </div>
+                      <div>
+                        <div className="font-bold">{srv.name}</div>
+                        <div className="text-[10px] text-slate-400 font-mono">{srv.ip || srv.host}</div>
+                      </div>
+                    </div>
+
+                    <span
+                      className={`px-2 py-0.5 text-[10px] font-semibold rounded ${
+                        isInProject
+                          ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-300'
+                          : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                      }`}
+                    >
+                      {isInProject ? 'Terdaftar di Projek' : 'Belum Terdaftar'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 font-mono">
+              <button
+                type="button"
+                onClick={() => setShowManageProjectServersModal(false)}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-sm"
+              >
+                Selesai
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
     </div>
   );
 };
+

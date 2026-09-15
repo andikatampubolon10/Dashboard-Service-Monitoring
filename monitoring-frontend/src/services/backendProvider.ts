@@ -26,7 +26,9 @@ import {
 import { mockDb } from '../mock/database';
 
 const API_BASE_URL =
-  import.meta.env.VITE_MONITORING_API_URL?.replace(/\/$/, '') || 'http://localhost:5000';
+  import.meta.env.VITE_MONITORING_API_URL !== undefined
+    ? import.meta.env.VITE_MONITORING_API_URL.replace(/\/$/, '')
+    : (import.meta.env.DEV ? 'http://localhost:5000' : '');
 
 function mapStatus(status?: string): HealthStatus {
   if (!status) return 'offline';
@@ -68,9 +70,14 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
     this.baseUrl = baseUrl;
   }
 
-  private async fetchJson<T>(path: string): Promise<T> {
+  private async fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
-      headers: { Accept: 'application/json' },
+      ...options,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        ...(options?.headers || {}),
+      },
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -326,6 +333,16 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
             memory?: { rssMb?: number; heapUsedMb?: number; heapTotalMb?: number; externalMb?: number; goAllocMb?: number; goSysMb?: number };
             routes?: unknown[];
           } | null;
+          databases?: Array<{
+            id: string;
+            name: string;
+            host: string;
+            port: number;
+            status: 'UP' | 'DOWN' | string;
+            latencyMs?: number | null;
+          }>;
+          upDatabases?: number;
+          totalDatabases?: number;
         };
       }>(`/api/services/${id}`);
 
@@ -371,11 +388,24 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
         version: 'v1.0.0',
         uptime: s.status === 'UP' ? 'Online' : 'Offline',
         metrics: m,
+        databases: s.databases || [],
+        upDatabases: s.upDatabases || 0,
+        totalDatabases: s.totalDatabases || 0,
       };
     } catch (err) {
       console.warn(`[BackendProvider] getServiceById(${id}) error:`, err);
       return null;
     }
+  }
+
+  async updateServiceDatabases(
+    serviceId: string,
+    databases: Array<{ id: string; name: string; host: string; port: number }>
+  ): Promise<{ success: boolean; databases: Array<any>; upDatabases: number; totalDatabases: number }> {
+    return this.fetchJson(`/api/services/${serviceId}/databases`, {
+      method: 'PUT',
+      body: JSON.stringify({ databases }),
+    });
   }
 
   async getServiceRequests(
@@ -665,7 +695,7 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
         nodes: [
           { id: 'lifestyle', name: 'Lifestyle Service', type: 'service', status: 'healthy', rps: 0.2, latencyMs: 10, errorRatePercent: 0 },
           { id: 'identity', name: 'Identity Service', type: 'service', status: 'healthy', rps: 0.2, latencyMs: 35, errorRatePercent: 0 },
-          { id: 'ls-pg', name: 'PostgreSQL (5440)', type: 'database', status: 'healthy', rps: 0.2, latencyMs: 2, errorRatePercent: 0 },
+          { id: 'ls-pg', name: 'PostgreSQL (5437)', type: 'database', status: 'healthy', rps: 0.2, latencyMs: 2, errorRatePercent: 0 },
         ],
         edges: [
           { id: 'e1', source: 'lifestyle', target: 'identity', protocol: 'HTTP', rps: 0.2, latencyMs: 15, errorRatePercent: 0 },

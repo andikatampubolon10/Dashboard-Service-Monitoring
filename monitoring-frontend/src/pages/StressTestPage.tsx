@@ -147,8 +147,8 @@ export const StressTestPage = () => {
         if (matches.length > 0) {
           const current = (prev[key] || "").replace(/\/$/, "");
           const currentMatch = matches.find((m) => (m.url || "").replace(/\/$/, "") === current);
-          const isCurrentUp = currentMatch ? (currentMatch.rawStatus === "UP" || currentMatch.status === "healthy") : false;
-          const upMatches = matches.filter((m) => m.rawStatus === "UP" || m.status === "healthy");
+          const isCurrentUp = currentMatch ? (currentMatch.rawStatus === "UP" || currentMatch.status === "healthy" || (currentMatch.status as any) === "UP") : false;
+          const upMatches = matches.filter((m) => m.rawStatus === "UP" || m.status === "healthy" || (m.status as any) === "UP");
 
           // Jika URL saat ini belum terpilih/tidak valid, ATAU URL saat ini sedang DOWN tapi ada instance lain yang UP:
           if (!currentMatch || (!isCurrentUp && upMatches.length > 0)) {
@@ -220,7 +220,7 @@ export const StressTestPage = () => {
     const isServiceUrlUp = (url: string) => {
       const cleanUrl = (url || "").replace(/\/$/, "");
       return (servicesList || []).some(
-        (s) => (s.url || "").replace(/\/$/, "") === cleanUrl && (s.rawStatus === "UP" || s.status === "healthy")
+        (s) => (s.url || "").replace(/\/$/, "") === cleanUrl && (s.rawStatus === "UP" || s.status === "healthy" || (s.status as any) === "UP")
       );
     };
 

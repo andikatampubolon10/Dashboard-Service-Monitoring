@@ -484,6 +484,191 @@ function execSshCommand(client, cmd, timeoutMs = 4000) {
 }
 
 /**
+ * Parse lines from `docker ps --format "{{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Labels}}"`
+ * @param {string} dockerPsOut
+ * @returns {Array<object>}
+ */
+function parseDockerContainers(dockerPsOut) {
+  if (!dockerPsOut || typeof dockerPsOut !== 'string') return [];
+  const containers = [];
+  const lines = dockerPsOut.trim().split('\n');
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const parts = line.split('\t');
+    const name = parts[0]?.trim() || '';
+    const image = parts[1]?.trim() || '';
+    const portStr = parts[2]?.trim() || '';
+    const labelStr = parts[3]?.trim() || '';
+
+    // Parse labels
+    const labels = {};
+    if (labelStr) {
+      for (const item of labelStr.split(',')) {
+        const eqIdx = item.indexOf('=');
+        if (eqIdx > 0) {
+          labels[item.slice(0, eqIdx).trim()] = item.slice(eqIdx + 1).trim();
+        }
+      }
+    }
+
+    // Parse host exposed ports: e.g. 0.0.0.0:5437->5437/tcp, 5432/tcp, 0.0.0.0:5439->5436/tcp
+    const hostPorts = [];
+    const portMatches = portStr.matchAll(/(?:0\.0\.0\.0:|:::|:)?(\d{2,5})->(\d{2,5})/g);
+    for (const m of portMatches) {
+      hostPorts.push({
+        hostPort: parseInt(m[1], 10),
+        containerPort: parseInt(m[2], 10),
+      });
+    }
+
+    // Determine if container is database
+    let dbType = null;
+    const lowerName = name.toLowerCase();
+    const lowerImg = image.toLowerCase();
+    const composeService = (labels['com.docker.compose.service'] || '').toLowerCase();
+
+    if (
+      lowerImg.includes('postgres') ||
+      lowerName.includes('postgres') ||
+      lowerName.includes('-pg') ||
+      composeService.includes('postgres') ||
+      composeService.includes('-pg')
+    ) {
+      dbType = 'postgresql';
+    } else if (lowerImg.includes('redis') || lowerName.includes('redis') || composeService.includes('redis')) {
+      dbType = 'redis';
+    } else if (lowerImg.includes('mongo') || lowerName.includes('mongo') || composeService.includes('mongo')) {
+      dbType = 'mongodb';
+    } else if (lowerImg.includes('mysql') || lowerName.includes('mysql')) {
+      dbType = 'mysql';
+    } else if (lowerImg.includes('mariadb') || lowerName.includes('mariadb')) {
+      dbType = 'mariadb';
+    }
+
+    containers.push({
+      name,
+      image,
+      portStr,
+      labels,
+      project: labels['com.docker.compose.project'] || '',
+      composeService,
+      hostPorts,
+      primaryHostPort: hostPorts[0]?.hostPort || null,
+      isDb: Boolean(dbType),
+      dbType,
+    });
+  }
+
+  return containers;
+}
+
+/**
+ * Automatically resolve databases for a given service container based on:
+ * 1. Matching Docker Compose project
+ * 2. Environment variables (DATABASE_URL, REDIS_URL, etc.)
+ * 3. Fallback to container name prefix matching
+ *
+ * @param {object} serviceContainer
+ * @param {Array<object>} allContainers
+ * @param {Array<string>} [envList=[]]
+ * @param {string} [host='localhost']
+ * @returns {Array<object>}
+ */
+function resolveServiceDatabases(serviceContainer, allContainers, envList = [], host = 'localhost') {
+  if (!serviceContainer) return [];
+  const serviceProject = serviceContainer.project;
+  const databases = [];
+  const addedDbTypes = new Set();
+
+  // 1. Primary: Find all database containers in the same Docker Compose project
+  if (serviceProject) {
+    const projectDbs = allContainers.filter((c) => c.isDb && c.project === serviceProject);
+    for (const dbContainer of projectDbs) {
+      const port = dbContainer.primaryHostPort;
+      if (port && !addedDbTypes.has(dbContainer.dbType)) {
+        addedDbTypes.add(dbContainer.dbType);
+        databases.push({
+          id: dbContainer.dbType,
+          name: dbContainer.dbType === 'postgresql' ? 'PostgreSQL' : dbContainer.dbType === 'mongodb' ? 'MongoDB' : dbContainer.dbType.toUpperCase(),
+          host,
+          port,
+          containerName: dbContainer.name,
+        });
+      }
+    }
+  }
+
+  // 2. If no project databases found, parse environment variables (DATABASE_URL, REDIS_URL, etc.)
+  if (databases.length === 0 && Array.isArray(envList)) {
+    for (const envStr of envList) {
+      const [key, ...valParts] = envStr.split('=');
+      const val = valParts.join('=');
+      if (!val) continue;
+
+      const lowerVal = val.toLowerCase();
+      let detectedType = null;
+      if (lowerVal.startsWith('postgres://') || lowerVal.startsWith('postgresql://')) detectedType = 'postgresql';
+      else if (lowerVal.startsWith('redis://')) detectedType = 'redis';
+      else if (lowerVal.startsWith('mongodb://') || lowerVal.startsWith('mongodb+srv://')) detectedType = 'mongodb';
+
+      if (detectedType && !addedDbTypes.has(detectedType)) {
+        let matchedDb = null;
+        try {
+          const cleanUrl = val.replace(/^[a-z]+:\/\/[^@]*@/i, '');
+          const hostAndPort = cleanUrl.split('/')[0];
+          const [targetHost] = hostAndPort.split(':');
+
+          matchedDb = allContainers.find((c) =>
+            c.isDb && c.dbType === detectedType && (
+              c.name === targetHost ||
+              c.composeService === targetHost ||
+              c.name.includes(targetHost)
+            )
+          );
+        } catch {}
+
+        if (!matchedDb) {
+          matchedDb = allContainers.find((c) => c.isDb && c.dbType === detectedType);
+        }
+
+        const resolvedPort = matchedDb?.primaryHostPort;
+        if (resolvedPort) {
+          addedDbTypes.add(detectedType);
+          databases.push({
+            id: detectedType,
+            name: detectedType === 'postgresql' ? 'PostgreSQL' : detectedType === 'mongodb' ? 'MongoDB' : detectedType.toUpperCase(),
+            host,
+            port: resolvedPort,
+            containerName: matchedDb.name,
+          });
+        }
+      }
+    }
+  }
+
+  // 3. Fallback: match by container name prefix / slug if still no DB found
+  if (databases.length === 0) {
+    const svcBase = serviceContainer.name.replace(/-service.*$/, '').replace(/^inaai-/, '');
+    const matchedDbs = allContainers.filter((c) => c.isDb && c.name.includes(svcBase));
+    for (const db of matchedDbs) {
+      if (db.primaryHostPort && !addedDbTypes.has(db.dbType)) {
+        addedDbTypes.add(db.dbType);
+        databases.push({
+          id: db.dbType,
+          name: db.dbType === 'postgresql' ? 'PostgreSQL' : db.dbType === 'mongodb' ? 'MongoDB' : db.dbType.toUpperCase(),
+          host,
+          port: db.primaryHostPort,
+          containerName: db.name,
+        });
+      }
+    }
+  }
+
+  return databases;
+}
+
+/**
  * Discover remote hardware and microservices via SSH (WSL / Linux Node)
  * @param {object} params
  * @param {string} params.host - IP or hostname of remote laptop
@@ -551,38 +736,50 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
         const uptimeHours = Math.floor((uptimeSec % 86400) / 3600);
         const uptimeFormatted = uptimeDays > 0 ? `${uptimeDays}d ${uptimeHours}h` : `${uptimeHours}h`;
 
-        // 2. Discover Listening Ports & Docker Containers
+        // 2. Discover Listening Ports & Docker Containers (with labels)
         const [portsOut, dockerOut] = await Promise.all([
           execSshCommand(client, 'ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null').catch(() => ''),
-          execSshCommand(client, 'docker ps --format "{{.Names}}\t{{.Ports}}\t{{.Image}}" 2>/dev/null || sudo -n docker ps --format "{{.Names}}\t{{.Ports}}\t{{.Image}}" 2>/dev/null').catch(() => ''),
+          execSshCommand(
+            client,
+            'docker ps --format "{{.Names}}\\t{{.Image}}\\t{{.Ports}}\\t{{.Labels}}" 2>/dev/null || sudo -n docker ps --format "{{.Names}}\\t{{.Image}}\\t{{.Ports}}\\t{{.Labels}}" 2>/dev/null || docker ps --format "{{.Names}}\\t{{.Ports}}\\t{{.Image}}" 2>/dev/null'
+          ).catch(() => ''),
         ]);
+
+        // Parse docker containers using the dedicated Docker parser
+        const parsedDockerContainers = parseDockerContainers(dockerOut);
 
         // Map container names and ports from docker ps
         const detectedPortSet = new Set();
         const dockerContainerMap = new Map(); // port -> container info
 
-        if (dockerOut && dockerOut.trim()) {
-          const lines = dockerOut.split('\n');
-          for (const line of lines) {
-            const parts = line.split('\t');
-            if (parts.length >= 1 && parts[0].trim()) {
-              const containerName = parts[0].trim();
-              const portStr = parts[1] || '';
-              const imageStr = parts[2] || '';
+        for (const c of parsedDockerContainers) {
+          for (const hp of c.hostPorts) {
+            detectedPortSet.add(hp.hostPort);
+            dockerContainerMap.set(hp.hostPort, { name: c.name, image: c.image, project: c.project });
+          }
+        }
 
-              // Find mapped ports: e.g. 0.0.0.0:8080->8080/tcp or :8080->
-              const portMatches = portStr.match(/(?:0\.0\.0\.0:|:::|:)?(\d{2,5})->/g) || portStr.match(/:(\d{2,5})\b/g);
-              if (portMatches) {
-                for (const pm of portMatches) {
-                  const p = parseInt(pm.replace(/[^0-9]/g, ''), 10);
-                  if (p > 0 && p <= 65535) {
-                    detectedPortSet.add(p);
-                    dockerContainerMap.set(p, { name: containerName, image: imageStr });
-                  }
+        // Bulk inspect environment variables for application containers to find DB links
+        const appContainers = parsedDockerContainers.filter(
+          (c) => !c.isDb && !c.name.includes('exporter') && !c.name.includes('gateway') && !c.name.includes('mailhog')
+        );
+        const dockerEnvMap = new Map();
+        if (appContainers.length > 0) {
+          try {
+            const inspectCmd = `docker inspect ${appContainers.map((c) => c.name).join(' ')} --format "{{.Name}}\\t{{json .Config.Env}}" 2>/dev/null || sudo -n docker inspect ${appContainers.map((c) => c.name).join(' ')} --format "{{.Name}}\\t{{json .Config.Env}}" 2>/dev/null`;
+            const inspectOut = await execSshCommand(client, inspectCmd, 3500);
+            if (inspectOut && inspectOut.trim()) {
+              for (const line of inspectOut.trim().split('\n')) {
+                const [cName, envJson] = line.split('\t');
+                if (cName && envJson) {
+                  const cleanName = cName.replace(/^\//, '').trim();
+                  try {
+                    dockerEnvMap.set(cleanName, JSON.parse(envJson));
+                  } catch {}
                 }
               }
             }
-          }
+          } catch {}
         }
 
         // Extract active TCP listening ports from ss / netstat
@@ -645,6 +842,20 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
 
             if (!seenServiceIds.has(matched.id)) {
               seenServiceIds.add(matched.id);
+
+              // Auto-resolve databases directly from Docker container & compose links
+              const matchedContainer = parsedDockerContainers.find(
+                (c) => c.name === containerInfo?.name || c.primaryHostPort === port
+              );
+              const serviceDatabases = matchedContainer
+                ? resolveServiceDatabases(
+                    matchedContainer,
+                    parsedDockerContainers,
+                    dockerEnvMap.get(matchedContainer.name) || [],
+                    host
+                  )
+                : [];
+
               discoveredServices.push({
                 id: matched.id,
                 name: containerInfo ? `${matched.name}` : matched.name,
@@ -655,40 +866,47 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
                 description: matched.description || (containerInfo ? `Container: ${containerInfo.name}` : `Port ${port}`),
                 status: 'UP',
                 hasMetrics,
+                databases: serviceDatabases,
               });
             }
           })
         );
 
-        // Dynamically detect running databases from ss/netstat and docker
+        // Dynamically detect ALL running databases from docker containers and ss/netstat
         const discoveredDatabases = [];
-        for (const dbDef of KNOWN_DB_PORTS) {
-          let actualPort = dbDef.port;
-          let found = false;
+        const seenDbKeys = new Set();
 
-          // Priority 1: Check if standard DB port (5432, 6379, 27017, etc.) is directly listening on host
-          const hasStandardPort = detectedPortSet.has(dbDef.port) || (portsOut && portsOut.includes(`:${dbDef.port}`));
-          if (hasStandardPort) {
-            actualPort = dbDef.port;
-            found = true;
-          } else {
-            // Priority 2: Check if any mapped docker container matches this database pattern
-            for (const [p, info] of dockerContainerMap.entries()) {
-              if (dbDef.pattern.test(info.name) || dbDef.pattern.test(info.image)) {
-                actualPort = p;
-                found = true;
-                break;
-              }
+        // 1. All Docker database containers running on this server
+        for (const c of parsedDockerContainers) {
+          if (c.isDb && c.primaryHostPort) {
+            const key = `${c.dbType}-${c.primaryHostPort}`;
+            if (!seenDbKeys.has(key)) {
+              seenDbKeys.add(key);
+              discoveredDatabases.push({
+                id: `${c.dbType}-${c.primaryHostPort}`,
+                name: c.dbType === 'postgresql' ? 'PostgreSQL' : c.dbType === 'mongodb' ? 'MongoDB' : c.dbType.toUpperCase(),
+                containerName: c.name,
+                host,
+                port: c.primaryHostPort,
+              });
             }
           }
+        }
 
-          if (found) {
-            discoveredDatabases.push({
-              id: dbDef.id,
-              name: dbDef.name,
-              host,
-              port: actualPort,
-            });
+        // 2. Also check standard DB ports from ss/netstat if not captured by docker
+        for (const dbDef of KNOWN_DB_PORTS) {
+          const key = `${dbDef.id}-${dbDef.port}`;
+          if (!seenDbKeys.has(key)) {
+            const hasStandardPort = detectedPortSet.has(dbDef.port) || (portsOut && portsOut.includes(`:${dbDef.port}`));
+            if (hasStandardPort) {
+              seenDbKeys.add(key);
+              discoveredDatabases.push({
+                id: `${dbDef.id}-${dbDef.port}`,
+                name: dbDef.name,
+                host,
+                port: dbDef.port,
+              });
+            }
           }
         }
 
@@ -744,6 +962,113 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
   });
 }
 
+/**
+ * Perform a live Docker inspection on a server to auto-discover databases for all running services
+ * @param {object} server - Server object with host and ssh credentials
+ * @returns {Promise<Array<{ containerName: string, project: string, ports: number[], databases: Array }>>}
+ */
+async function inspectServerDatabasesAndServices(server) {
+  if (!server || !server.ssh || !server.ssh.username) {
+    throw new Error('Server does not have valid SSH credentials');
+  }
+
+  return new Promise((resolve, reject) => {
+    const client = new SshClient();
+    let isFinished = false;
+
+    const timer = setTimeout(() => {
+      if (!isFinished) {
+        isFinished = true;
+        client.end();
+        reject(new Error(`SSH timeout while inspecting Docker on ${server.host}`));
+      }
+    }, 15000);
+
+    client.on('error', (err) => {
+      if (!isFinished) {
+        isFinished = true;
+        clearTimeout(timer);
+        reject(err);
+      }
+    });
+
+    client.on('ready', async () => {
+      try {
+        const dockerOut = await execSshCommand(
+          client,
+          'docker ps --format "{{.Names}}\\t{{.Image}}\\t{{.Ports}}\\t{{.Labels}}" 2>/dev/null || sudo -n docker ps --format "{{.Names}}\\t{{.Image}}\\t{{.Ports}}\\t{{.Labels}}" 2>/dev/null'
+        ).catch(() => '');
+
+        const parsedContainers = parseDockerContainers(dockerOut);
+        const appContainers = parsedContainers.filter(
+          (c) => !c.isDb && !c.name.includes('exporter') && !c.name.includes('gateway') && !c.name.includes('mailhog')
+        );
+
+        const dockerEnvMap = new Map();
+        if (appContainers.length > 0) {
+          try {
+            const inspectCmd = `docker inspect ${appContainers.map((c) => c.name).join(' ')} --format "{{.Name}}\\t{{json .Config.Env}}" 2>/dev/null || sudo -n docker inspect ${appContainers.map((c) => c.name).join(' ')} --format "{{.Name}}\\t{{json .Config.Env}}" 2>/dev/null`;
+            const inspectOut = await execSshCommand(client, inspectCmd, 4000);
+            if (inspectOut && inspectOut.trim()) {
+              for (const line of inspectOut.trim().split('\n')) {
+                const [cName, envJson] = line.split('\t');
+                if (cName && envJson) {
+                  const cleanName = cName.replace(/^\//, '').trim();
+                  try {
+                    dockerEnvMap.set(cleanName, JSON.parse(envJson));
+                  } catch {}
+                }
+              }
+            }
+          } catch {}
+        }
+
+        const results = [];
+        for (const app of appContainers) {
+          const envs = dockerEnvMap.get(app.name) || [];
+          const databases = resolveServiceDatabases(app, parsedContainers, envs, server.host);
+          results.push({
+            containerName: app.name,
+            project: app.project,
+            ports: app.hostPorts.map((hp) => hp.hostPort),
+            databases,
+          });
+        }
+
+        client.end();
+        if (!isFinished) {
+          isFinished = true;
+          clearTimeout(timer);
+          resolve(results);
+        }
+      } catch (err) {
+        client.end();
+        if (!isFinished) {
+          isFinished = true;
+          clearTimeout(timer);
+          reject(err);
+        }
+      }
+    });
+
+    const connectConfig = {
+      host: server.host,
+      port: server.ssh.port || server.port || 22,
+      username: server.ssh.username,
+      readyTimeout: 10000,
+    };
+    if (server.ssh.password) {
+      connectConfig.password = server.ssh.password;
+      connectConfig.passphrase = server.ssh.password;
+    }
+    if (server.ssh.privateKey) {
+      connectConfig.privateKey = server.ssh.privateKey;
+    }
+
+    client.connect(connectConfig);
+  });
+}
+
 module.exports = {
   KNOWN_SERVICES,
   DEFAULT_PROBE_PORTS,
@@ -751,4 +1076,8 @@ module.exports = {
   identifyService,
   discoverViaHttpProbe,
   discoverViaSsh,
+  parseDockerContainers,
+  resolveServiceDatabases,
+  inspectServerDatabasesAndServices,
 };
+

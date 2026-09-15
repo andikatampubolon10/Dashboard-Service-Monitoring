@@ -562,7 +562,7 @@ export const ServerDetailPage: React.FC = () => {
             const isUp = db.status === 'UP';
             return (
               <div
-                key={db.id}
+                key={db.id ? `${db.id}-${db.port}` : `${db.name}-${db.port}`}
                 className={`p-4 rounded-xl border transition ${
                   isUp
                     ? 'bg-slate-50 dark:bg-[#0a101d] border-emerald-500/30 shadow-sm'
@@ -570,7 +570,7 @@ export const ServerDetailPage: React.FC = () => {
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span
                       className={`w-2.5 h-2.5 rounded-full ${
                         isUp
@@ -581,6 +581,11 @@ export const ServerDetailPage: React.FC = () => {
                     <strong className="text-sm font-bold text-slate-900 dark:text-white">
                       {db.name}
                     </strong>
+                    {db.containerName && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                        {db.containerName}
+                      </span>
+                    )}
                   </div>
                   <span
                     className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold border ${

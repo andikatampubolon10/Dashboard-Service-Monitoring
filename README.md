@@ -78,23 +78,39 @@ src/
 
 ## 🐳 Docker Deployment
 
-### Multi-Stage Docker Build
+The project provides a full-stack containerized architecture with **Nginx Reverse Proxy**, **React Frontend**, **Node.js Monitoring Backend**, and **Persistent Volume Storage**.
 
-```sh
-# Build and run container locally
-docker build -t observepulse-dashboard -f docker/Dockerfile .
-docker run -p 8080:80 observepulse-dashboard
-```
+### Architecture Overview
+- **Single Port Entry (`80` / `8080`)**: All requests to `/`, `/api/*`, and `/socket.io/*` are handled seamlessly through the Nginx gateway without CORS issues.
+- **Data Persistence**: Discovered servers and dynamic service registries are preserved across restarts inside the `dashboard_monitoring_data` volume.
 
-### Docker Compose
+### Quickstart with Docker Compose
+
+1. **Start Complete Stack**:
+   ```sh
+   docker compose up -d --build
+   ```
+   Open [http://localhost](http://localhost) (or [http://localhost:8080](http://localhost:8080)) in your browser.
+
+2. **Check Logs**:
+   ```sh
+   docker compose logs -f
+   ```
+
+3. **Stop Containers**:
+   ```sh
+   docker compose down
+   ```
+
+### Multi-Environment Deployment (CI/CD / Jenkins)
 
 - **Development**:
   ```sh
-  docker compose -f docker/docker-compose.dev.yml up -d --build
+  docker compose -f docker-compose.dev.yml up -d --build
   ```
 - **Production**:
   ```sh
-  docker compose -f docker/docker-compose.prod.yml up -d --build
+  docker compose -f docker-compose.prod.yml up -d --build
   ```
 
 ---

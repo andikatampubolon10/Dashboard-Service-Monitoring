@@ -135,7 +135,10 @@ class StressTestEngine {
 
   private listeners: Set<StressTestListener> = new Set();
   private logListeners: Set<StressTestLogListener> = new Set();
-  private baseUrl = (import.meta.env.VITE_MONITORING_API_URL || 'http://localhost:5000').replace(/\/$/, '');
+  private baseUrl =
+    import.meta.env.VITE_MONITORING_API_URL !== undefined
+      ? import.meta.env.VITE_MONITORING_API_URL.replace(/\/$/, '')
+      : (import.meta.env.DEV ? 'http://localhost:5000' : '');
 
   constructor() {
     this.initSocket();

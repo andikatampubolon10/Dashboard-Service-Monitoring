@@ -3,8 +3,8 @@
 /**
  * app.js
  *
- * Entry point for the Dashboard Service Monitoring Backend.
- * Initializes Express, Socket.IO, Route handlers, and the Background Prometheus Scraper.
+// Entry point for the Dashboard Service Monitoring Backend.
+// Initializes Express, Socket.IO, Route handlers, and the Background Prometheus Scraper.
  */
 
 require('dotenv').config();
@@ -22,6 +22,7 @@ const healthRoute = require('./routes/health.route');
 const servicesRoute = require('./routes/services.route');
 const metricsRoute = require('./routes/metrics.route');
 const serversRoute = require('./routes/servers.route');
+const projectsRoute = require('./routes/projects.route');
 const { router: stressTestRoute, setSocketServer: setStressTestSocketServer } = require('./routes/stressTest.route');
 
 // Middleware
@@ -63,6 +64,7 @@ app.use('/health', healthRoute);
 app.use('/api/services', servicesRoute);
 app.use('/api/metrics', metricsRoute);
 app.use('/api/servers', serversRoute);
+app.use('/api/projects', projectsRoute);
 app.use('/api/stress-test', stressTestRoute);
 
 // Centralized error handling
@@ -71,6 +73,21 @@ app.use(errorHandler);
 
 // Start HTTP & WebSocket server
 const PORT = process.env.PORT || 5000;
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[App] ⚠️ Port ${PORT} is currently in use (EADDRINUSE). Retrying in 2 seconds...`);
+    setTimeout(() => {
+      try {
+        server.close();
+      } catch {}
+      server.listen(PORT);
+    }, 2000);
+  } else {
+    console.error('[App] ❌ Server error:', err);
+  }
+});
+
 server.listen(PORT, () => {
   console.log(`====================================================`);
   console.log(`🚀 Monitoring Backend running on http://localhost:${PORT}`);
@@ -82,6 +99,15 @@ server.listen(PORT, () => {
 
   // Start the background scraping process
   startCollector();
+});
+
+// Global guards against unhandled exceptions and promise rejections
+process.on('uncaughtException', (err) => {
+  console.error('[App] ⚠️ Uncaught Exception caught:', err.message || err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[App] ⚠️ Unhandled Promise Rejection at:', promise, 'reason:', reason);
 });
 
 // Graceful shutdown

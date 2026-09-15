@@ -146,6 +146,16 @@ class MonitoringApiService {
   public async silenceAlert(alertId: string, durationMinutes: number): Promise<boolean> {
     return this.provider.silenceAlert(alertId, durationMinutes);
   }
+
+  public async updateServiceDatabases(
+    serviceId: string,
+    databases: Array<{ id: string; name: string; host: string; port: number }>
+  ): Promise<{ success: boolean; databases: Array<any>; upDatabases: number; totalDatabases: number }> {
+    if (this.provider.updateServiceDatabases) {
+      return this.provider.updateServiceDatabases(serviceId, databases);
+    }
+    return { success: true, databases: [], upDatabases: 0, totalDatabases: 0 };
+  }
 }
 
 export const monitoringApi = new MonitoringApiService();

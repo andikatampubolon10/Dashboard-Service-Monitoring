@@ -13,7 +13,9 @@
  */
 
 const { Router } = require('express');
-const { SERVICES, getAllActiveServices, getServiceById } = require('../config/services.config');
+const { SERVICES, getAllActiveServices, getServiceById, setServiceDatabases } = require('../config/services.config');
+const { getAllServers } = require('../config/servers.config');
+const { probeDatabases } = require('../utils/databaseProber');
 const {
   getLatest,
   getStatus,
@@ -24,6 +26,127 @@ const {
 } = require('../store/metricsStore');
 
 const router = Router();
+
+// Default database dependencies by service family
+const SERVICE_DEFAULT_DBS = {
+  'ai-consultation': [
+    { id: 'postgresql', name: 'PostgreSQL', defaultPort: 5436 },
+    { id: 'redis', name: 'Redis', defaultPort: 6380 },
+    { id: 'mongodb', name: 'MongoDB', defaultPort: 27018 },
+  ],
+  'identity': [
+    { id: 'postgresql', name: 'PostgreSQL', defaultPort: 5432 },
+    { id: 'redis', name: 'Redis', defaultPort: 6379 },
+  ],
+  'health-profile': [
+    { id: 'postgresql', name: 'PostgreSQL', defaultPort: 5438 },
+  ],
+  'lifestyle': [
+    { id: 'postgresql', name: 'PostgreSQL', defaultPort: 5437 },
+  ],
+  'live-consult': [
+    { id: 'postgresql', name: 'PostgreSQL', defaultPort: 5439 },
+    { id: 'redis', name: 'Redis', defaultPort: 6382 },
+  ],
+  'medical-record': [
+    { id: 'postgresql', name: 'PostgreSQL', defaultPort: 5439 },
+  ],
+  'audit': [
+    { id: 'postgresql', name: 'PostgreSQL', defaultPort: 5437 },
+  ],
+};
+
+/**
+ * Resolve and probe databases for a given service.
+ * @param {object} service
+ * @returns {Promise<{ databases: Array, upDatabases: number, totalDatabases: number }>}
+ */
+async function resolveAndProbeServiceDatabases(service) {
+  if (!service) return { databases: [], upDatabases: 0, totalDatabases: 0 };
+
+  const allServers = getAllServers();
+  const matchedServer = allServers.find((srv) => {
+    if (srv.id === service.serverId) return true;
+    if (Array.isArray(srv.serviceIds) && srv.serviceIds.includes(service.id)) return true;
+    if (service.url && srv.host && service.url.includes(srv.host)) return true;
+    return false;
+  });
+
+  const host = matchedServer?.host || service.serverHost || (service.url?.split('://')[1]?.split(':')[0]) || 'localhost';
+
+  let targetDbs = [];
+
+  if (matchedServer) {
+    // 1. Gather all databases from all services hosted on this server + server databases
+    const allServices = getAllActiveServices();
+    const serverServices = allServices.filter(
+      (s) => s.serverId === matchedServer.id || (Array.isArray(matchedServer.serviceIds) && matchedServer.serviceIds.includes(s.id))
+    );
+
+    const candidates = [
+      ...(Array.isArray(service.databases) ? service.databases : []),
+      ...serverServices.flatMap((s) => (Array.isArray(s.databases) ? s.databases : [])),
+      ...(Array.isArray(matchedServer.databases) ? matchedServer.databases : []),
+    ];
+
+    const seenKeys = new Set();
+    for (const db of candidates) {
+      if (!db || !db.port) continue;
+      const key = `${db.id || db.name}-${db.port}`;
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        targetDbs.push({
+          id: db.id || `${db.name}-${db.port}`,
+          name: db.name || 'Database',
+          containerName: db.containerName || undefined,
+          host: db.host || host,
+          port: db.port,
+          server: matchedServer,
+        });
+      }
+    }
+  } else if (Array.isArray(service.databases) && service.databases.length > 0) {
+    targetDbs = service.databases.map((d) => ({
+      ...d,
+      host: d.host || host,
+      server: matchedServer,
+    }));
+  } else {
+    // Fallback if standalone service without server
+    const svcKey = Object.keys(SERVICE_DEFAULT_DBS).find((k) => service.id.includes(k));
+    if (svcKey) {
+      const dbTemplates = SERVICE_DEFAULT_DBS[svcKey];
+      targetDbs = dbTemplates.map((tmpl) => ({
+        id: tmpl.id,
+        name: tmpl.name,
+        host,
+        port: tmpl.defaultPort,
+        server: matchedServer,
+      }));
+    }
+  }
+
+  if (targetDbs.length === 0) {
+    return { databases: [], upDatabases: 0, totalDatabases: 0 };
+  }
+
+  try {
+    const probed = await probeDatabases(targetDbs);
+    const upDatabases = probed.filter((d) => d.status === 'UP').length;
+    return {
+      databases: probed,
+      upDatabases,
+      totalDatabases: probed.length,
+    };
+  } catch (err) {
+    console.warn(`[services.route] probeDatabases error for ${service.id}:`, err.message);
+    return {
+      databases: targetDbs.map((d) => ({ ...d, status: 'DOWN', latencyMs: null })),
+      upDatabases: 0,
+      totalDatabases: targetDbs.length,
+    };
+  }
+}
 
 // ─── GET /api/services ─────────────────────────────────────────────────────
 router.get('/', (req, res) => {
@@ -49,15 +172,15 @@ router.get('/', (req, res) => {
       // Summary metrics for the services table
       summary: latest
         ? {
-            reqPerSecond: latest.metrics.throughput?.reqPerSecond ?? 0,
-            reqTotal: latest.metrics.throughput?.reqTotal ?? 0,
-            errorRatePercent: latest.metrics.errorRate?.percent ?? 0,
-            errorCount: (latest.metrics.errorRate?.total5xx ?? 0) + (latest.metrics.errorRate?.total4xx ?? 0),
-            p95LatencyMs: latest.metrics.latency?.p95Ms ?? latest.metrics.latency?.p99Ms ?? 0,
-            p99LatencyMs: latest.metrics.latency?.p99Ms ?? 0,
-            cpuPercent: latest.metrics.cpu?.usagePercent ?? 0,
-            memoryRssMb: latest.metrics.memory?.rssMb ?? 0,
-          }
+          reqPerSecond: latest.metrics.throughput?.reqPerSecond ?? 0,
+          reqTotal: latest.metrics.throughput?.reqTotal ?? 0,
+          errorRatePercent: latest.metrics.errorRate?.percent ?? 0,
+          errorCount: (latest.metrics.errorRate?.total5xx ?? 0) + (latest.metrics.errorRate?.total4xx ?? 0),
+          p95LatencyMs: latest.metrics.latency?.p95Ms ?? latest.metrics.latency?.p99Ms ?? 0,
+          p99LatencyMs: latest.metrics.latency?.p99Ms ?? 0,
+          cpuPercent: latest.metrics.cpu?.usagePercent ?? 0,
+          memoryRssMb: latest.metrics.memory?.rssMb ?? 0,
+        }
         : null,
     };
   });
@@ -72,7 +195,7 @@ router.get('/', (req, res) => {
 });
 
 // ─── GET /api/services/:id ─────────────────────────────────────────────────
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   const service = getServiceById(req.params.id);
   if (!service) {
     return res.status(404).json({ success: false, error: 'Service not found' });
@@ -80,6 +203,7 @@ router.get('/:id', (req, res) => {
 
   const latest = getLatest(service.id);
   const status = getStatus(service.id);
+  const dbInfo = await resolveAndProbeServiceDatabases(service);
 
   res.json({
     success: true,
@@ -95,7 +219,45 @@ router.get('/:id', (req, res) => {
       scrapeLatencyMs: latest?.scrapeLatencyMs || null,
       error: latest?.error || null,
       metrics: latest?.metrics || null,
+      databases: dbInfo.databases,
+      upDatabases: dbInfo.upDatabases,
+      totalDatabases: dbInfo.totalDatabases,
     },
+  });
+});
+
+// ─── GET /api/services/:id/databases ──────────────────────────────────────
+router.get('/:id/databases', async (req, res) => {
+  const service = getServiceById(req.params.id);
+  if (!service) {
+    return res.status(404).json({ success: false, error: 'Service not found' });
+  }
+
+  const dbInfo = await resolveAndProbeServiceDatabases(service);
+  res.json({
+    success: true,
+    serviceId: service.id,
+    serviceName: service.name,
+    ...dbInfo,
+  });
+});
+
+// ─── PUT /api/services/:id/databases ──────────────────────────────────────
+router.put('/:id/databases', async (req, res) => {
+  const service = getServiceById(req.params.id);
+  if (!service) {
+    return res.status(404).json({ success: false, error: 'Service not found' });
+  }
+
+  const databases = Array.isArray(req.body.databases) ? req.body.databases : [];
+  const updated = setServiceDatabases(service.id, databases);
+
+  const dbInfo = await resolveAndProbeServiceDatabases(updated || service);
+  res.json({
+    success: true,
+    message: 'Referensi database service berhasil diperbarui',
+    serviceId: service.id,
+    ...dbInfo,
   });
 });
 

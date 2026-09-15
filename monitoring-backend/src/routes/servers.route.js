@@ -13,10 +13,10 @@ const net = require('net');
 const axios = require('axios');
 const { Router } = require('express');
 const { getAllServers, getServerById, registerServer, removeServer, updateServer } = require('../config/servers.config');
-const { getServiceById, registerService, removeServicesByServer, updateServicesByServer } = require('../config/services.config');
+const { getServiceById, registerService, removeServicesByServer, updateServicesByServer, getAllActiveServices, setServiceDatabases } = require('../config/services.config');
 const { getLatest, getStatus, getLatestSystemMetrics } = require('../store/metricsStore');
 const { probeDatabases } = require('../utils/databaseProber');
-const { discoverViaSsh, discoverViaHttpProbe } = require('../services/discoveryService');
+const { discoverViaSsh, discoverViaHttpProbe, inspectServerDatabasesAndServices } = require('../services/discoveryService');
 const { initServerTunnel, teardownServerTunnel } = require('../services/sshTunnelService');
 
 const router = Router();
@@ -130,8 +130,36 @@ function formatSystemMetrics(sysMetrics) {
  * Build full server response object.
  */
 async function buildServerResponse(server, includeColocation = false) {
+  const allActive = getAllActiveServices();
+  const serverServices = allActive.filter(
+    (s) => s.serverId === server.id || (Array.isArray(server.serviceIds) && server.serviceIds.includes(s.id))
+  );
+
+  const candidates = [
+    ...(Array.isArray(server.databases) ? server.databases : []),
+    ...serverServices.flatMap((s) => (Array.isArray(s.databases) ? s.databases : [])),
+  ];
+
+  const seenKeys = new Set();
+  const serverDbs = [];
+  for (const db of candidates) {
+    if (!db || !db.port) continue;
+    const key = `${db.id || db.name}-${db.port}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      serverDbs.push({
+        id: db.id || `${db.name}-${db.port}`,
+        name: db.name || 'Database',
+        containerName: db.containerName || undefined,
+        host: db.host || server.host,
+        port: db.port,
+        server,
+      });
+    }
+  }
+
   const services  = buildServiceSummaries(server.serviceIds || []);
-  const databases = await probeDatabases(server.databases || []);
+  const databases = await probeDatabases(serverDbs);
 
   let probeResult = null;
   if (server.port) {
@@ -422,6 +450,7 @@ router.post('/', async (req, res) => {
           description: svc.description || `Discovered on ${cleanHost}:${svc.port}`,
           serverId,
           port: svc.port,
+          databases: Array.isArray(svc.databases) ? svc.databases : [],
         });
         registeredServiceIds.add(dynamicId);
         registeredServiceObjects.push(createdSvc);
@@ -617,6 +646,65 @@ router.post('/:id/tunnel', async (req, res) => {
     ssh: { username: server.ssh.username, port: server.ssh.port },
   });
 });
+
+/**
+ * POST /api/servers/:id/sync-databases
+ * Automatically inspect running Docker containers via SSH and update
+ * database dependencies for all services hosted on this server.
+ */
+router.post('/:id/sync-databases', async (req, res) => {
+  const { id } = req.params;
+  const server = getServerById(id);
+  if (!server) {
+    return res.status(404).json({ success: false, error: 'Server tidak ditemukan.' });
+  }
+
+  if (!server.ssh || !server.ssh.username) {
+    return res.status(400).json({ success: false, error: 'Server tidak memiliki kredensial SSH untuk auto-inspect Docker.' });
+  }
+
+  try {
+    const inspectedApps = await inspectServerDatabasesAndServices(server);
+    const allActive = getAllActiveServices();
+    const serverServices = allActive.filter((s) => s.serverId === id);
+    const updatedServices = [];
+
+    for (const svc of serverServices) {
+      // Match app by container name, id, port, or project
+      const matchedApp = inspectedApps.find((app) => {
+        if (svc.description && svc.description.includes(app.containerName)) return true;
+        if (svc.id && svc.id.toLowerCase().includes(app.containerName.toLowerCase())) return true;
+        if (svc.name && svc.name.toLowerCase().includes(app.containerName.toLowerCase())) return true;
+        if (svc.port && app.ports.includes(svc.port)) return true;
+        if (app.project && svc.id && svc.id.toLowerCase().includes(app.project.toLowerCase())) return true;
+        return false;
+      });
+
+      const databases = matchedApp?.databases || [];
+      const updatedSvc = setServiceDatabases(svc.id, databases);
+      updatedServices.push({
+        id: svc.id,
+        name: svc.name,
+        containerName: matchedApp?.containerName || null,
+        project: matchedApp?.project || null,
+        databases,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Berhasil mendeteksi ${inspectedApps.length} container dan menyinkronkan database untuk ${updatedServices.length} service pada "${server.name}".`,
+      services: updatedServices,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: `Gagal menjalankan Docker auto-inspection via SSH: ${err.message}`,
+    });
+  }
+});
+
+router.buildServerResponse = buildServerResponse;
 
 module.exports = router;
 

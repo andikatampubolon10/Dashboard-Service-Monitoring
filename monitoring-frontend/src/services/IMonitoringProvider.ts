@@ -60,5 +60,9 @@ export interface IMonitoringProvider {
   getServiceAlerts(serviceId: string): Promise<Alert[]>;
   acknowledgeAlert(alertId: string): Promise<boolean>;
   silenceAlert(alertId: string, durationMinutes: number): Promise<boolean>;
+  updateServiceDatabases?(
+    serviceId: string,
+    databases: Array<{ id: string; name: string; host: string; port: number }>
+  ): Promise<{ success: boolean; databases: Array<any>; upDatabases: number; totalDatabases: number }>;
 }
 

@@ -62,9 +62,21 @@ export interface Server {
     p99LatencyMs: number | null;
     lastScrapedAt: string | null;
   }>;
+  services?: Array<{
+    id: string;
+    name: string;
+    stack: string;
+    description: string;
+    status: 'UP' | 'DOWN' | string;
+    reqPerSecond: number | null;
+    errorRatePercent: number | null;
+    p99LatencyMs: number | null;
+    lastScrapedAt: string | null;
+  }>;
   databases?: Array<{
     id: string;
     name: string;
+    containerName?: string;
     host: string;
     port: number;
     status: 'UP' | 'DOWN' | string;
@@ -85,6 +97,39 @@ export interface Server {
     canShare: string[];
     cannotShare: string[];
   } | null;
+}
+
+// Project Hierarchy Types (Project -> Server -> Service)
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  env: 'PRODUCTION' | 'STAGING' | 'DEVELOPMENT' | string;
+  serverIds: string[];
+  createdAt: string;
+  updatedAt: string;
+  serversCount: number;
+  servicesCount: number;
+  upServicesCount: number;
+  downServicesCount: number;
+  status: 'HEALTHY' | 'DEGRADED' | 'CRITICAL';
+  aggregateMetrics?: {
+    avgCpuPercent: number;
+    totalMemoryMb: number;
+    usedMemoryMb: number;
+    memoryUsedPercent: number;
+    totalDiskGb: number;
+    usedDiskGb: number;
+    diskUsedPercent: number;
+  };
+  servers?: Server[];
+}
+
+export interface ProjectPayload {
+  name: string;
+  description?: string;
+  env?: 'PRODUCTION' | 'STAGING' | 'DEVELOPMENT' | string;
+  serverIds?: string[];
 }
 
 export interface ServerDetail extends Server {
@@ -235,6 +280,17 @@ export interface Service {
   serverName?: string;
   serverHost?: string;
   isRemote?: boolean;
+  databases?: Array<{
+    id: string;
+    name: string;
+    containerName?: string;
+    host: string;
+    port: number;
+    status: 'UP' | 'DOWN' | string;
+    latencyMs?: number | null;
+  }>;
+  upDatabases?: number;
+  totalDatabases?: number;
 }
 
 export interface ServiceDetail extends Service {
@@ -243,6 +299,19 @@ export interface ServiceDetail extends Service {
   lastDeployment: string;
   gitCommit: string;
   version: string;
+
+  // Real backend databases
+  databases?: Array<{
+    id: string;
+    name: string;
+    containerName?: string;
+    host: string;
+    port: number;
+    status: 'UP' | 'DOWN' | string;
+    latencyMs?: number | null;
+  }>;
+  upDatabases?: number;
+  totalDatabases?: number;
 
   // Metrics breakdown directly from /api/services/:id
   metrics?: {

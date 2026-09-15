@@ -1,0 +1,59 @@
+services:
+  monitoring-backend:
+    build:
+      context: ./monitoring-backend
+      dockerfile: Dockerfile
+    image: dashboard-monitoring-backend:latest
+    container_name: dashboard-monitoring-backend
+    restart: unless-stopped
+    environment:
+      - PORT=5000
+      - NODE_ENV=production
+      - POLL_INTERVAL_SECONDS=5
+      - METRICS_RETENTION_MINUTES=60
+    env_file:
+      - path: ./monitoring-backend/.env
+        required: false
+    volumes:
+      - monitoring_data:/app/data
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - monitoring-network
+
+  monitoring-frontend:
+    build:
+      context: ./monitoring-frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_MONITORING_API_URL: ""
+    image: dashboard-monitoring-frontend:latest
+    container_name: dashboard-monitoring-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      monitoring-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - monitoring-network
+
+volumes:
+  monitoring_data:
+    name: dashboard_monitoring_data
+
+networks:
+  monitoring-network:
+    name: dashboard_monitoring_network

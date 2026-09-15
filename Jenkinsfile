@@ -48,8 +48,8 @@ pipeline {
 		stage('Deploy Development') {
 			steps {
 				sh '''
-					docker compose -f docker/docker-compose.dev.yml config
-					docker compose -f docker/docker-compose.dev.yml build
+					docker compose -f docker-compose.dev.yml config
+					docker compose -f docker-compose.dev.yml build
 				'''
 				dir('terraform') {
 					sh '''
@@ -57,7 +57,7 @@ pipeline {
 						terraform apply -input=false -auto-approve -var="environment=development"
 					'''
 				}
-				sh 'docker compose -f docker/docker-compose.dev.yml up -d'
+				sh 'docker compose -f docker-compose.dev.yml up -d'
 			}
 		}
 
@@ -79,9 +79,9 @@ pipeline {
 					'''
 				}
 				sh '''
-					docker compose -f docker/docker-compose.prod.yml config
-					docker compose -f docker/docker-compose.prod.yml build
-					docker compose -f docker/docker-compose.prod.yml up -d
+					docker compose -f docker-compose.prod.yml config
+					docker compose -f docker-compose.prod.yml build
+					docker compose -f docker-compose.prod.yml up -d
 				'''
 			}
 		}

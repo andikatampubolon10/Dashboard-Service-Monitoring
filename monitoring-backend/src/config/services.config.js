@@ -254,10 +254,35 @@ function registerService(service) {
     stack: service.stack || 'nodejs',
     description: service.description || `Discovered service at ${service.url}`,
     serverId: service.serverId,
+    databases: Array.isArray(service.databases) ? service.databases : undefined,
     isDynamic: true,
   });
   saveDynamicServices();
   return DYNAMIC_SERVICES.get(service.id);
+}
+
+/**
+ * Set or update database references for a specific service.
+ * @param {string} serviceId
+ * @param {Array<{ id: string, name: string, host: string, port: number }>} databases
+ */
+function setServiceDatabases(serviceId, databases) {
+  let svc = DYNAMIC_SERVICES.get(serviceId);
+  if (!svc) {
+    // If it's a built-in service, promote it to DYNAMIC_SERVICES with overridden databases
+    const builtIn = SERVICES.find((s) => s.id === serviceId);
+    if (builtIn) {
+      svc = { ...builtIn, isDynamic: true };
+      DYNAMIC_SERVICES.set(serviceId, svc);
+    }
+  }
+
+  if (svc) {
+    svc.databases = Array.isArray(databases) ? databases : [];
+    saveDynamicServices();
+    return svc;
+  }
+  return null;
 }
 
 /**
@@ -310,6 +335,7 @@ module.exports = {
   removeServicesByServer,
   updateServicesByServer,
   getServiceById,
+  setServiceDatabases,
 };
 
 /**
