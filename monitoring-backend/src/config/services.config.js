@@ -31,78 +31,7 @@ function resolveServerMeta(url) {
 
 /** @type {ServiceConfig[]} */
 const SERVICES = [
-  {
-    id: 'ai-consultation',
-    name: process.env.SERVICE_AI_CONSULTATION_NAME || 'AI Consultation Service',
-    url: process.env.SERVICE_AI_CONSULTATION_URL || `http://${REMOTE_HOST}:4006`,
-    metricsPath: METRICS_PATH,
-    stack: 'nodejs',
-    description: 'AI-powered consultation lifecycle, transcript persistence, audit publication',
-    ...resolveServerMeta(process.env.SERVICE_AI_CONSULTATION_URL || `http://${REMOTE_HOST}:4006`),
-  },
-  {
-    id: 'health-profile',
-    name: process.env.SERVICE_HEALTH_PROFILE_NAME || 'Health Profile Service',
-    url: process.env.SERVICE_HEALTH_PROFILE_URL || `http://${REMOTE_HOST}:3001`,
-    metricsPath: METRICS_PATH,
-    stack: 'nodejs',
-    description: 'Owns BPJS participant health profile data and biometric enrollment',
-    ...resolveServerMeta(process.env.SERVICE_HEALTH_PROFILE_URL || `http://${REMOTE_HOST}:3001`),
-  },
-  {
-    id: 'node-exporter',
-    name: process.env.SERVICE_NODE_EXPORTER_NAME || 'Node Exporter',
-    url: process.env.SERVICE_NODE_EXPORTER_URL || `http://${REMOTE_HOST}:9100`,
-    metricsPath: METRICS_PATH,
-    stack: 'go',
-    description: 'Host telemetry & hardware exporter (CPU, RAM, Disk, System load)',
-    ...resolveServerMeta(process.env.SERVICE_NODE_EXPORTER_URL || `http://${REMOTE_HOST}:9100`),
-  },
-  {
-    id: 'audit',
-    name: process.env.SERVICE_AUDIT_NAME || 'Audit Service',
-    url: process.env.SERVICE_AUDIT_URL || 'http://localhost:4005',
-    metricsPath: METRICS_PATH,
-    stack: 'go',
-    description: 'Audit event consumer — persists activity events from Kafka',
-    ...resolveServerMeta(process.env.SERVICE_AUDIT_URL || 'http://localhost:4005'),
-  },
-  {
-    id: 'identity',
-    name: process.env.SERVICE_IDENTITY_NAME || 'Identity Service',
-    url: process.env.SERVICE_IDENTITY_URL || 'http://localhost:8081',
-    metricsPath: METRICS_PATH,
-    stack: 'go',
-    description: 'Authentication, JWT issuance, user identity management',
-    ...resolveServerMeta(process.env.SERVICE_IDENTITY_URL || 'http://localhost:8080'),
-  },
-  {
-    id: 'lifestyle',
-    name: process.env.SERVICE_LIFESTYLE_NAME || 'Lifestyle Service',
-    url: process.env.SERVICE_LIFESTYLE_URL || 'http://localhost:4007',
-    metricsPath: METRICS_PATH,
-    stack: 'nodejs',
-    description: 'Exercise catalog, completion tracking, women\'s health cycle data',
-    ...resolveServerMeta(process.env.SERVICE_LIFESTYLE_URL || 'http://localhost:4007'),
-  },
-  {
-    id: 'live-consult',
-    name: process.env.SERVICE_LIVE_CONSULT_NAME || 'Live Consult Service',
-    url: process.env.SERVICE_LIVE_CONSULT_URL || 'http://localhost:4004',
-    metricsPath: METRICS_PATH,
-    stack: 'go',
-    description: 'Real-time WebSocket consultation sessions between patients and doctors',
-    ...resolveServerMeta(process.env.SERVICE_LIVE_CONSULT_URL || 'http://localhost:4004'),
-  },
-  {
-    id: 'medical-record',
-    name: process.env.SERVICE_MEDICAL_RECORD_NAME || 'Medical Record Service',
-    url: process.env.SERVICE_MEDICAL_RECORD_URL || 'http://localhost:3002',
-    metricsPath: METRICS_PATH,
-    stack: 'nodejs',
-    description: 'System of record for patient medical history and Elasticsearch indexing',
-    ...resolveServerMeta(process.env.SERVICE_MEDICAL_RECORD_URL || 'http://localhost:3002'),
-  },
+  
 ];
 
 const fs = require('fs');
