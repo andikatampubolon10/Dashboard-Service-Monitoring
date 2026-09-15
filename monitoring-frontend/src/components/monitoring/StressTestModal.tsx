@@ -239,26 +239,26 @@ export default function StressTestModal({ isOpen, onClose }: StressTestModalProp
           </div>
 
           {/* Quick Presets */}
-          <div className="flex items-center gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
             <span className="text-[11px] text-muted-foreground font-semibold">Preset Cepat:</span>
-            {[25, 50, 100, 200, 500].map((preset) => (
+            {[25, 50, 100, 150, 200, 300, 400, 500].map((preset) => (
               <button
                 key={preset}
                 type="button"
                 disabled={progress.isRunning}
                 onClick={() => setTargetVUs(preset)}
-                className={`rounded-lg px-3 py-1 text-xs font-bold font-mono transition-all ${
+                className={`rounded-lg px-2.5 py-1 text-xs font-bold font-mono transition-all ${
                   targetVUs === preset
                     ? "bg-orange-500 text-white shadow-sm"
                     : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
                 }`}
               >
-                {preset} User
+                {preset}
               </button>
             ))}
           </div>
-          <p className="text-[11px] text-muted-foreground italic">
-            💡 {targetVUs} VU mensimulasikan {targetVUs} pengguna aktif yang menekan fitur ini secara bersamaan.
+          <p className="text-[11px] text-muted-foreground">
+            💡 <strong className="text-emerald-500 font-semibold">Closed Workload Model:</strong> {targetVUs} pasien mengeksekusi 1 alur konsultasi penuh dari awal hingga akhir secara serentak (Standar SRE Industri).
           </p>
         </div>
 

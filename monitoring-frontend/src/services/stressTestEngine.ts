@@ -22,6 +22,49 @@ export interface ServiceEndpointsConfig {
   medical?: string;
 }
 
+export interface K6CheckItem {
+  name: string;
+  passes: number;
+  fails: number;
+  total: number;
+  passRate: string;
+  passed: boolean;
+}
+
+export interface K6MetricsSummary {
+  http_reqs: { count: number; rate: number };
+  http_req_duration: {
+    avg: number;
+    min: number;
+    med: number;
+    max: number;
+    p90: number;
+    p95: number;
+  };
+  http_req_failed: {
+    rate: number;
+    passes: number;
+    fails: number;
+  };
+  checks?: {
+    passes: number;
+    fails: number;
+    rate: string;
+  };
+  data_received?: { count: number; rate: number };
+  data_sent?: { count: number; rate: number };
+  iterations?: { count: number; rate: number };
+  iteration_duration?: {
+    avg: number;
+    min: number;
+    med: number;
+    max: number;
+    p90: number;
+    p95: number;
+  };
+  vus?: { value: number };
+}
+
 export interface StressTestProgress {
   isRunning: boolean;
   isFinished: boolean;
@@ -36,13 +79,20 @@ export interface StressTestProgress {
   failedRequests: number;
   currentRps: number;
   p95LatencyMs: number;
+  p90LatencyMs: number;
   avgLatencyMs: number;
+  minLatencyMs: number;
+  medLatencyMs: number;
+  maxLatencyMs: number;
   errorRatePercent: number;
   isThresholdBreached: boolean;
   breachedReasons: string[];
   healthGrade: 'HEALTHY' | 'DEGRADED' | 'CRITICAL';
   healthVerdict: string;
   targetEndpoints?: ServiceEndpointsConfig;
+  checks: K6CheckItem[];
+  k6Metrics?: K6MetricsSummary | null;
+  rawSummaryText?: string;
   flowStats: {
     flow1: number;
     flow2: number;
@@ -62,17 +112,26 @@ class StressTestEngine {
   private targetVUs = 50;
   private durationSec = 30;
   private startTime = 0;
+  private completedDurationSec = 0;
   private totalRequests = 0;
   private failedRequests = 0;
+  private successRequests = 0;
   private currentRps = 0;
   private p95LatencyMs = 0;
+  private p90LatencyMs = 0;
   private avgLatencyMs = 0;
+  private minLatencyMs = 0;
+  private medLatencyMs = 0;
+  private maxLatencyMs = 0;
   private errorRatePercent = 0;
   private healthGrade: 'HEALTHY' | 'DEGRADED' | 'CRITICAL' = 'HEALTHY';
   private healthVerdict = 'Sistem Siap Diuji dengan Grafana k6';
   private breachedReasons: string[] = [];
   private logs: string[] = [];
   private targetEndpoints: ServiceEndpointsConfig = {};
+  private checks: K6CheckItem[] = [];
+  private k6Metrics: K6MetricsSummary | null = null;
+  private rawSummaryText = '';
 
   private listeners: Set<StressTestListener> = new Set();
   private logListeners: Set<StressTestLogListener> = new Set();
@@ -110,6 +169,9 @@ class StressTestEngine {
         this.isRunning = false;
         this.isFinished = true;
         this.activeVUs = 0;
+        this.completedDurationSec = this.startTime
+          ? Math.max(1, Math.round((Date.now() - this.startTime) / 1000))
+          : (data?.durationSec || 6);
         if (data) {
           this.handleProgressUpdate(data);
         }
@@ -125,8 +187,14 @@ class StressTestEngine {
       const res = await fetch(`${this.baseUrl}/api/stress-test/status`);
       if (res.ok) {
         const json = await res.json();
-        if (json.data) {
+        // Hanya sinkronkan data real-time jika backend saat ini sedang aktif menjalankan pengujian
+        if (json.data && json.data.isRunning) {
           this.handleProgressUpdate(json.data);
+        } else {
+          // Sistem idle (tidak sedang menguji): Pertahankan status standby yang bersih (semua metrik 0)
+          if (json.data?.targetEndpoints) {
+            this.targetEndpoints = json.data.targetEndpoints;
+          }
         }
       }
     } catch {
@@ -144,12 +212,20 @@ class StressTestEngine {
     this.activeVUs = data.activeVUs ?? (this.isRunning ? this.targetVUs : 0);
     this.currentRps = data.currentRps ?? 0;
     this.p95LatencyMs = data.p95LatencyMs ?? 0;
+    this.p90LatencyMs = data.p90LatencyMs ?? 0;
     this.avgLatencyMs = data.avgLatencyMs ?? 0;
+    this.minLatencyMs = data.minLatencyMs ?? 0;
+    this.medLatencyMs = data.medLatencyMs ?? 0;
+    this.maxLatencyMs = data.maxLatencyMs ?? 0;
     this.totalRequests = data.totalRequests ?? 0;
     this.failedRequests = data.failedRequests ?? 0;
+    this.successRequests = data.successRequests ?? Math.max(0, this.totalRequests - this.failedRequests);
     this.errorRatePercent = data.errorRatePercent ?? 0;
     this.healthGrade = data.healthGrade ?? 'HEALTHY';
     this.healthVerdict = data.healthVerdict ?? 'Sistem Siap Diuji';
+    if (data.checks && Array.isArray(data.checks)) this.checks = data.checks;
+    if (data.k6Metrics) this.k6Metrics = data.k6Metrics;
+    if (data.rawSummaryText) this.rawSummaryText = data.rawSummaryText;
 
     this.breachedReasons = [];
     if (this.p95LatencyMs > 1000) {
@@ -164,6 +240,37 @@ class StressTestEngine {
       this.notifyLogListeners();
     }
 
+    this.notify(this.getProgress());
+  }
+
+  /**
+   * Reset seluruh metrik real-time ke mode Standby / Idle bersih
+   */
+  public resetToIdle() {
+    this.isRunning = false;
+    this.isFinished = false;
+    this.activeVUs = 0;
+    this.totalRequests = 0;
+    this.failedRequests = 0;
+    this.successRequests = 0;
+    this.currentRps = 0;
+    this.p95LatencyMs = 0;
+    this.p90LatencyMs = 0;
+    this.avgLatencyMs = 0;
+    this.minLatencyMs = 0;
+    this.medLatencyMs = 0;
+    this.maxLatencyMs = 0;
+    this.errorRatePercent = 0;
+    this.startTime = 0;
+    this.completedDurationSec = 0;
+    this.checks = [];
+    this.k6Metrics = null;
+    this.rawSummaryText = '';
+    this.logs = [];
+    this.healthGrade = 'HEALTHY';
+    this.healthVerdict = 'Sistem Siap Diuji dengan Grafana k6';
+    this.breachedReasons = [];
+    this.notifyLogListeners();
     this.notify(this.getProgress());
   }
 
@@ -188,7 +295,11 @@ class StressTestEngine {
 
   public setSelectedFlow(flow: SelectedFlowType) {
     this.selectedFlow = flow;
-    this.notify(this.getProgress());
+    if (!this.isRunning) {
+      this.resetToIdle();
+    } else {
+      this.notify(this.getProgress());
+    }
   }
 
   public getLogs(): string[] {
@@ -196,7 +307,9 @@ class StressTestEngine {
   }
 
   public getProgress(): StressTestProgress {
-    const elapsedSec = this.startTime && this.isRunning ? Math.floor((Date.now() - this.startTime) / 1000) : 0;
+    const elapsedSec = this.isRunning
+      ? (this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0)
+      : (this.isFinished ? (this.completedDurationSec || (this.startTime ? Math.max(1, Math.round((Date.now() - this.startTime) / 1000)) : 0)) : 0);
     const successReqs = Math.max(0, this.totalRequests - this.failedRequests);
 
     return {
@@ -209,17 +322,24 @@ class StressTestEngine {
       elapsedSec,
       totalDurationSec: this.durationSec,
       totalRequests: this.totalRequests,
-      successRequests: successReqs,
+      successRequests: this.successRequests || successReqs,
       failedRequests: this.failedRequests,
       currentRps: this.currentRps,
       p95LatencyMs: this.p95LatencyMs,
+      p90LatencyMs: this.p90LatencyMs,
       avgLatencyMs: this.avgLatencyMs,
+      minLatencyMs: this.minLatencyMs,
+      medLatencyMs: this.medLatencyMs,
+      maxLatencyMs: this.maxLatencyMs,
       errorRatePercent: this.errorRatePercent,
       isThresholdBreached: this.breachedReasons.length > 0,
       breachedReasons: this.breachedReasons,
       healthGrade: this.healthGrade,
       healthVerdict: this.healthVerdict,
       targetEndpoints: this.targetEndpoints,
+      checks: this.checks,
+      k6Metrics: this.k6Metrics,
+      rawSummaryText: this.rawSummaryText,
       flowStats: {
         flow1: this.selectedFlow === '1' ? this.totalRequests : 0,
         flow2: this.selectedFlow === '2' ? this.totalRequests : 0,
@@ -247,7 +367,25 @@ class StressTestEngine {
     }
     this.isRunning = true;
     this.isFinished = false;
-    this.logs = [`[k6 Controller] Mengirim instruksi eksekusi k6 ke backend (Flow ${flow}, ${targetVUs} VUs, ${durationSec}s)...`];
+    this.activeVUs = targetVUs;
+    this.totalRequests = 0;
+    this.failedRequests = 0;
+    this.successRequests = 0;
+    this.currentRps = 0;
+    this.p95LatencyMs = 0;
+    this.p90LatencyMs = 0;
+    this.avgLatencyMs = 0;
+    this.minLatencyMs = 0;
+    this.medLatencyMs = 0;
+    this.maxLatencyMs = 0;
+    this.errorRatePercent = 0;
+    this.startTime = Date.now();
+    this.completedDurationSec = 0;
+    this.checks = [];
+    this.k6Metrics = null;
+    this.rawSummaryText = '';
+    this.breachedReasons = [];
+    this.logs = [`[k6 Controller] Mengirim instruksi eksekusi k6 ke backend (Flow ${flow}, ${targetVUs} Pasien, Closed Workload Iterasi)...`];
     this.notifyLogListeners();
     this.notify(this.getProgress());
 
@@ -314,12 +452,19 @@ export interface StressTestRecord {
   failedRequests: number;
   currentRps: number;
   p95LatencyMs: number;
+  p90LatencyMs?: number;
   avgLatencyMs: number;
+  minLatencyMs?: number;
+  medLatencyMs?: number;
+  maxLatencyMs?: number;
   errorRatePercent: number;
   healthGrade: 'HEALTHY' | 'DEGRADED' | 'CRITICAL';
   healthVerdict: string;
   recommendations: string[];
   targetEndpoints?: ServiceEndpointsConfig;
+  checks?: K6CheckItem[];
+  k6Metrics?: K6MetricsSummary | null;
+  rawSummaryText?: string;
 }
 
 export function generateRecommendations(

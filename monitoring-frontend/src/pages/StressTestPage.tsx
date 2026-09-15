@@ -13,7 +13,6 @@ import {
   Laptop,
   Globe,
   Lock,
-  Activity,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
@@ -38,9 +37,11 @@ import {
   saveStressTestRecord,
   clearStressTestHistory,
 } from "../services/stressTestEngine";
-import { formatPercent, formatNumber } from "../utils/formatters";
+import { formatNumber } from "../utils/formatters";
 import { useServices } from "../hooks/useServices";
+import { useServers } from "../hooks/useServers";
 import StressTestResultModal from "../components/monitoring/StressTestResultModal";
+import { LivePatientPipeline } from "../components/monitoring/LivePatientPipeline";
 
 interface LatencyPoint {
   time: string;
@@ -66,12 +67,56 @@ const DEFAULT_ENDPOINTS: ServiceEndpointState = {
 
 export const StressTestPage = () => {
   const { data: servicesList } = useServices();
+  const { data: serversList } = useServers();
   const [progress, setProgress] = useState<StressTestProgress>(stressTestEngine.getProgress());
   const [selectedFlow, setSelectedFlow] = useState<SelectedFlowType>("1");
   const [targetVUs, setTargetVUs] = useState<number>(50);
+  const [vuMode, setVuMode] = useState<"preset" | "custom">("preset");
   const durationSec = 30; // Durasi pengujian standar 30 detik
   const [chartData, setChartData] = useState<LatencyPoint[]>([]);
   const [endpoints, setEndpoints] = useState<ServiceEndpointState>(DEFAULT_ENDPOINTS);
+  const [logs, setLogs] = useState<string[]>([]);
+
+  // Subscribe to real-time k6 stdout/stderr logs
+  useEffect(() => {
+    const unsubLogs = stressTestEngine.subscribeLogs((newLogs) => {
+      setLogs([...newLogs]);
+    });
+    return () => unsubLogs();
+  }, []);
+
+  // Adaptive Workload Category Label & Badge
+  const workloadInfo = useMemo(() => {
+    if (targetVUs <= 50) {
+      return {
+        label: "Beban Ringan",
+        desc: "Sesi konsultasi reguler jam normal",
+        badgeColor: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+        dotColor: "bg-emerald-500",
+      };
+    } else if (targetVUs <= 150) {
+      return {
+        label: "Beban Menengah",
+        desc: "Peak jam sibuk pagi (antrean reguler faskes)",
+        badgeColor: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+        dotColor: "bg-amber-500",
+      };
+    } else if (targetVUs <= 300) {
+      return {
+        label: "Beban Tinggi",
+        desc: "Lonjakan kampanye / rujukan faskes massal",
+        badgeColor: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
+        dotColor: "bg-orange-500",
+      };
+    } else {
+      return {
+        label: "Beban Ekstrem",
+        desc: "Stress & breakpoint test batas server cloud",
+        badgeColor: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20",
+        dotColor: "bg-rose-500",
+      };
+    }
+  }, [targetVUs]);
 
   // Expand / Collapse state untuk detail target endpoint & pemilihan server
   const [isEndpointExpanded, setIsEndpointExpanded] = useState<boolean>(false);
@@ -102,8 +147,8 @@ export const StressTestPage = () => {
         if (matches.length > 0) {
           const current = (prev[key] || "").replace(/\/$/, "");
           const currentMatch = matches.find((m) => (m.url || "").replace(/\/$/, "") === current);
-          const isCurrentUp = currentMatch ? (currentMatch.rawStatus === "UP" || currentMatch.status === "healthy" || currentMatch.status === "UP") : false;
-          const upMatches = matches.filter((m) => m.rawStatus === "UP" || m.status === "healthy" || m.status === "UP");
+          const isCurrentUp = currentMatch ? (currentMatch.rawStatus === "UP" || currentMatch.status === "healthy") : false;
+          const upMatches = matches.filter((m) => m.rawStatus === "UP" || m.status === "healthy");
 
           // Jika URL saat ini belum terpilih/tidak valid, ATAU URL saat ini sedang DOWN tapi ada instance lain yang UP:
           if (!currentMatch || (!isCurrentUp && upMatches.length > 0)) {
@@ -140,6 +185,16 @@ export const StressTestPage = () => {
       );
       const isUp = matchedService ? (matchedService.rawStatus === "UP" || matchedService.status === "healthy") : false;
       const isRemote = Boolean(matchedService?.isRemote || (!targetUrl.includes("localhost") && !targetUrl.includes("127.0.0.1")));
+
+      const hostMatch = targetUrl.match(/:\/\/([^:/]+)/);
+      const host = hostMatch ? hostMatch[1] : "";
+      const matchedServer = (serversList || []).find(
+        (srv) => srv.ip === host || srv.id === matchedService?.serverId
+      );
+      const serverLabel = !isRemote
+        ? "Lokal"
+        : matchedServer?.displayName || matchedServer?.name || matchedService?.serverName || "Remote";
+
       return {
         key,
         name,
@@ -148,6 +203,7 @@ export const StressTestPage = () => {
         url: targetUrl,
         isUp,
         isRemote,
+        serverLabel,
       };
     });
 
@@ -157,14 +213,14 @@ export const StressTestPage = () => {
     const downServices = details.filter((d) => !d.isUp);
 
     return { details, upCount, totalCount, allUp, downServices };
-  }, [selectedFlow, endpoints, servicesList]);
+  }, [selectedFlow, endpoints, servicesList, serversList]);
 
   // Status Kesiapan masing-masing flow untuk indikator kartu Step 1
   const flowOverviewStatus = useMemo(() => {
     const isServiceUrlUp = (url: string) => {
       const cleanUrl = (url || "").replace(/\/$/, "");
       return (servicesList || []).some(
-        (s) => (s.url || "").replace(/\/$/, "") === cleanUrl && (s.rawStatus === "UP" || s.status === "healthy" || s.status === "UP")
+        (s) => (s.url || "").replace(/\/$/, "") === cleanUrl && (s.rawStatus === "UP" || s.status === "healthy")
       );
     };
 
@@ -238,11 +294,18 @@ export const StressTestPage = () => {
         failedRequests: progress.failedRequests,
         currentRps: progress.currentRps,
         p95LatencyMs: progress.p95LatencyMs,
+        p90LatencyMs: progress.p90LatencyMs,
         avgLatencyMs: progress.avgLatencyMs,
+        minLatencyMs: progress.minLatencyMs,
+        medLatencyMs: progress.medLatencyMs,
+        maxLatencyMs: progress.maxLatencyMs,
         errorRatePercent: progress.errorRatePercent,
         healthGrade: progress.healthGrade,
         healthVerdict: progress.healthVerdict,
         recommendations: recs,
+        checks: progress.checks,
+        k6Metrics: progress.k6Metrics,
+        rawSummaryText: progress.rawSummaryText,
         targetEndpoints: {
           identity: endpoints.identity,
           aiConsult: endpoints.aiConsult,
@@ -332,12 +395,22 @@ export const StressTestPage = () => {
         );
         const isUp = s.rawStatus === "UP" || s.status === "healthy";
 
+        const hostMatch = normalizedUrl.match(/:\/\/([^:/]+)/);
+        const host = hostMatch ? hostMatch[1] : "";
+        const matchedServer = (serversList || []).find(
+          (srv) => srv.ip === host || srv.id === s.serverId || (srv.hostedServices && srv.hostedServices.includes(s.id))
+        );
+
+        const serverLabel = !isRemote
+          ? "Local Server"
+          : matchedServer?.displayName || matchedServer?.name || s.serverName || (host ? `Node (${host})` : "Cloud Server");
+
         serviceOptions.push({
           id: s.id,
           name: s.name,
           url: normalizedUrl,
           isRemote,
-          serverLabel: isRemote ? "AWS EC2 Cloud" : "Local Server",
+          serverLabel,
           isUp,
         });
       });
@@ -564,6 +637,7 @@ export const StressTestPage = () => {
                 onClick={() => {
                   setSelectedFlow("1");
                   stressTestEngine.setSelectedFlow("1");
+                  setChartData([]);
                 }}
                 className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                   selectedFlow === "1"
@@ -590,6 +664,7 @@ export const StressTestPage = () => {
                 onClick={() => {
                   setSelectedFlow("2");
                   stressTestEngine.setSelectedFlow("2");
+                  setChartData([]);
                 }}
                 className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                   selectedFlow === "2"
@@ -616,6 +691,7 @@ export const StressTestPage = () => {
                 onClick={() => {
                   setSelectedFlow("3");
                   stressTestEngine.setSelectedFlow("3");
+                  setChartData([]);
                 }}
                 className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                   selectedFlow === "3"
@@ -688,8 +764,9 @@ export const StressTestPage = () => {
                         ? "text-purple-600 dark:text-purple-400"
                         : "text-blue-600 dark:text-blue-400"
                     }`}
+                    title={`${item.serverLabel} (${item.url})`}
                   >
-                    {item.isRemote ? "Remote" : "Lokal"} :{item.port}
+                    {item.serverLabel} :{item.port}
                   </code>
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${
@@ -836,55 +913,158 @@ export const StressTestPage = () => {
           </div>
 
           {/* STEP 3: Beban Virtual Users (VU) & Tombol Eksekusi Langsung */}
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] p-4 shadow-sm space-y-3">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] p-4 shadow-sm space-y-3.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
                 <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-orange-500 text-white text-[10px] font-extrabold">3</span>
-                Beban User & Eksekusi:
+                Beban User (VU) &amp; Eksekusi:
               </span>
-              <span className="text-[11px] font-mono text-slate-400">Durasi: 30s</span>
-            </div>
-
-            <div className="flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-orange-500" />
-                <input
-                  type="number"
-                  disabled={progress.isRunning}
-                  min={1}
-                  max={2000}
-                  value={targetVUs}
-                  onChange={(e) => setTargetVUs(Math.max(1, parseInt(e.target.value || "1", 10)))}
-                  className="w-16 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-center font-extrabold font-mono text-sm text-slate-900 dark:text-white"
-                />
-                <span className="text-xs font-bold text-slate-500">VU</span>
-              </div>
-
-              <div className="flex items-center gap-1">
-                {[25, 50, 100, 200, 500].map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    disabled={progress.isRunning}
-                    onClick={() => setTargetVUs(preset)}
-                    className={`rounded-md px-2 py-1 text-[11px] font-bold font-mono transition cursor-pointer ${
-                      targetVUs === preset
-                        ? "bg-orange-500 text-white shadow-xs"
-                        : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700"
-                    }`}
-                  >
-                    {preset}
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5">
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${workloadInfo.badgeColor}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${workloadInfo.dotColor}`} />
+                  {workloadInfo.label}
+                </span>
               </div>
             </div>
 
-            {/* Tombol Utama: Langsung Terlihat di Layar Pertama Tanpa Scroll! */}
+            {/* Nav Tab: Pilihan Cepat (Default) vs Angka Kustom */}
+            <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/80 dark:border-slate-700/60 text-xs font-bold">
+              <button
+                type="button"
+                disabled={progress.isRunning}
+                onClick={() => setVuMode("preset")}
+                className={`flex-1 py-1.5 px-3 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                  vuMode === "preset"
+                    ? "bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs ring-1 ring-black/5 dark:ring-white/10"
+                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                }`}
+              >
+                <span>⚡ Pilihan Cepat (Preset)</span>
+              </button>
+              <button
+                type="button"
+                disabled={progress.isRunning}
+                onClick={() => setVuMode("custom")}
+                className={`flex-1 py-1.5 px-3 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                  vuMode === "custom"
+                    ? "bg-white dark:bg-slate-900 text-orange-600 dark:text-orange-400 shadow-xs ring-1 ring-black/5 dark:ring-white/10"
+                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                }`}
+              >
+                <span>✍️ Angka Kustom</span>
+              </button>
+            </div>
+
+            {/* Content Area Berdasarkan Tab Terpilih */}
+            {vuMode === "preset" ? (
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/10 text-orange-500 border border-orange-500/20">
+                      <Zap className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 dark:text-white block">Preset Rekomendasi Skenario</span>
+                      <span className="text-[10px] text-slate-400">1-klik pilih kapasitas beban terstandarisasi</span>
+                    </div>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-orange-500 px-2 py-0.5 rounded bg-orange-500/10 border border-orange-500/20">
+                    {targetVUs} VU Terpilih
+                  </span>
+                </div>
+
+                {/* Quick Presets Buttons */}
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
+                  {[25, 50, 100, 150, 200, 300, 400, 500].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      disabled={progress.isRunning}
+                      onClick={() => {
+                        setTargetVUs(preset);
+                        if (!progress.isRunning && progress.isFinished) {
+                          stressTestEngine.resetToIdle();
+                          setChartData([]);
+                        }
+                      }}
+                      className={`py-2 px-1 rounded-xl text-xs font-bold font-mono transition cursor-pointer text-center ${
+                        targetVUs === preset
+                          ? "bg-orange-500 text-white shadow-md ring-2 ring-orange-500/20"
+                          : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700"
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
+                  ⚡ <strong>Pilihan Cepat:</strong> Preset teruji untuk mengevaluasi SLA microservices secara bertahap.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/10 text-orange-500 border border-orange-500/20">
+                      <Users className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 dark:text-white block">Input Jumlah Pasien Kustom</span>
+                      <span className="text-[10px] text-slate-400">Bebas ketik angka langsung tanpa batasan rentang slider</span>
+                    </div>
+                  </div>
+
+                  {/* Direct Custom Input Box */}
+                  <div className="flex items-center gap-1.5 bg-white dark:bg-slate-800 border-2 border-orange-500/60 rounded-xl px-2.5 py-1 shadow-xs ring-2 ring-orange-500/10 shrink-0">
+                    <input
+                      type="number"
+                      disabled={progress.isRunning}
+                      min={1}
+                      max={5000}
+                      value={targetVUs}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (!isNaN(val)) {
+                          setTargetVUs(Math.max(1, Math.min(5000, val)));
+                          if (!progress.isRunning && progress.isFinished) {
+                            stressTestEngine.resetToIdle();
+                            setChartData([]);
+                          }
+                        } else if (e.target.value === "") {
+                          setTargetVUs(1);
+                          if (!progress.isRunning && progress.isFinished) {
+                            stressTestEngine.resetToIdle();
+                            setChartData([]);
+                          }
+                        }
+                      }}
+                      className="w-20 bg-transparent text-center font-black font-mono text-lg text-slate-900 dark:text-white focus:outline-hidden"
+                      placeholder="50"
+                    />
+                    <span className="text-xs font-bold text-orange-500 font-mono">VU</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Keterangan Closed Workload SRE */}
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between gap-1.5 px-0.5">
+              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold text-[10px] sm:text-[11px]">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                Closed Workload SRE:
+              </span>
+              <span className="text-[10px] text-slate-400 truncate">
+                Tiap VU mengeksekusi 1 alur penuh &amp; selesai otomatis saat transaksi tuntas
+              </span>
+            </div>
+
+            {/* Tombol Utama: Eksekusi Langsung */}
             {progress.isRunning ? (
               <button
                 type="button"
                 onClick={handleStop}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-rose-600 hover:bg-rose-700 py-3 text-xs font-black text-white shadow-lg shadow-rose-600/30 transition-all cursor-pointer uppercase tracking-wider animate-pulse"
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-rose-600 hover:bg-rose-700 py-3.5 text-xs font-black text-white shadow-lg shadow-rose-600/30 transition-all cursor-pointer uppercase tracking-wider animate-pulse"
               >
                 <Square className="h-4 w-4 fill-white" /> HENTIKAN PENGUJIAN SEKARANG
               </button>
@@ -894,76 +1074,39 @@ export const StressTestPage = () => {
                 onClick={handleStart}
                 className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-orange-500 via-amber-500 to-orange-500 hover:from-orange-600 hover:to-amber-600 py-3.5 text-xs font-black text-white shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40 hover:-translate-y-0.5 transition-all cursor-pointer uppercase tracking-wider"
               >
-                <Play className="h-4 w-4 fill-white" /> JALANKAN STRESS TEST ({targetVUs} VU)
+                <Play className="h-4 w-4 fill-white" /> JALANKAN STRESS TEST ({targetVUs} PASIEN - ITERASI)
               </button>
             )}
           </div>
         </div>
 
-        {/* RIGHT COLUMN: Live Observability Dashboard (Side-by-Side dengan Kolom Kiri) */}
+        {/* RIGHT COLUMN: Live Observability Dashboard & Animated Patient Pipeline */}
         <div className="lg:col-span-7 space-y-4">
-          {/* Header Status & Progress */}
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] p-4 shadow-sm space-y-2.5">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
-                <Activity className="w-4 h-4 text-orange-500" />
-                <span>Telemetry Monitor (Real-Time)</span>
-              </div>
-              {progress.isRunning ? (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500/15 border border-orange-500/30 text-orange-600 dark:text-orange-400 font-bold font-mono text-[11px] animate-pulse">
-                  <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping" />
-                  MENGUJI ({progress.activeVUs} VU)
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-500" /> SISTEM SIAP
-                </span>
-              )}
-            </div>
+          {/* Real-time Animated Pipeline + Activity Feed */}
+          <LivePatientPipeline
+            isRunning={progress.isRunning}
+            isFinished={progress.isFinished}
+            selectedFlow={selectedFlow}
+            flowTitle={
+              selectedFlow === "1"
+                ? "Konsultasi AI Dokter"
+                : selectedFlow === "2"
+                ? "Portal Artikel Medis"
+                : "Konsultasi & Chat Dokter"
+            }
+            activeVUs={progress.activeVUs}
+            targetVUs={targetVUs}
+            elapsedSec={progress.elapsedSec}
+            totalRequests={progress.totalRequests}
+            currentRps={progress.currentRps}
+            p95LatencyMs={progress.p95LatencyMs}
+            errorRatePercent={progress.errorRatePercent}
+            healthGrade={progress.healthGrade}
+            checks={progress.checks}
+            logs={logs}
+          />
 
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-[11px] font-mono">
-                <span className="text-slate-500">Status Waktu:</span>
-                <span className="text-slate-700 dark:text-slate-300 font-bold">
-                  {progress.elapsedSec}s / {progress.totalDurationSec}s ({progress.totalDurationSec > 0 ? Math.min(100, Math.round((progress.elapsedSec / progress.totalDurationSec) * 100)) : 0}%)
-                </span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                <div
-                  className={`h-full transition-all duration-300 ${progress.isRunning ? "bg-gradient-to-r from-orange-500 to-amber-500" : "bg-emerald-500"}`}
-                  style={{
-                    width: `${progress.totalDurationSec > 0 ? Math.min(100, Math.round((progress.elapsedSec / progress.totalDurationSec) * 100)) : 0}%`,
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* 4 KPI Cards Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] p-3 text-center shadow-2xs">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">VU Aktif</span>
-              <p className="text-2xl font-extrabold font-mono text-slate-900 dark:text-white mt-0.5">{progress.activeVUs}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] p-3 text-center shadow-2xs">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Throughput</span>
-              <p className="text-2xl font-extrabold font-mono text-orange-500 mt-0.5">{progress.currentRps}<span className="text-xs font-normal">/s</span></p>
-            </div>
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] p-3 text-center shadow-2xs">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Latensi P95</span>
-              <p className={`text-2xl font-extrabold font-mono mt-0.5 ${progress.p95LatencyMs > 1000 ? "text-rose-500" : "text-slate-900 dark:text-white"}`}>
-                {progress.p95LatencyMs}<span className="text-xs font-normal">ms</span>
-              </p>
-            </div>
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] p-3 text-center shadow-2xs">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Error Rate</span>
-              <p className={`text-2xl font-extrabold font-mono mt-0.5 ${progress.errorRatePercent > 5 ? "text-rose-500" : "text-emerald-500"}`}>
-                {formatPercent(progress.errorRatePercent, 1)}
-              </p>
-            </div>
-          </div>
-
-          {/* Real-Time Latency Chart (Proportional Height h-52) */}
+          {/* Real-Time Latency Chart (Proportional Height h-48) */}
           <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] p-4 shadow-sm space-y-2">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-white">
@@ -973,7 +1116,7 @@ export const StressTestPage = () => {
               <span className="text-[10px] text-slate-400 font-mono">SLA Limit: 1000ms</span>
             </div>
 
-            <div className="h-52 w-full pt-1">
+            <div className="h-48 w-full pt-1">
               <ResponsiveContainer width="100%" height="100%">
                 <ReLineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
@@ -1028,11 +1171,12 @@ export const StressTestPage = () => {
                 <tr>
                   <th className="p-3 rounded-l-xl">Waktu Pengujian</th>
                   <th className="p-3">Skenario Flow</th>
-                  <th className="p-3 text-center">User (VU)</th>
+                  <th className="p-3 text-center">Beban Pasien (VU)</th>
+                  <th className="p-3 text-center">Waktu Eksekusi</th>
                   <th className="p-3 text-center">Kecepatan (RPS)</th>
                   <th className="p-3 text-center">Respon P95</th>
                   <th className="p-3 text-center">Error Rate</th>
-                  <th className="p-3 text-center">Status System</th>
+                  <th className="p-3 text-center">Status SRE</th>
                   <th className="p-3 text-right rounded-r-xl">Aksi</th>
                 </tr>
               </thead>
@@ -1041,7 +1185,8 @@ export const StressTestPage = () => {
                   <tr key={item.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/30 transition">
                     <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{item.timestamp}</td>
                     <td className="p-3 font-bold text-slate-900 dark:text-white">{item.flowTitle}</td>
-                    <td className="p-3 text-center font-mono font-bold">{item.targetVUs} VU</td>
+                    <td className="p-3 text-center font-mono font-bold">{item.targetVUs} Pasien</td>
+                    <td className="p-3 text-center font-mono font-bold text-slate-700 dark:text-slate-300">{item.durationSec || 1}s</td>
                     <td className="p-3 text-center font-mono">{formatNumber(item.currentRps)}/s</td>
                     <td className={`p-3 text-center font-mono font-bold ${item.p95LatencyMs > 1000 ? "text-rose-500" : "text-emerald-600 dark:text-emerald-400"}`}>
                       {item.p95LatencyMs} ms

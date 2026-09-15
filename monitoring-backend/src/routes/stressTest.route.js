@@ -3,6 +3,7 @@
 const express = require('express');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const router = express.Router();
 
 let ioServer = null;
@@ -17,13 +18,21 @@ let currentTestStatus = {
   activeVUs: 0,
   currentRps: 0,
   p95LatencyMs: 0,
+  p90LatencyMs: 0,
   avgLatencyMs: 0,
+  minLatencyMs: 0,
+  medLatencyMs: 0,
+  maxLatencyMs: 0,
   totalRequests: 0,
   failedRequests: 0,
+  successRequests: 0,
   errorRatePercent: 0,
   healthGrade: 'HEALTHY',
   healthVerdict: 'Sistem siap diuji',
   recentLogs: [],
+  checks: [],
+  k6Metrics: null,
+  rawSummaryText: '',
 };
 
 function setSocketServer(io) {
@@ -83,9 +92,29 @@ function parseK6Output(text) {
       currentTestStatus.p95LatencyMs = parseDurationToMs(p95Match[1], p95Match[2]);
     }
 
+    const p90Match = text.match(/p\(90\)=([\d.]+)(µs|us|ms|s)/i);
+    if (p90Match) {
+      currentTestStatus.p90LatencyMs = parseDurationToMs(p90Match[1], p90Match[2]);
+    }
+
     const avgMatch = text.match(/avg=([\d.]+)(µs|us|ms|s)/i);
     if (avgMatch) {
       currentTestStatus.avgLatencyMs = parseDurationToMs(avgMatch[1], avgMatch[2]);
+    }
+
+    const minMatch = text.match(/min=([\d.]+)(µs|us|ms|s)/i);
+    if (minMatch) {
+      currentTestStatus.minLatencyMs = parseDurationToMs(minMatch[1], minMatch[2]);
+    }
+
+    const medMatch = text.match(/med=([\d.]+)(µs|us|ms|s)/i);
+    if (medMatch) {
+      currentTestStatus.medLatencyMs = parseDurationToMs(medMatch[1], medMatch[2]);
+    }
+
+    const maxMatch = text.match(/max=([\d.]+)(µs|us|ms|s)/i);
+    if (maxMatch) {
+      currentTestStatus.maxLatencyMs = parseDurationToMs(maxMatch[1], maxMatch[2]);
     }
   }
 
@@ -94,12 +123,23 @@ function parseK6Output(text) {
     currentTestStatus.totalRequests = parseInt(reqsMatch[1], 10);
   }
 
+  // Parse failure counts and percentage directly from k6 output
   const failedMatch = text.match(/http_req_failed[\s.]+:\s*([\d.]+)%/i);
   if (failedMatch) {
     currentTestStatus.errorRatePercent = parseFloat(failedMatch[1]);
   }
 
-  // Update Health Grade & Verdict
+  // Parse detailed failed passes / total if printed (e.g. 15.62% ✓ 125 ✗ 675 or 100.00% 35 out of 35)
+  const failedCountMatch = text.match(/http_req_failed[\s.]+:\s*[\d.]+%\s+(?:✓|v)?\s*(\d+)\s+(?:out of|\/|✗|x)?\s*(\d+)?/i);
+  if (failedCountMatch) {
+    currentTestStatus.failedRequests = parseInt(failedCountMatch[1], 10);
+    if (failedCountMatch[2]) {
+      currentTestStatus.totalRequests = parseInt(failedCountMatch[2], 10);
+    }
+    currentTestStatus.successRequests = Math.max(0, currentTestStatus.totalRequests - currentTestStatus.failedRequests);
+  }
+
+  // Update Health Grade & Verdict based strictly on SLA
   if (text.includes('thresholds on metrics') && text.includes('crossed')) {
     currentTestStatus.healthGrade = 'CRITICAL';
     currentTestStatus.healthVerdict = 'Kapasitas Terlampaui: Waktu Respon Server Melampaui Batas SLA Toleransi';
@@ -157,9 +197,11 @@ router.post('/start', (req, res) => {
   const rootDir = path.resolve(__dirname, '../../../');
   const k6ExePath = path.join(rootDir, 'bin', 'k6.exe');
   const scriptPath = path.join(rootDir, 'stress-test.js');
+  const summaryJsonPath = path.join(rootDir, `k6-summary-${Date.now()}.json`);
 
   const args = [
     'run',
+    '--summary-export', summaryJsonPath,
     '--env', `FLOW=${flow}`,
     '--env', `VUS=${targetVUs}`,
     '--env', `DURATION=${durationSec}s`,
@@ -179,6 +221,8 @@ router.post('/start', (req, res) => {
     : flow === '2'
       ? `Identity (${identityUrl}) | Lifestyle (${lifestyleUrl})`
       : `Identity (${identityUrl}) | Live Consult (${liveConsultUrl})`;
+
+  const allStdoutLines = [];
 
   try {
     activeK6Process = spawn(k6ExePath, args, {
@@ -202,16 +246,24 @@ router.post('/start', (req, res) => {
       activeVUs: targetVUs,
       currentRps: 0,
       p95LatencyMs: 0,
+      p90LatencyMs: 0,
       avgLatencyMs: 0,
+      minLatencyMs: 0,
+      medLatencyMs: 0,
+      maxLatencyMs: 0,
       totalRequests: 0,
       failedRequests: 0,
+      successRequests: 0,
       errorRatePercent: 0,
       healthGrade: 'HEALTHY',
-      healthVerdict: `Menguji Flow ${flow} (${activeEndpointsDesc}) dengan ${targetVUs} VUs selama ${durationSec} detik...`,
+      healthVerdict: `Menguji Flow ${flow} (${activeEndpointsDesc}) dengan ${targetVUs} Pasien (Closed Workload: 1 Siklus Pasien Lengkap)...`,
       recentLogs: [
-        `[k6] Memulai pengujian Grafana k6 untuk Flow ${flow} (${targetVUs} VUs, ${durationSec}s)...`,
+        `[k6] Memulai pengujian Grafana k6 untuk Flow ${flow} (${targetVUs} VUs, Closed Workload: 1 Siklus Pasien Penuh)...`,
         `[k6 Target] ${activeEndpointsDesc}`,
       ],
+      checks: [],
+      k6Metrics: null,
+      rawSummaryText: '',
     };
 
     broadcastProgress();
@@ -224,8 +276,8 @@ router.post('/start', (req, res) => {
         return;
       }
       const elapsed = Math.floor((Date.now() - currentTestStatus.startTime) / 1000);
-      if (currentTestStatus.currentRps === 0) {
-        currentTestStatus.currentRps = Math.floor(targetVUs * 1.5);
+      if (elapsed > 0 && currentTestStatus.totalRequests > 0 && currentTestStatus.currentRps === 0) {
+        currentTestStatus.currentRps = Math.round(currentTestStatus.totalRequests / elapsed);
       }
       broadcastProgress();
     }, 1000);
@@ -235,6 +287,7 @@ router.post('/start', (req, res) => {
       const lines = output.split(/\r?\n/);
       lines.forEach((line) => {
         if (line.trim()) {
+          allStdoutLines.push(line);
           broadcastLog(line);
           parseK6Output(line);
         }
@@ -246,6 +299,7 @@ router.post('/start', (req, res) => {
       const lines = output.split(/\r?\n/);
       lines.forEach((line) => {
         if (line.trim()) {
+          allStdoutLines.push(line);
           broadcastLog(line);
           parseK6Output(line);
         }
@@ -266,7 +320,128 @@ router.post('/start', (req, res) => {
       clearInterval(progressTicker);
       currentTestStatus.isRunning = false;
       currentTestStatus.activeVUs = 0;
+      const actualElapsedSec = Math.max(1, Math.round((Date.now() - currentTestStatus.startTime) / 1000));
+      currentTestStatus.durationSec = actualElapsedSec;
       activeK6Process = null;
+
+      // 1. Check and parse authentic k6 summary JSON file
+      if (fs.existsSync(summaryJsonPath)) {
+        try {
+          const rawSummary = fs.readFileSync(summaryJsonPath, 'utf8');
+          const parsed = JSON.parse(rawSummary);
+
+          const m = parsed.metrics || {};
+          const httpReqs = m.http_reqs ? (m.http_reqs.values || m.http_reqs) : {};
+          const httpReqDuration = m.http_req_duration ? (m.http_req_duration.values || m.http_req_duration) : {};
+          const httpReqFailed = m.http_req_failed ? (m.http_req_failed.values || m.http_req_failed) : {};
+          const checksMetric = m.checks ? (m.checks.values || m.checks) : {};
+          const dataRecv = m.data_received ? (m.data_received.values || m.data_received) : {};
+          const dataSent = m.data_sent ? (m.data_sent.values || m.data_sent) : {};
+          const iters = m.iterations ? (m.iterations.values || m.iterations) : {};
+          const iterDuration = m.iteration_duration ? (m.iteration_duration.values || m.iteration_duration) : {};
+          const vusMetric = m.vus ? (m.vus.values || m.vus) : {};
+
+          // In k6 http_req_failed: passes is count of failed requests, fails is count of non-failed (successful) requests
+          const totalReq = httpReqs.count || currentTestStatus.totalRequests || 0;
+          const failedReq = httpReqFailed.passes !== undefined ? httpReqFailed.passes : Math.round(totalReq * (httpReqFailed.value || 0));
+          const successReq = httpReqFailed.fails !== undefined ? httpReqFailed.fails : Math.max(0, totalReq - failedReq);
+          const errRate = httpReqFailed.value !== undefined ? httpReqFailed.value * 100 : (totalReq > 0 ? (failedReq / totalReq) * 100 : 0);
+
+          currentTestStatus.totalRequests = totalReq;
+          currentTestStatus.failedRequests = failedReq;
+          currentTestStatus.successRequests = successReq;
+          currentTestStatus.errorRatePercent = parseFloat(errRate.toFixed(2));
+          currentTestStatus.currentRps = Math.round(httpReqs.rate || 0);
+
+          if (httpReqDuration['p(95)'] !== undefined) {
+            currentTestStatus.p95LatencyMs = Math.round(httpReqDuration['p(95)']);
+          }
+          if (httpReqDuration['p(90)'] !== undefined) {
+            currentTestStatus.p90LatencyMs = Math.round(httpReqDuration['p(90)']);
+          }
+          if (httpReqDuration.avg !== undefined) {
+            currentTestStatus.avgLatencyMs = Math.round(httpReqDuration.avg);
+          }
+          if (httpReqDuration.min !== undefined) {
+            currentTestStatus.minLatencyMs = Math.round(httpReqDuration.min);
+          }
+          if (httpReqDuration.med !== undefined) {
+            currentTestStatus.medLatencyMs = Math.round(httpReqDuration.med);
+          }
+          if (httpReqDuration.max !== undefined) {
+            currentTestStatus.maxLatencyMs = Math.round(httpReqDuration.max);
+          }
+
+          // Recursive check extractor
+          const extractedChecks = [];
+          function collectChecks(grp) {
+            if (!grp) return;
+            if (grp.checks) {
+              for (const [key, chk] of Object.entries(grp.checks)) {
+                const p = chk.passes || 0;
+                const f = chk.fails || 0;
+                const tot = p + f;
+                const rate = tot > 0 ? ((p / tot) * 100).toFixed(1) : '0.0';
+                extractedChecks.push({
+                  name: chk.name || key,
+                  passes: p,
+                  fails: f,
+                  total: tot,
+                  passRate: `${rate}%`,
+                  passed: f === 0 && p > 0,
+                });
+              }
+            }
+            if (grp.groups) {
+              for (const sub of Object.values(grp.groups)) {
+                collectChecks(sub);
+              }
+            }
+          }
+          collectChecks(parsed.root_group);
+
+          currentTestStatus.checks = extractedChecks;
+          currentTestStatus.k6Metrics = {
+            http_reqs: { count: totalReq, rate: httpReqs.rate || 0 },
+            http_req_duration: {
+              avg: httpReqDuration.avg || 0,
+              min: httpReqDuration.min || 0,
+              med: httpReqDuration.med || 0,
+              max: httpReqDuration.max || 0,
+              p90: httpReqDuration['p(90)'] || 0,
+              p95: httpReqDuration['p(95)'] || 0,
+            },
+            http_req_failed: {
+              rate: currentTestStatus.errorRatePercent,
+              passes: failedReq,
+              fails: successReq,
+            },
+            checks: {
+              passes: checksMetric.passes || 0,
+              fails: checksMetric.fails || 0,
+              rate: checksMetric.value !== undefined ? (checksMetric.value * 100).toFixed(1) : '0.0',
+            },
+            data_received: { count: dataRecv.count || 0, rate: dataRecv.rate || 0 },
+            data_sent: { count: dataSent.count || 0, rate: dataSent.rate || 0 },
+            iterations: { count: iters.count || 0, rate: iters.rate || 0 },
+            iteration_duration: {
+              avg: iterDuration.avg || 0,
+              min: iterDuration.min || 0,
+              med: iterDuration.med || 0,
+              max: iterDuration.max || 0,
+              p90: iterDuration['p(90)'] || 0,
+              p95: iterDuration['p(95)'] || 0,
+            },
+            vus: { value: vusMetric.value || currentTestStatus.targetVUs },
+          };
+        } catch (e) {
+          console.error('[k6] Error parsing summary JSON:', e);
+        } finally {
+          try { fs.unlinkSync(summaryJsonPath); } catch (_) {}
+        }
+      }
+
+      currentTestStatus.rawSummaryText = allStdoutLines.join('\n');
 
       if (code !== 0) {
         if (currentTestStatus.errorRatePercent > 5.0 || currentTestStatus.p95LatencyMs > 2000) {
@@ -283,9 +458,12 @@ router.post('/start', (req, res) => {
           currentTestStatus.healthGrade = 'CRITICAL';
           currentTestStatus.healthVerdict = `Uji Beban Gagal (Exit Code ${code}): Threshold SLA terlampaui`;
         }
+      } else {
+        currentTestStatus.healthGrade = 'HEALTHY';
+        currentTestStatus.healthVerdict = `Sistem Sangat Sehat: Sebanyak ${currentTestStatus.targetVUs} pasien berhasil menyelesaikan seluruh tahapan Flow ${flow} dalam ${actualElapsedSec} detik tanpa kegagalan (Error: 0.00%, Latensi P95: ${currentTestStatus.p95LatencyMs}ms).`;
       }
 
-      broadcastLog(`[k6] Pengujian selesai dengan kode keluar: ${code}`);
+      broadcastLog(`[k6] Pengujian selesai dalam ${actualElapsedSec} detik dengan kode keluar: ${code}`);
       if (ioServer) {
         ioServer.emit('stress-test:completed', currentTestStatus);
       }

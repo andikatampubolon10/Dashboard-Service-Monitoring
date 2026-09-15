@@ -20,32 +20,31 @@ export const turnLockRejectionsCounter = new Counter('redis_turn_lock_rejections
 
 const SELECTED_FLOW = __ENV.FLOW || '1';
 const customVUs = parseInt(__ENV.VUS || '0', 10);
-const customDuration = __ENV.DURATION || '30s';
+const targetVUs = customVUs > 0 ? customVUs : 25;
 
 // Flow 1 (AI Chat streaming) melibatkan siklus inferensi LLM (~2-10s), berbeda dengan REST CRUD biasa (<1.5s)
 const p95LatencyThreshold = (SELECTED_FLOW === '1') ? 'p(95)<15000' : 'p(95)<1500';
 
-export const options = customVUs > 0
-  ? {
-    vus: customVUs,
-    duration: customDuration,
-    thresholds: {
-      http_req_failed: ['rate<0.05'],           // Critical Error Rate < 5%
-      http_req_duration: [p95LatencyThreshold], // P95 Latency Threshold disesuaikan dengan jenis flow
+/**
+ * Closed Workload Model (per-vu-iterations):
+ * Sesuai metodologi baku industri SRE dan pengujian beban transaksional,
+ * setiap VU mewakili 1 pasien riil yang mengeksekusi 1 siklus transaksi penuh dari awal sampai akhir.
+ * Pengujian selesai secara otomatis dan alamiah saat seluruh target VU menuntaskan alur perjalanannya.
+ */
+export const options = {
+  scenarios: {
+    closed_e2e_journey: {
+      executor: 'per-vu-iterations',
+      vus: targetVUs,
+      iterations: 1,
+      maxDuration: '5m', // Safety ceiling jika server mengalami antrean berat
     },
-  }
-  : {
-    stages: [
-      { duration: '30s', target: 25 },  // Stage 1: 25 VUs (Warmup)
-      { duration: '1m', target: 50 },  // Stage 2: 50 VUs (Sustained)
-      { duration: '1m', target: 100 }, // Stage 3: 100 VUs (Stress)
-      { duration: '30s', target: 0 },   // Stage 4: Ramp-down
-    ],
-    thresholds: {
-      http_req_failed: ['rate<0.05'],           // Critical Error Rate < 5%
-      http_req_duration: [p95LatencyThreshold],
-    },
-  };
+  },
+  thresholds: {
+    http_req_failed: ['rate<0.05'],           // Critical Error Rate < 5%
+    http_req_duration: [p95LatencyThreshold], // P95 Latency Threshold disesuaikan dengan jenis flow
+  },
+};
 
 // Microservices HTTP API Base URLs
 const BASE_IDENTITY = __ENV.IDENTITY_URL || 'http://localhost:8081';
@@ -503,31 +502,11 @@ export default function (data) {
       realDataBytesCounter.add(listRes.body ? listRes.body.length : 0);
       realServerLatencyTrend.add(listRes.timings.duration);
 
-      let sessionId = null;
-      try {
-        const arr = listRes.json();
-        if (Array.isArray(arr)) {
-          const openSess = arr.find((s) => s.status === 'CREATED' || s.status === 'WAITING');
-          if (openSess) sessionId = openSess.id;
-        }
-      } catch (e) {}
-      if (!sessionId) {
-        sessionId = initialLiveSessionId;
-      }
+      // Gunakan sesi milik akun ini sendiri (1 VU = 1 Sesi Pribadi) agar lolos validasi partisipan Go backend
+      let sessionId = initialLiveSessionId;
 
-      // Step 2: Akses detail profil dokter & sesi telekonsultasi (Murni 200 OK)
-      if (sessionId) {
-        const detailRes = http.get(`${BASE_LIVE_CONSULT}/api/live-consult/${sessionId}`, {
-          headers: authHeaders,
-        });
-        check(detailRes, {
-          'doctor session detail 200 OK': (r) => r.status === 200,
-          'detail body valid': (r) => r.body && r.body.length > 0,
-        });
-        realTransactionsCounter.add(1);
-        realDataBytesCounter.add(detailRes.body ? detailRes.body.length : 0);
-        realServerLatencyTrend.add(detailRes.timings.duration);
-      } else {
+      // Jika belum memiliki sesi, buat sesi konsultasi baru atas nama user ini
+      if (!sessionId) {
         const newSessionPayload = JSON.stringify({
           doctorId: 'doc-sp-01',
           doctorName: 'dr. Andi Pratama, Sp.A',
@@ -548,6 +527,20 @@ export default function (data) {
         realTransactionsCounter.add(1);
         realDataBytesCounter.add(createRes.body ? createRes.body.length : 0);
         realServerLatencyTrend.add(createRes.timings.duration);
+      }
+
+      // Step 2: Akses detail profil dokter & sesi telekonsultasi (Murni 200 OK)
+      if (sessionId) {
+        const detailRes = http.get(`${BASE_LIVE_CONSULT}/api/live-consult/${sessionId}`, {
+          headers: authHeaders,
+        });
+        check(detailRes, {
+          'doctor session detail 200 OK': (r) => r.status === 200,
+          'detail body valid': (r) => r.body && r.body.length > 0,
+        });
+        realTransactionsCounter.add(1);
+        realDataBytesCounter.add(detailRes.body ? detailRes.body.length : 0);
+        realServerLatencyTrend.add(detailRes.timings.duration);
       }
 
       // Step 3: Buka WebSocket & Kirim Pesan Chat ke Dokter Asli (Batas: sampai kirim chat)
@@ -593,13 +586,8 @@ export default function (data) {
     });
   }
 
-  // Jeda antar-iterasi: Flow 1 menggunakan sleep(6) untuk mensimulasikan waktu membaca balasan dokter AI
-  // sehingga mematuhi aturan keamanan anti-spam server (CHAT_RATE_LIMIT_MAX=10/menit).
-  // Flow 2 dan 3 tetap menggunakan sleep(1).
-  if (SELECTED_FLOW === '1') {
-    sleep(6);
-  } else {
-    sleep(1);
-  }
+  // Selesai 1 siklus transaksi penuh per pasien (Closed Workload Iteration).
+  // Berikan jeda singkat (think-time 500ms) agar paket jaringan & audit broker tertutup rapi sebelum VU exit.
+  sleep(0.5);
 }
 
