@@ -13,6 +13,7 @@ const net = require('net');
 const axios = require('axios');
 const { Router } = require('express');
 const { getAllServers, getServerById, registerServer, removeServer, updateServer } = require('../config/servers.config');
+const { addServerToProject } = require('../config/projects.config');
 const { getServiceById, registerService, removeServicesByServer, updateServicesByServer, getAllActiveServices, setServiceDatabases } = require('../config/services.config');
 const { getLatest, getStatus, getLatestSystemMetrics, getServerStatusHistory } = require('../store/metricsStore');
 const { probeDatabases } = require('../utils/databaseProber');
@@ -359,7 +360,7 @@ router.get('/', async (req, res) => {
 // ─── POST /api/servers/discover (Multi-Node Auto-Discovery) ───────────────────
 router.post('/discover', async (req, res) => {
   try {
-    const { host, mode = 'probe', sshPort = 22, username, password, privateKey, candidatePorts, exporterPort } = req.body;
+    const { host, mode = 'probe', sshPort = 22, username, password, passphrase, privateKey, candidatePorts, exporterPort } = req.body;
 
     if (!host || !host.trim()) {
       return res.status(400).json({ success: false, error: 'Host / IP Address wajib diisi untuk auto-discovery.' });
@@ -377,6 +378,7 @@ router.post('/discover', async (req, res) => {
           port: parseInt(sshPort, 10) || 22,
           username: username.trim(),
           password: password || undefined,
+          passphrase: passphrase || password || undefined,
           privateKey: privateKey || undefined,
           timeoutMs: 25000,
         });
@@ -516,6 +518,7 @@ router.post('/', async (req, res) => {
         port: parseInt(ssh.port, 10) || 22,
         username: ssh.username.trim(),
         password: ssh.password || undefined,
+        passphrase: ssh.passphrase || ssh.password || undefined,
         privateKey: ssh.privateKey || undefined,
       } : undefined,
       colocation: {
@@ -526,9 +529,23 @@ router.post('/', async (req, res) => {
 
     registerServer(newServer);
 
-    // If server has SSH credentials, immediately initialize metric tunnels
+    // If projectId is provided in the request body, automatically link server to project
+    const targetProjectId = req.body.projectId;
+    if (targetProjectId) {
+      try {
+        addServerToProject(targetProjectId, newServer.id);
+      } catch (projErr) {
+        console.warn(`[servers] Failed to automatically link server to project "${targetProjectId}":`, projErr.message);
+      }
+    }
+
+    // If server has SSH credentials, immediately initialize metric tunnels safely
     if (newServer.ssh) {
-      initServerTunnel(newServer, registeredServiceObjects);
+      try {
+        initServerTunnel(newServer, registeredServiceObjects);
+      } catch (tunnelErr) {
+        console.warn(`[servers] SSH Tunnel init error for "${newServer.name}":`, tunnelErr.message);
+      }
     }
 
     const fullResponse = await buildServerResponse(newServer, true);

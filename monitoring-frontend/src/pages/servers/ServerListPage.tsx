@@ -185,9 +185,10 @@ export const ServerListPage: React.FC = () => {
         sshPort: parseInt(sshConfig.sshPort, 10) || 22,
         username: sshConfig.username.trim() || undefined,
         password: sshConfig.password || undefined,
+        passphrase: sshConfig.password || undefined,
         privateKey: sshConfig.privateKey.trim() || undefined,
         exporterPort: parseInt(formData.port, 10) || 9100,
-      });
+      } as any);
 
       setDiscoveredData(res);
       // Pre-select all discovered listening services so user can customize
@@ -283,8 +284,10 @@ export const ServerListPage: React.FC = () => {
           port: parseInt(sshConfig.sshPort, 10) || 22,
           username: sshConfig.username.trim(),
           password: sshConfig.password || undefined,
+          passphrase: sshConfig.password || undefined,
           privateKey: sshConfig.privateKey.trim() || undefined,
         } : undefined,
+        projectId: projectId || undefined,
       } as any);
 
       setFormSuccess(

@@ -118,10 +118,30 @@ function initServerTunnel(server, servicesList = []) {
     keepaliveInterval: 10000,
     keepaliveCountMax: 3,
   };
+  const passphrase = server.ssh?.passphrase || password;
   if (password) connectConfig.password = password;
-  if (privateKey) connectConfig.privateKey = privateKey;
+  if (privateKey) {
+    connectConfig.privateKey = privateKey;
+    if (passphrase) {
+      connectConfig.passphrase = passphrase;
+    }
+  }
 
-  client.connect(connectConfig);
+  try {
+    client.connect(connectConfig);
+  } catch (err) {
+    console.warn(`[sshTunnel] Initial key connect failed for "${server.name}": ${err.message}`);
+    // If privateKey failed (e.g. missing passphrase) but password is provided, fallback to password authentication
+    if (connectConfig.password && connectConfig.privateKey) {
+      delete connectConfig.privateKey;
+      delete connectConfig.passphrase;
+      try {
+        client.connect(connectConfig);
+      } catch (err2) {
+        console.warn(`[sshTunnel] Password fallback connect also failed: ${err2.message}`);
+      }
+    }
+  }
 }
 
 /**

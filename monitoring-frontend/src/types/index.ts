@@ -217,6 +217,14 @@ export interface RegisterServerPayload {
     os?: string;
     uptimeFormatted?: string;
   };
+  projectId?: string;
+  ssh?: {
+    port?: number;
+    username?: string;
+    password?: string;
+    passphrase?: string;
+    privateKey?: string;
+  };
 }
 
 export interface UpdateServerPayload {

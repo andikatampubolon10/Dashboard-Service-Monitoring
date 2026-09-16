@@ -678,7 +678,7 @@ function resolveServiceDatabases(serviceContainer, allContainers, envList = [], 
  * @param {string} [params.privateKey] - SSH Private key (PEM)
  * @param {number} [params.timeoutMs=8000]
  */
-async function discoverViaSsh({ host, port = 22, username, password, privateKey, timeoutMs = 25000 }) {
+async function discoverViaSsh({ host, port = 22, username, password, passphrase, privateKey, timeoutMs = 25000 }) {
   return new Promise((resolve, reject) => {
     const client = new SshClient();
     let isFinished = false;
@@ -950,15 +950,35 @@ async function discoverViaSsh({ host, port = 22, username, password, privateKey,
       username,
       readyTimeout: timeoutMs,
     };
+    const effectivePassphrase = passphrase || password;
     if (password) {
       connectConfig.password = password;
-      connectConfig.passphrase = password;
+    }
+    if (effectivePassphrase) {
+      connectConfig.passphrase = effectivePassphrase;
     }
     if (privateKey) {
       connectConfig.privateKey = privateKey;
     }
 
-    client.connect(connectConfig);
+    try {
+      client.connect(connectConfig);
+    } catch (err) {
+      if (connectConfig.privateKey && connectConfig.password) {
+        delete connectConfig.privateKey;
+        delete connectConfig.passphrase;
+        try {
+          client.connect(connectConfig);
+          return;
+        } catch {}
+      }
+      client.end();
+      if (!isFinished) {
+        isFinished = true;
+        clearTimeout(timer);
+        reject(err);
+      }
+    }
   });
 }
 
@@ -1057,15 +1077,35 @@ async function inspectServerDatabasesAndServices(server) {
       username: server.ssh.username,
       readyTimeout: 10000,
     };
+    const effectivePassphrase = server.ssh.passphrase || server.ssh.password;
     if (server.ssh.password) {
       connectConfig.password = server.ssh.password;
-      connectConfig.passphrase = server.ssh.password;
+    }
+    if (effectivePassphrase) {
+      connectConfig.passphrase = effectivePassphrase;
     }
     if (server.ssh.privateKey) {
       connectConfig.privateKey = server.ssh.privateKey;
     }
 
-    client.connect(connectConfig);
+    try {
+      client.connect(connectConfig);
+    } catch (err) {
+      if (connectConfig.privateKey && connectConfig.password) {
+        delete connectConfig.privateKey;
+        delete connectConfig.passphrase;
+        try {
+          client.connect(connectConfig);
+          return;
+        } catch {}
+      }
+      client.end();
+      if (!isFinished) {
+        isFinished = true;
+        clearTimeout(timer);
+        reject(err);
+      }
+    }
   });
 }
 

@@ -7,12 +7,6 @@ import {
   Zap,
   Clock,
   BarChart3,
-  Lightbulb,
-  ShieldAlert,
-  Users,
-  ChevronDown,
-  ChevronUp,
-  Smartphone,
 } from 'lucide-react';
 import {
   BarChart,
@@ -45,8 +39,6 @@ export const OverviewPage: React.FC = () => {
   const [history, setHistory] = useState<StressTestRecord[]>([]);
   const [selectedModalRecord, setSelectedModalRecord] = useState<StressTestRecord | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [insightTab, setInsightTab] = useState<'analogi' | 'teknis' | 'dampak' | 'solusi'>('analogi');
-  const [isInsightExpanded, setIsInsightExpanded] = useState<boolean>(true);
 
   useEffect(() => {
     setHistory(getStressTestHistory());
