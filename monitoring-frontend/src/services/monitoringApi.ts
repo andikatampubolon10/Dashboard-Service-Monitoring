@@ -23,6 +23,7 @@ import {
   DiscoverServerPayload,
   DiscoverServerResponse,
   UpdateServerPayload,
+  ServerUptimePoint,
 } from '../types';
 
 /**
@@ -60,6 +61,17 @@ class MonitoringApiService {
 
   public async getServerById(id: string): Promise<ServerDetail | null> {
     return this.provider.getServerById(id);
+  }
+
+  public async getServerUptimeHistory(
+    serverId: string,
+    rangeSec: number = 3600,
+    points: number = 30
+  ): Promise<ServerUptimePoint[]> {
+    if (this.provider.getServerUptimeHistory) {
+      return this.provider.getServerUptimeHistory(serverId, rangeSec, points);
+    }
+    return [];
   }
 
   public async discoverServer(payload: DiscoverServerPayload): Promise<DiscoverServerResponse> {

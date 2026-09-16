@@ -1,0 +1,14 @@
+[
+  {
+    "id": "project-inaai-healthcare-ecosystem",
+    "name": "Tara AI",
+    "description": "Ekosistem platform layanan telekonsultasi AI, live consult dokter, profil kesehatan, dan rekam medis BPJS.",
+    "env": "PRODUCTION",
+    "serverIds": [
+      "server-node-34-101-207-115-server-1",
+      "server-node-34-101-122-171-server-2"
+    ],
+    "createdAt": "2026-09-14T08:00:00.000Z",
+    "updatedAt": "2026-09-16T02:31:34.336Z"
+  }
+]

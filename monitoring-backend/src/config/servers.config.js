@@ -85,6 +85,7 @@ loadPersistedServers();
  * @returns {ServerConfig[]}
  */
 function getAllServers() {
+  loadPersistedServers();
   return [...SERVERS, ...CUSTOM_SERVERS];
 }
 

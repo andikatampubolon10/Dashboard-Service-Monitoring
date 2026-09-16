@@ -14,7 +14,7 @@ const axios = require('axios');
 const { Router } = require('express');
 const { getAllServers, getServerById, registerServer, removeServer, updateServer } = require('../config/servers.config');
 const { getServiceById, registerService, removeServicesByServer, updateServicesByServer, getAllActiveServices, setServiceDatabases } = require('../config/services.config');
-const { getLatest, getStatus, getLatestSystemMetrics } = require('../store/metricsStore');
+const { getLatest, getStatus, getLatestSystemMetrics, getServerStatusHistory } = require('../store/metricsStore');
 const { probeDatabases } = require('../utils/databaseProber');
 const { discoverViaSsh, discoverViaHttpProbe, inspectServerDatabasesAndServices } = require('../services/discoveryService');
 const { initServerTunnel, teardownServerTunnel } = require('../services/sshTunnelService');
@@ -140,23 +140,31 @@ async function buildServerResponse(server, includeColocation = false) {
     ...serverServices.flatMap((s) => (Array.isArray(s.databases) ? s.databases : [])),
   ];
 
-  const seenKeys = new Set();
-  const serverDbs = [];
+  const seenPorts = new Map();
   for (const db of candidates) {
     if (!db || !db.port) continue;
-    const key = `${db.id || db.name}-${db.port}`;
-    if (!seenKeys.has(key)) {
-      seenKeys.add(key);
-      serverDbs.push({
-        id: db.id || `${db.name}-${db.port}`,
+    const port = Number(db.port);
+    if (!seenPorts.has(port)) {
+      let cleanId = db.id || db.name || 'database';
+      if (cleanId.includes('-') && !isNaN(Number(cleanId.split('-').pop()))) {
+        cleanId = cleanId.split('-')[0];
+      }
+      seenPorts.set(port, {
+        id: cleanId,
         name: db.name || 'Database',
         containerName: db.containerName || undefined,
         host: db.host || server.host,
-        port: db.port,
+        port,
         server,
       });
+    } else {
+      const existing = seenPorts.get(port);
+      if (!existing.containerName && db.containerName) {
+        existing.containerName = db.containerName;
+      }
     }
   }
+  const serverDbs = Array.from(seenPorts.values());
 
   const services  = buildServiceSummaries(server.serviceIds || []);
   const databases = await probeDatabases(serverDbs);
@@ -324,6 +332,7 @@ async function buildServerResponse(server, includeColocation = false) {
     upDatabases: databases.filter((d) => d.status === 'UP').length,
     totalDatabases: databases.length,
     system: serverSystem,
+    uptimeHistory: getServerStatusHistory(server.id, 3600, 30),
   };
 
   if (includeColocation) {
@@ -547,6 +556,24 @@ router.get('/:id', async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// ─── GET /api/servers/:id/uptime-history ──────────────────────────────────────
+router.get('/:id/uptime-history', (req, res) => {
+  const server = getServerById(req.params.id);
+  if (!server) {
+    return res.status(404).json({ success: false, error: 'Server not found' });
+  }
+  const range = parseInt(req.query.range, 10) || 3600;
+  const points = parseInt(req.query.points, 10) || 30;
+  const history = getServerStatusHistory(server.id, range, points);
+  res.json({
+    success: true,
+    serverId: server.id,
+    range,
+    totalPoints: history.length,
+    history,
+  });
 });
 
 // ─── PUT /api/servers/:id (Update Server Details) ─────────────────────────────

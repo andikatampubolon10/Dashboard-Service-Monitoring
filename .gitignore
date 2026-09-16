@@ -7,6 +7,13 @@ dist/
 build/
 monitoring-frontend/dist/
 
+# Environment variables (Sensitive secrets & local configurations)
+.env
+*.env
+.env.*
+!.env.example
+!.env.docker.example
+
 # Local monitoring persistent databases (each machine maintains its own registered servers and services)
 monitoring-backend/data/*.json
 !monitoring-backend/data/.gitkeep

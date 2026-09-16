@@ -25,6 +25,21 @@ export function useServerDetail(serverId: string) {
   });
 }
 
+export function useServerUptimeHistory(
+  serverId: string,
+  rangeSec: number = 3600,
+  points: number = 30
+) {
+  const { filter, lastRefreshedAt } = useGlobalFilters();
+
+  return useQuery({
+    queryKey: ['server-uptime-history', serverId, rangeSec, points, filter, lastRefreshedAt],
+    queryFn: () => monitoringApi.getServerUptimeHistory(serverId, rangeSec, points),
+    enabled: Boolean(serverId),
+    refetchInterval: filter.refreshInterval > 0 ? filter.refreshInterval * 1000 : 15000,
+  });
+}
+
 export function useDiscoverServer() {
   return useMutation({
     mutationFn: (payload: DiscoverServerPayload) => monitoringApi.discoverServer(payload),

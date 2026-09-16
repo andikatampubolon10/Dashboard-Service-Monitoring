@@ -112,7 +112,19 @@ class MockDatabase {
   }
 
   public getServerById(id: string): ServerDetail | null {
-    return this.servers.find((s) => s.id === id) || null;
+    const s = this.servers.find((srv) => srv.id === id);
+    if (!s) return null;
+    return {
+      ...s,
+      uptimeHistory: s.uptimeHistory || Array.from({ length: 24 }, (_, i) => ({
+        timestamp: new Date(Date.now() - (23 - i) * 150000).toISOString(),
+        time: `${String(Math.floor(i / 2)).padStart(2, '0')}:${(i % 2) * 30 === 0 ? '00' : '30'}`,
+        status: s.status === 'critical' ? (i > 18 ? 'DOWN' : 'UP') : 'UP',
+        value: s.status === 'critical' ? (i > 18 ? 0 : 1) : 1,
+        latencyMs: 35,
+        details: 'Mock server probe reachable',
+      })),
+    };
   }
 
   public deleteServer(id: string): boolean {

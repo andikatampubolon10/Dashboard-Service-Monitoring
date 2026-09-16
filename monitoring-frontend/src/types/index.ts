@@ -97,6 +97,17 @@ export interface Server {
     canShare: string[];
     cannotShare: string[];
   } | null;
+  uptimeHistory?: ServerUptimePoint[];
+}
+
+export interface ServerUptimePoint {
+  timestamp: string;
+  time: string;
+  displayTime?: string;
+  status: 'UP' | 'DOWN' | string;
+  value: number; // 1 = Menyala (UP), 0 = Mati (DOWN)
+  latencyMs?: number | null;
+  details?: string;
 }
 
 // Project Hierarchy Types (Project -> Server -> Service)
@@ -137,6 +148,7 @@ export interface ServerDetail extends Server {
   memoryHistory: { timestamp: string; value: number }[];
   diskIopsHistory: { timestamp: string; read: number; write: number }[];
   networkHistory: { timestamp: string; in: number; out: number }[];
+  uptimeHistory?: ServerUptimePoint[];
   processesCount: number;
   kernelVersion: string;
 }

@@ -76,21 +76,10 @@ async function resolveAndProbeServiceDatabases(service) {
 
   let targetDbs = [];
 
-  if (matchedServer) {
-    // 1. Gather all databases from all services hosted on this server + server databases
-    const allServices = getAllActiveServices();
-    const serverServices = allServices.filter(
-      (s) => s.serverId === matchedServer.id || (Array.isArray(matchedServer.serviceIds) && matchedServer.serviceIds.includes(s.id))
-    );
-
-    const candidates = [
-      ...(Array.isArray(service.databases) ? service.databases : []),
-      ...serverServices.flatMap((s) => (Array.isArray(s.databases) ? s.databases : [])),
-      ...(Array.isArray(matchedServer.databases) ? matchedServer.databases : []),
-    ];
-
+  // 1. If service has explicitly defined databases, use ONLY those databases
+  if (Array.isArray(service.databases) && service.databases.length > 0) {
     const seenKeys = new Set();
-    for (const db of candidates) {
+    for (const db of service.databases) {
       if (!db || !db.port) continue;
       const key = `${db.id || db.name}-${db.port}`;
       if (!seenKeys.has(key)) {
@@ -105,14 +94,8 @@ async function resolveAndProbeServiceDatabases(service) {
         });
       }
     }
-  } else if (Array.isArray(service.databases) && service.databases.length > 0) {
-    targetDbs = service.databases.map((d) => ({
-      ...d,
-      host: d.host || host,
-      server: matchedServer,
-    }));
-  } else {
-    // Fallback if standalone service without server
+  } else if (service.databases === undefined) {
+    // 2. Fallback to default DB mapping ONLY for this service family if databases was never set
     const svcKey = Object.keys(SERVICE_DEFAULT_DBS).find((k) => service.id.includes(k));
     if (svcKey) {
       const dbTemplates = SERVICE_DEFAULT_DBS[svcKey];
@@ -125,6 +108,7 @@ async function resolveAndProbeServiceDatabases(service) {
       }));
     }
   }
+  // Note: If service.databases is explicitly an empty array [], targetDbs remains empty (stateless microservice)
 
   if (targetDbs.length === 0) {
     return { databases: [], upDatabases: 0, totalDatabases: 0 };

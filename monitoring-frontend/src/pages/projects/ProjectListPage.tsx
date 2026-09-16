@@ -16,7 +16,6 @@ import {
   Cpu,
   Layers,
   X,
-  Check,
 } from 'lucide-react';
 import { Project, ProjectPayload, Server as ServerType } from '../../types';
 import { ProjectService } from '../../services/projectService';
@@ -72,7 +71,7 @@ export const ProjectListPage: React.FC = () => {
       name: '',
       description: '',
       env: 'PRODUCTION',
-      serverIds: allServers.length > 0 ? [allServers[0].id] : [],
+      serverIds: [],
     });
     setIsModalOpen(true);
   };
@@ -119,15 +118,6 @@ export const ProjectListPage: React.FC = () => {
       alert(`Gagal menghapus projek: ${err.message}`);
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const toggleServerSelection = (serverId: string) => {
-    const current = formData.serverIds || [];
-    if (current.includes(serverId)) {
-      setFormData({ ...formData, serverIds: current.filter((id) => id !== serverId) });
-    } else {
-      setFormData({ ...formData, serverIds: [...current, serverId] });
     }
   };
 
@@ -565,59 +555,6 @@ export const ProjectListPage: React.FC = () => {
                   <option value="STAGING">STAGING</option>
                   <option value="DEVELOPMENT">DEVELOPMENT</option>
                 </select>
-              </div>
-
-              {/* Server Selection */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Pilih Server yang Masuk dalam Projek ini
-                </label>
-                <p className="text-[11px] text-slate-500 mb-2">
-                  Pilih satu atau beberapa server host yang akan dinaungi oleh projek ini:
-                </p>
-
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {allServers.length === 0 ? (
-                    <div className="text-xs text-slate-400 italic p-3 border rounded-lg text-center">
-                      Belum ada server terdaftar di sistem.
-                    </div>
-                  ) : (
-                    allServers.map((srv) => {
-                      const isChecked = (formData.serverIds || []).includes(srv.id);
-                      return (
-                        <div
-                          key={srv.id}
-                          onClick={() => toggleServerSelection(srv.id)}
-                          className={`p-3 rounded-lg border cursor-pointer transition flex items-center justify-between text-xs ${
-                            isChecked
-                              ? 'bg-orange-50 dark:bg-orange-500/10 border-orange-500/40 text-orange-900 dark:text-orange-200'
-                              : 'bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <div
-                              className={`w-4 h-4 rounded border flex items-center justify-center ${
-                                isChecked
-                                  ? 'bg-orange-600 border-orange-600 text-white'
-                                  : 'border-slate-400 bg-white dark:bg-slate-800'
-                              }`}
-                            >
-                              {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
-                            </div>
-                            <div>
-                              <div className="font-semibold">{srv.name}</div>
-                              <div className="text-[10px] text-slate-400 font-mono">{srv.ip || srv.host}</div>
-                            </div>
-                          </div>
-
-                          <span className="px-2 py-0.5 text-[10px] rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                            {srv.servicesData?.length || srv.hostedServices?.length || 0} service
-                          </span>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
               </div>
 
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">

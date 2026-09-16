@@ -357,7 +357,7 @@ export const ServiceOverviewTab: React.FC = () => {
                 )}
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Pemeriksaan koneksi soket real-time ke semua database instance yang aktif di host{' '}
+                Pemeriksaan koneksi soket real-time ke database yang melayani service{' '}
                 <span className="font-semibold text-slate-700 dark:text-slate-200">{service?.name || id}</span>
               </p>
             </div>

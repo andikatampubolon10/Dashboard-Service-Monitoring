@@ -22,6 +22,7 @@ import {
   DiscoverServerPayload,
   DiscoverServerResponse,
   UpdateServerPayload,
+  ServerUptimePoint,
 } from '../types';
 import { mockDb } from '../mock/database';
 
@@ -1140,6 +1141,7 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
           memoryHistory,
           diskIopsHistory: [],
           networkHistory: [],
+          uptimeHistory: (s as unknown as { uptimeHistory?: ServerUptimePoint[] }).uptimeHistory || [],
           processesCount: 18,
           kernelVersion: 'Linux 5.15.0-88-generic x86_64',
         };
@@ -1149,6 +1151,28 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
     }
 
     return null;
+  }
+
+  async getServerUptimeHistory(
+    serverId: string,
+    rangeSec: number = 3600,
+    points: number = 30
+  ): Promise<ServerUptimePoint[]> {
+    try {
+      const res = await fetch(
+        `${this.baseUrl}/api/servers/${serverId}/uptime-history?range=${rangeSec}&points=${points}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.history)) {
+          return data.history;
+        }
+      }
+    } catch {
+      // Graceful fallback to server detail or mock data
+    }
+    const s = await this.getServerById(serverId);
+    return s?.uptimeHistory || [];
   }
 
   async acknowledgeAlert(_alertId: string): Promise<boolean> {

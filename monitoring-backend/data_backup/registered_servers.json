@@ -1,0 +1,164 @@
+[
+  {
+    "id": "server-node-34-101-122-171-server-2",
+    "name": "Node-34-101-122-171 (Server 2)",
+    "displayName": "Node-34-101-122-171 (Server 2)",
+    "description": "Discovered via SSH (Debian GNU/Linux 13 (trixie) (WSL2 Distro)) with 3 active listening ports",
+    "host": "34.101.122.171",
+    "port": 22,
+    "env": "PRODUCTION",
+    "region": "jakarta-idc",
+    "isCustom": true,
+    "spec": {
+      "cores": 2,
+      "totalMemoryMb": 3919,
+      "usedMemoryMb": 1437,
+      "totalDiskGb": 24.4,
+      "usedDiskGb": 9.7,
+      "cpuUsagePercent": 15,
+      "uptimeSeconds": 249626,
+      "uptimeFormatted": "2d 21h",
+      "os": "Debian GNU/Linux 13 (trixie) (WSL2 Distro)"
+    },
+    "serviceIds": [
+      "ai-consultation-service-node-34-101-122-171-server-2",
+      "ai-consultation-dev-jwks-node-34-101-122-171-server-2",
+      "medical-record-service-node-34-101-122-171-server-2"
+    ],
+    "databases": [
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "containerName": "ai-consultation-postgres",
+        "host": "34.101.122.171",
+        "port": 5436
+      },
+      {
+        "id": "redis",
+        "name": "Redis",
+        "containerName": "ai-consultation-redis",
+        "host": "34.101.122.171",
+        "port": 6380
+      },
+      {
+        "id": "mongodb",
+        "name": "MongoDB",
+        "containerName": "ai-consultation-mongo-dev",
+        "host": "34.101.122.171",
+        "port": 27018
+      },
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "containerName": "medical-records-pg",
+        "host": "34.101.122.171",
+        "port": 5439
+      }
+    ],
+    "ssh": {
+      "port": 22,
+      "username": "InaAI",
+      "password": "bpjs123!",
+      "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABD0yny6vS\np5hek+cR8DwBWwAAAAEAAAAAEAAAAzAAAAC3NzaC1lZDI1NTE5AAAAIGRZIq6vufarKm05\nYEtTN17mxbGHGdCz5yhdqJhOtQGIAAAAkNsIhIdMQS4nRE6g2BqN2458hx9F8I5tyzHUeJ\nbq37L13L7OkcuCnQvQnAn8Q5MqXqZ6gObi7L4w+/OC0zzW30n7dkzGKBNjdEz0cUcpMZlP\nMuXyCV4XAsvHxjWUedOrE1u0iBBBnXIQzL1bkpJLjW2BBz18ZRWcS0g4iH38yT30x91wwy\nPikE7WmRrABHmXTg==\n-----END OPENSSH PRIVATE KEY-----"
+    },
+    "colocation": {
+      "canShare": [
+        "Multi-node container placement active."
+      ],
+      "cannotShare": []
+    }
+  },
+  {
+    "id": "server-node-34-101-207-115-server-1",
+    "name": "Node-34-101-207-115 (Server 1)",
+    "displayName": "Node-34-101-207-115 (Server 1)",
+    "description": "Discovered via SSH (Debian GNU/Linux 13 (trixie) (WSL2 Distro)) with 6 active listening ports",
+    "host": "34.101.207.115",
+    "port": 22,
+    "env": "PRODUCTION",
+    "region": "jakarta-idc",
+    "isCustom": true,
+    "spec": {
+      "cores": 2,
+      "totalMemoryMb": 3919,
+      "usedMemoryMb": 2561,
+      "totalDiskGb": 24.4,
+      "usedDiskGb": 21.5,
+      "cpuUsagePercent": 15,
+      "uptimeSeconds": 343478,
+      "uptimeFormatted": "3d 23h",
+      "os": "Debian GNU/Linux 13 (trixie) (WSL2 Distro)"
+    },
+    "serviceIds": [
+      "lifestyle-service-node-34-101-207-115-server-1",
+      "liveconsult-app-dev-node-34-101-207-115-server-1",
+      "health-profile-service-node-34-101-207-115-server-1",
+      "identity-service-node-34-101-207-115-server-1",
+      "service-9100-node-34-101-207-115-server-1",
+      "lifestyle-dev-jwks-node-34-101-207-115-server-1"
+    ],
+    "databases": [
+      {
+        "id": "mongodb",
+        "name": "MongoDB",
+        "containerName": "inaai-mongodb",
+        "host": "34.101.207.115",
+        "port": 27017
+      },
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "containerName": "lifestyle-postgres",
+        "host": "34.101.207.115",
+        "port": 5437
+      },
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "containerName": "identity-service-postgres-1",
+        "host": "34.101.207.115",
+        "port": 5432
+      },
+      {
+        "id": "redis",
+        "name": "REDIS",
+        "containerName": "identity-service-redis-1",
+        "host": "34.101.207.115",
+        "port": 6379
+      },
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "containerName": "inaai-liveconsult-pg",
+        "host": "34.101.207.115",
+        "port": 5439
+      },
+      {
+        "id": "redis",
+        "name": "REDIS",
+        "containerName": "inaai-liveconsult-redis",
+        "host": "34.101.207.115",
+        "port": 6382
+      },
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "containerName": "inaai-healthprofile-pg",
+        "host": "34.101.207.115",
+        "port": 5438
+      }
+    ],
+    "ssh": {
+      "port": 22,
+      "username": "InaAI",
+      "password": "bpjs123!",
+      "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABD0yny6vS\np5hek+cR8DwBWwAAAAEAAAAAEAAAAzAAAAC3NzaC1lZDI1NTE5AAAAIGRZIq6vufarKm05\nYEtTN17mxbGHGdCz5yhdqJhOtQGIAAAAkNsIhIdMQS4nRE6g2BqN2458hx9F8I5tyzHUeJ\nbq37L13L7OkcuCnQvQnAn8Q5MqXqZ6gObi7L4w+/OC0zzW30n7dkzGKBNjdEz0cUcpMZlP\nMuXyCV4XAsvHxjWUedOrE1u0iBBBnXIQzL1bkpJLjW2BBz18ZRWcS0g4iH38yT30x91wwy\nPikE7WmRrABHmXTg==\n-----END OPENSSH PRIVATE KEY-----"
+    },
+    "colocation": {
+      "canShare": [
+        "Multi-node container placement active."
+      ],
+      "cannotShare": []
+    }
+  }
+]

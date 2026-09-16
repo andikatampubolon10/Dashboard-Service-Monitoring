@@ -287,12 +287,24 @@ export const ServerListPage: React.FC = () => {
         } : undefined,
       } as any);
 
-      setFormSuccess(`Server "${res.name}" berhasil didaftarkan! Status: ${res.status}`);
+      setFormSuccess(
+        projectId
+          ? `Server "${res.name}" berhasil didaftarkan dan dialokasikan ke projek!`
+          : `Server "${res.name}" berhasil didaftarkan! Status: ${res.status}`
+      );
+
       if (projectId && res?.id) {
-        await ProjectService.addServerToProject(projectId, res.id);
-        fetchProject();
+        try {
+          const updatedProject = await ProjectService.addServerToProject(projectId, res.id);
+          if (updatedProject) {
+            setProject(updatedProject);
+          }
+        } catch (projErr) {
+          console.error('Failed to link server to project:', projErr);
+        }
       }
-      refetch();
+
+      await refetch();
       setTimeout(() => {
         setShowAddServerModal(false);
         setFormSuccess(null);
@@ -444,27 +456,29 @@ export const ServerListPage: React.FC = () => {
 
         <div className="flex items-center gap-2.5 flex-wrap">
           {projectId && (
-            <button
-              onClick={() => setShowManageProjectServersModal(true)}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-500/40 bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 text-xs font-bold font-mono hover:bg-indigo-100 dark:hover:bg-indigo-500/25 transition shadow-sm"
-            >
-              <ServerIcon className="w-4 h-4" />
-              <span>Kelola Server Projek (+/-)</span>
-            </button>
-          )}
+            <>
+              <button
+                onClick={() => setShowManageProjectServersModal(true)}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-500/40 bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 text-xs font-bold font-mono hover:bg-indigo-100 dark:hover:bg-indigo-500/25 transition shadow-sm"
+              >
+                <ServerIcon className="w-4 h-4" />
+                <span>Kelola Server Projek (+/-)</span>
+              </button>
 
-          {/* Add Server Button */}
-          <button
-            onClick={() => {
-              setFormError(null);
-              setFormSuccess(null);
-              setShowAddServerModal(true);
-            }}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold font-mono transition shadow-sm shadow-cyan-500/20"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Tambah Server Target</span>
-          </button>
+              {/* Add Server Button - Only available in Project view */}
+              <button
+                onClick={() => {
+                  setFormError(null);
+                  setFormSuccess(null);
+                  setShowAddServerModal(true);
+                }}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold font-mono transition shadow-sm shadow-cyan-500/20"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Tambah Server Target</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 

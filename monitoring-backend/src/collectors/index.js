@@ -11,6 +11,7 @@
  *  5. Detect service status changes and emit status_change events
  */
 
+const net = require('net');
 const cron = require('node-cron');
 const { SERVICES, getAllActiveServices } = require('../config/services.config');
 const { getAllServers } = require('../config/servers.config');
@@ -24,7 +25,52 @@ const {
   getPrevMetricMap,
   getStatus,
   pushSystemMetrics,
+  pushServerStatus,
 } = require('../store/metricsStore');
+
+/**
+ * Fast TCP probe helper for server reachability.
+ * @param {string} host
+ * @param {number} port
+ * @param {number} timeoutMs
+ */
+function probeServerTcp(host, port = 22, timeoutMs = 1200) {
+  return new Promise((resolve) => {
+    const startTime = Date.now();
+    const socket = new net.Socket();
+    let isResolved = false;
+
+    socket.setTimeout(timeoutMs);
+
+    socket.on('connect', () => {
+      if (!isResolved) {
+        isResolved = true;
+        const latencyMs = Date.now() - startTime;
+        socket.destroy();
+        resolve({ open: true, latencyMs, message: `Port ${port} reachable (${latencyMs}ms)` });
+      }
+    });
+
+    socket.on('timeout', () => {
+      if (!isResolved) {
+        isResolved = true;
+        socket.destroy();
+        resolve({ open: false, latencyMs: timeoutMs, message: 'Connection timed out' });
+      }
+    });
+
+    socket.on('error', (err) => {
+      if (!isResolved) {
+        isResolved = true;
+        const latencyMs = Date.now() - startTime;
+        socket.destroy();
+        resolve({ open: false, latencyMs, message: err.message || 'Connection error' });
+      }
+    });
+
+    socket.connect(port, host);
+  });
+}
 
 /** @type {import('socket.io').Server|null} */
 let io = null;
@@ -135,6 +181,37 @@ async function runScrapeCycle() {
     if (io) {
       io.emit('system:update', systemMetrics);
     }
+  }
+
+  // Process and record server availability/uptime
+  try {
+    const servers = getAllServers();
+    for (const srv of servers) {
+      const host = srv.host || '127.0.0.1';
+      const port = srv.port || 22;
+      probeServerTcp(host, port, 1200)
+        .then((probe) => {
+          const isUp = probe.open;
+          pushServerStatus(srv.id, {
+            status: isUp ? 'UP' : 'DOWN',
+            value: isUp ? 1 : 0,
+            latencyMs: probe.latencyMs,
+            details: probe.message,
+          });
+          if (io) {
+            io.emit('server:status_update', {
+              serverId: srv.id,
+              status: isUp ? 'UP' : 'DOWN',
+              value: isUp ? 1 : 0,
+              latencyMs: probe.latencyMs,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  } catch {
+    // Non-blocking
   }
 }
 

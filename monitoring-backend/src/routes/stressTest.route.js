@@ -4,6 +4,7 @@ const express = require('express');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const aiInsightService = require('../services/aiInsight.service');
 const router = express.Router();
 
 let ioServer = null;
@@ -527,7 +528,66 @@ router.post('/stop', (req, res) => {
   }
 });
 
+/**
+ * GET /api/stress-test/ai-insight/status
+ * Check if Gemini AI Key is configured
+ */
+router.get('/ai-insight/status', (req, res) => {
+  const isConfigured = aiInsightService.isGeminiConfigured();
+  return res.json({
+    success: true,
+    isConfigured,
+    model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+  });
+});
+
+/**
+ * POST /api/stress-test/ai-insight
+ * Generate or retrieve cached AI insight based on stress test history
+ */
+router.post('/ai-insight', async (req, res) => {
+  try {
+    const { records = [], forceRefresh = false } = req.body || {};
+
+    // If no records passed in payload, attempt to construct one from currentTestStatus if available
+    let testRecords = Array.isArray(records) ? records : [];
+    if (testRecords.length === 0 && currentTestStatus.totalRequests > 0) {
+      testRecords = [
+        {
+          id: `live-${Date.now()}`,
+          selectedFlow: currentTestStatus.flow,
+          flowTitle: currentTestStatus.flow === '1' ? 'Konsultasi Chat AI' : currentTestStatus.flow === '2' ? 'Artikel Kesehatan' : 'Pencarian Dokter',
+          targetVUs: currentTestStatus.targetVUs,
+          durationSec: currentTestStatus.durationSec,
+          p95LatencyMs: currentTestStatus.p95LatencyMs,
+          avgLatencyMs: currentTestStatus.avgLatencyMs,
+          currentRps: currentTestStatus.currentRps,
+          errorRatePercent: currentTestStatus.errorRatePercent,
+          healthGrade: currentTestStatus.healthGrade,
+          healthVerdict: currentTestStatus.healthVerdict,
+          breachedReasons: [],
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ];
+    }
+
+    const insight = await aiInsightService.generateStressTestInsight(testRecords, Boolean(forceRefresh));
+
+    return res.json({
+      success: true,
+      data: insight,
+    });
+  } catch (error) {
+    console.error('[k6 AI Route] Failed to generate AI insight:', error);
+    return res.status(500).json({
+      success: false,
+      message: `Gagal menghasilkan insight: ${error.message}`,
+    });
+  }
+});
+
 module.exports = {
   router,
   setSocketServer,
 };
+

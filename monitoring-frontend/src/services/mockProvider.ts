@@ -21,6 +21,7 @@ import {
   DiscoverServerPayload,
   DiscoverServerResponse,
   UpdateServerPayload,
+  ServerUptimePoint,
 } from '../types';
 import { mockDb } from '../mock/database';
 
@@ -71,6 +72,16 @@ export class MockMonitoringProvider implements IMonitoringProvider {
   async getServerById(id: string): Promise<ServerDetail | null> {
     await delay(200);
     return mockDb.getServerById(id);
+  }
+
+  async getServerUptimeHistory(
+    serverId: string,
+    _rangeSec: number = 3600,
+    _points: number = 30
+  ): Promise<ServerUptimePoint[]> {
+    await delay(150);
+    const server = mockDb.getServerById(serverId);
+    return server?.uptimeHistory || [];
   }
 
   async discoverServer(payload: DiscoverServerPayload): Promise<DiscoverServerResponse> {

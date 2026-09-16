@@ -1,0 +1,207 @@
+[
+  {
+    "id": "ai-consultation-dev-jwks-node-34-101-122-171-server-2",
+    "name": "Ai Consultation Dev Jwks Service (Node-34-101-122-171 (Server 2))",
+    "url": "http://34.101.122.171:4007",
+    "metricsPath": "/metrics",
+    "stack": "nodejs",
+    "description": "Container: ai-consultation-dev-jwks",
+    "serverId": "server-node-34-101-122-171-server-2",
+    "isDynamic": true,
+    "databases": [
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "host": "34.101.122.171",
+        "port": 5436,
+        "containerName": "ai-consultation-postgres"
+      },
+      {
+        "id": "redis",
+        "name": "REDIS",
+        "host": "34.101.122.171",
+        "port": 6380,
+        "containerName": "ai-consultation-redis"
+      },
+      {
+        "id": "mongodb",
+        "name": "MongoDB",
+        "host": "34.101.122.171",
+        "port": 27018,
+        "containerName": "ai-consultation-mongo-dev"
+      }
+    ]
+  },
+  {
+    "id": "medical-record-service-node-34-101-122-171-server-2",
+    "name": "Medical Record Service (Node-34-101-122-171 (Server 2))",
+    "url": "http://34.101.122.171:3002",
+    "metricsPath": "/metrics",
+    "stack": "nodejs",
+    "description": "Container: medical-record-service-app-1",
+    "serverId": "server-node-34-101-122-171-server-2",
+    "isDynamic": true,
+    "databases": [
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "host": "34.101.122.171",
+        "port": 5439,
+        "containerName": "medical-records-pg"
+      }
+    ]
+  },
+  {
+    "id": "ai-consultation-service-node-34-101-122-171-server-2",
+    "name": "Ai Consultation Service (Node-34-101-122-171 (Server 2))",
+    "url": "http://34.101.122.171:4006",
+    "metricsPath": "/metrics",
+    "stack": "nodejs",
+    "description": "Container: ai-consultation-service",
+    "serverId": "server-node-34-101-122-171-server-2",
+    "isDynamic": true,
+    "databases": [
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "host": "34.101.122.171",
+        "port": 5436,
+        "containerName": "ai-consultation-postgres"
+      },
+      {
+        "id": "redis",
+        "name": "REDIS",
+        "host": "34.101.122.171",
+        "port": 6380,
+        "containerName": "ai-consultation-redis"
+      },
+      {
+        "id": "mongodb",
+        "name": "MongoDB",
+        "host": "34.101.122.171",
+        "port": 27018,
+        "containerName": "ai-consultation-mongo-dev"
+      }
+    ]
+  },
+  {
+    "id": "lifestyle-service-node-34-101-207-115-server-1",
+    "name": "Lifestyle Service (Node-34-101-207-115 (Server 1))",
+    "url": "http://34.101.207.115:4005",
+    "metricsPath": "/metrics",
+    "stack": "nodejs",
+    "description": "Container: lifestyle-service",
+    "serverId": "server-node-34-101-207-115-server-1",
+    "databases": [
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "host": "34.101.207.115",
+        "port": 5437,
+        "containerName": "lifestyle-postgres"
+      }
+    ],
+    "isDynamic": true
+  },
+  {
+    "id": "liveconsult-app-dev-node-34-101-207-115-server-1",
+    "name": "Liveconsult App Dev Service (Node-34-101-207-115 (Server 1))",
+    "url": "http://34.101.207.115:4004",
+    "metricsPath": "/metrics",
+    "stack": "go",
+    "description": "Container: inaai-liveconsult-app-dev",
+    "serverId": "server-node-34-101-207-115-server-1",
+    "databases": [
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "host": "34.101.207.115",
+        "port": 5439,
+        "containerName": "inaai-liveconsult-pg"
+      },
+      {
+        "id": "redis",
+        "name": "REDIS",
+        "host": "34.101.207.115",
+        "port": 6382,
+        "containerName": "inaai-liveconsult-redis"
+      }
+    ],
+    "isDynamic": true
+  },
+  {
+    "id": "health-profile-service-node-34-101-207-115-server-1",
+    "name": "Health Profile Service (Node-34-101-207-115 (Server 1))",
+    "url": "http://34.101.207.115:3001",
+    "metricsPath": "/metrics",
+    "stack": "nodejs",
+    "description": "Container: health-profile-service-app-1",
+    "serverId": "server-node-34-101-207-115-server-1",
+    "databases": [
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "host": "34.101.207.115",
+        "port": 5438,
+        "containerName": "inaai-healthprofile-pg"
+      }
+    ],
+    "isDynamic": true
+  },
+  {
+    "id": "identity-service-node-34-101-207-115-server-1",
+    "name": "Identity Service (Node-34-101-207-115 (Server 1))",
+    "url": "http://34.101.207.115:8080",
+    "metricsPath": "/metrics",
+    "stack": "nodejs",
+    "description": "Container: identity-service-identity-1",
+    "serverId": "server-node-34-101-207-115-server-1",
+    "databases": [
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "host": "34.101.207.115",
+        "port": 5432,
+        "containerName": "identity-service-postgres-1"
+      },
+      {
+        "id": "redis",
+        "name": "REDIS",
+        "host": "34.101.207.115",
+        "port": 6379,
+        "containerName": "identity-service-redis-1"
+      }
+    ],
+    "isDynamic": true
+  },
+  {
+    "id": "service-9100-node-34-101-207-115-server-1",
+    "name": "Service on Port 9100 (Node-34-101-207-115 (Server 1))",
+    "url": "http://34.101.207.115:9100",
+    "metricsPath": "/metrics",
+    "stack": "go",
+    "description": "Active listening service on port 9100",
+    "serverId": "server-node-34-101-207-115-server-1",
+    "databases": [],
+    "isDynamic": true
+  },
+  {
+    "id": "lifestyle-dev-jwks-node-34-101-207-115-server-1",
+    "name": "Lifestyle Dev Jwks Service (Node-34-101-207-115 (Server 1))",
+    "url": "http://34.101.207.115:4010",
+    "metricsPath": "/metrics",
+    "stack": "nodejs",
+    "description": "Container: lifestyle-dev-jwks",
+    "serverId": "server-node-34-101-207-115-server-1",
+    "databases": [
+      {
+        "id": "postgresql",
+        "name": "PostgreSQL",
+        "host": "34.101.207.115",
+        "port": 5437,
+        "containerName": "lifestyle-postgres"
+      }
+    ],
+    "isDynamic": true
+  }
+]
