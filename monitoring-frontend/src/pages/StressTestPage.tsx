@@ -1196,21 +1196,31 @@ export const StressTestPage = () => {
                     </td>
                     <td className="p-3 text-center">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase ${
-                        item.healthGrade === "HEALTHY"
+                        item.errorRatePercent === 0 && item.p95LatencyMs > 1000
+                          ? "bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/30"
+                          : item.healthGrade === "HEALTHY"
                           ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                           : item.healthGrade === "DEGRADED"
                           ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
                           : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
                       }`}>
-                        {item.healthGrade === "HEALTHY" && "🟢 SEHAT"}
-                        {item.healthGrade === "DEGRADED" && "🟡 TERTEKAN"}
-                        {item.healthGrade === "CRITICAL" && "🔴 OVERLOAD"}
+                        {item.errorRatePercent === 0 && item.p95LatencyMs > 1000
+                          ? "🟠 ANTREAN PADAT"
+                          : item.healthGrade === "HEALTHY"
+                          ? "🟢 SEHAT"
+                          : item.healthGrade === "DEGRADED"
+                          ? "🟡 TERTEKAN"
+                          : "🔴 OVERLOAD"}
                       </span>
                       {item.errorRatePercent > 0 && (
                         <div className="text-[10px] text-rose-500 dark:text-rose-400 font-mono mt-0.5 leading-tight font-semibold">
                           {item.p95LatencyMs >= 5000
                             ? `Timeout (${item.p95LatencyMs}ms > 5s)`
-                            : `Auth / HTTP Error (${item.errorRatePercent.toFixed(1)}%)`}
+                            : item.selectedFlow === "1"
+                            ? `Kendala Respon AI (${item.errorRatePercent.toFixed(1)}%)`
+                            : item.selectedFlow === "3"
+                            ? `Koneksi Dokter Macet (${item.errorRatePercent.toFixed(1)}%)`
+                            : `HTTP Error (${item.errorRatePercent.toFixed(1)}%)`}
                         </div>
                       )}
                     </td>

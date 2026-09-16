@@ -16,6 +16,12 @@ import {
   Database,
   Cpu,
   BarChart3,
+  Lightbulb,
+  ShieldAlert,
+  Users,
+  ChevronDown,
+  ChevronUp,
+  Smartphone,
 } from 'lucide-react';
 import {
   BarChart,
@@ -67,7 +73,6 @@ function getFlow1Analysis(record: StressTestRecord | null): FlowAnalysis {
   }
 
   const isHealthy = record.healthGrade === 'HEALTHY';
-  const isDegraded = record.healthGrade === 'DEGRADED';
 
   let reason = '';
   let statusLabel = '';
@@ -75,12 +80,12 @@ function getFlow1Analysis(record: StressTestRecord | null): FlowAnalysis {
   if (isHealthy) {
     statusLabel = '🟢 Sangat Cepat & Lancar';
     reason = `Dokter AI merespons dengan sangat cepat pada beban ${record.targetVUs} pengguna sekaligus. Pesan langsung terbalas dalam waktu ${record.p95LatencyMs} milidetik tanpa kendala.`;
-  } else if (isDegraded) {
-    statusLabel = '🟡 Mulai Terasa Lambat';
-    reason = `Setiap jawaban AI membutuhkan proses berpikir cerdas yang cukup berat. Saat ada ${record.targetVUs} orang bertanya bersamaan, antrean bertambah sehingga pengguna menunggu sedikit lebih lama (${record.p95LatencyMs} milidetik).`;
+  } else if (record.errorRatePercent === 0) {
+    statusLabel = '🟡 Terjadi Antrean (Selesai)';
+    reason = `Seluruh ${record.targetVUs} pengguna berhasil berkomunikasi dengan dokter AI tanpa ada yang gagal. Namun antrean bertambah sehingga pengguna menunggu sedikit lebih lama (${record.p95LatencyMs} milidetik).`;
   } else {
     statusLabel = '🔴 Kewalahan / Macet';
-    reason = `Sistem AI kewalahan melayani ${record.targetVUs} pengguna sekaligus! Antrean terlalu panjang (${record.p95LatencyMs} milidetik) dan sekitar ${record.errorRatePercent.toFixed(1)}% pesan gagal terkirim.`;
+    reason = `Sistem AI kewalahan melayani ${record.targetVUs} pengguna sekaligus. Sekitar ${record.errorRatePercent.toFixed(1)}% pesan gagal terkirim dan waktu antrean mencapai ${record.p95LatencyMs} milidetik.`;
   }
 
   const recommendation = isHealthy
@@ -116,20 +121,19 @@ function getFlow2Analysis(record: StressTestRecord | null): FlowAnalysis {
   }
 
   const isHealthy = record.healthGrade === 'HEALTHY';
-  const isDegraded = record.healthGrade === 'DEGRADED';
 
   let reason = '';
   let statusLabel = '';
 
   if (isHealthy) {
     statusLabel = '🟢 Paling Cepat & Tangguh';
-    reason = `Membuka artikel hanya menampilkan tulisan dan gambar yang sudah siap saji tanpa proses rumit. Sistem sangat hemat tenaga dan lancar (${record.p95LatencyMs} milidetik) saat dibaca ${record.targetVUs} orang sekaligus.`;
-  } else if (isDegraded) {
-    statusLabel = '🟡 Sedikit Lambat';
-    reason = `Banyaknya pengguna (${record.targetVUs} orang) yang membuka artikel di detik yang sama mulai membuat jalur data server agak padat (${record.p95LatencyMs} milidetik).`;
+    reason = `Membuka artikel sangat lancar (${record.p95LatencyMs} milidetik) saat dibaca ${record.targetVUs} orang sekaligus tanpa hambatan.`;
+  } else if (record.errorRatePercent === 0) {
+    statusLabel = '🟡 Terjadi Antrean (Selesai)';
+    reason = `Seluruh ${record.targetVUs} pembaca berhasil membuka artikel tanpa ada yang gagal. Namun banyaknya akses bersamaan membuat antrean waktu tunggu meningkat (${record.p95LatencyMs} milidetik).`;
   } else {
-    statusLabel = '🔴 Sambungan Terputus';
-    reason = `Kapasitas server penuh karena diserbu ${record.targetVUs} pembaca sekaligus, sehingga sebagian pengguna mengalami gagal memuat halaman.`;
+    statusLabel = '🔴 Kapasitas Terlampaui';
+    reason = `Kapasitas server penuh saat diserbu ${record.targetVUs} pembaca sekaligus, sehingga sekitar ${record.errorRatePercent.toFixed(1)}% alur gagal memuat halaman.`;
   }
 
   const recommendation = isHealthy
@@ -165,20 +169,19 @@ function getFlow3Analysis(record: StressTestRecord | null): FlowAnalysis {
   }
 
   const isHealthy = record.healthGrade === 'HEALTHY';
-  const isDegraded = record.healthGrade === 'DEGRADED';
 
   let reason = '';
   let statusLabel = '';
 
   if (isHealthy) {
     statusLabel = '🟢 Lancar & Responsif';
-    reason = `Pencarian nama dan jadwal dokter bekerja lancar pada beban ${record.targetVUs} pengguna. Hasil pencarian langsung muncul dalam ${record.p95LatencyMs} milidetik tanpa error.`;
-  } else if (isDegraded) {
-    statusLabel = '🟡 Pencarian Mulai Berat';
-    reason = `Sistem mencari dokter dengan membaca seluruh daftar data dari atas ke bawah. Saat ${record.targetVUs} orang memfilter dokter bersamaan, proses pencarian mulai memakan waktu (${record.p95LatencyMs} milidetik).`;
+    reason = `Pencarian nama dan jadwal dokter bekerja lancar pada beban ${record.targetVUs} pengguna (${record.p95LatencyMs} milidetik tanpa error).`;
+  } else if (record.errorRatePercent === 0) {
+    statusLabel = '🟡 Pencarian Mengantre (Selesai)';
+    reason = `Seluruh ${record.targetVUs} pencarian dokter berhasil ditemukan tanpa kegagalan. Namun karena diakses serentak, waktu respon meningkat (${record.p95LatencyMs} milidetik).`;
   } else {
     statusLabel = '🔴 Antrean Penuh';
-    reason = `Database kewalahan melayani pencarian dari ${record.targetVUs} orang sekaligus, menyebabkan antrean dokter macet dan pencarian menjadi gagal.`;
+    reason = `Database kewalahan melayani pencarian dari ${record.targetVUs} orang sekaligus, menyebabkan sekitar ${record.errorRatePercent.toFixed(1)}% pencarian gagal.`;
   }
 
   const recommendation = isHealthy
@@ -206,6 +209,8 @@ export const OverviewPage: React.FC = () => {
   const [history, setHistory] = useState<StressTestRecord[]>([]);
   const [selectedModalRecord, setSelectedModalRecord] = useState<StressTestRecord | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [insightTab, setInsightTab] = useState<'analogi' | 'teknis' | 'dampak' | 'solusi'>('analogi');
+  const [isInsightExpanded, setIsInsightExpanded] = useState<boolean>(true);
 
   useEffect(() => {
     setHistory(getStressTestHistory());
@@ -475,6 +480,238 @@ export const OverviewPage: React.FC = () => {
                 ? `Kabar Baik: Aplikasi Anda bekerja sangat lancar pada pemakaian wajar (${maxSafeVU} orang sekaligus). Namun, jika ada lebih dari ${breakingPointVU} pengguna membuka aplikasi secara serentak, layanan mulai membutuhkan waktu lebih lama untuk membalas.`
                 : `Seluruh hasil pengetesan menunjukkan aplikasi Anda sangat sehat. Pengguna merasakan respons yang cepat (kurang dari 1 detik) dan tidak ada transaksi yang gagal.`}
           </p>
+        </div>
+
+        {/* 3.5. KARTU INSIGHT CERDAS DAYA TAHAN SISTEM (200 VU vs 300 VU & SOLUSI) */}
+        <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent dark:from-amber-950/20 dark:via-slate-900/40 dark:to-transparent p-5 space-y-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-amber-500/20 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold shrink-0">
+                <Lightbulb className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white tracking-tight">
+                    Insight Analisis Daya Tahan: Mengapa 200 Pasien Lancar &amp; 300 Pasien Bermasalah?
+                  </h3>
+                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                    Eksklusif Evaluator
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                  Penjelasan komprehensif akar kendala, analogi dunia nyata yang mudah dipahami, serta langkah perbaikan terarah.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/70 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800">
+                <span className="text-emerald-600 dark:text-emerald-400">● Aman: {maxSafeVU || 200} Pasien</span>
+                <span className="text-slate-300 dark:text-slate-700">|</span>
+                <span className="text-rose-500">● Mulai Kendala: {breakingPointVU || 300} Pasien</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsInsightExpanded(!isInsightExpanded)}
+                className="p-1.5 rounded-lg border border-amber-500/30 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:text-amber-600 transition cursor-pointer"
+                title={isInsightExpanded ? 'Kecilkan Insight' : 'Perbesar Insight'}
+              >
+                {isInsightExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          {isInsightExpanded && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              {/* Tab Selector Navigasi Insight */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setInsightTab('analogi')}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    insightTab === 'analogi'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'bg-white/80 dark:bg-slate-900/80 text-slate-600 dark:text-slate-300 hover:bg-amber-500/10 border border-slate-200 dark:border-slate-800'
+                  }`}
+                >
+                  <span>🏥 1. Analogi Klinik (Bahasa Awam)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInsightTab('teknis')}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    insightTab === 'teknis'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'bg-white/80 dark:bg-slate-900/80 text-slate-600 dark:text-slate-300 hover:bg-amber-500/10 border border-slate-200 dark:border-slate-800'
+                  }`}
+                >
+                  <span>⚙️ 2. Akar Masalah Teknis (Root Cause)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInsightTab('dampak')}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    insightTab === 'dampak'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'bg-white/80 dark:bg-slate-900/80 text-slate-600 dark:text-slate-300 hover:bg-amber-500/10 border border-slate-200 dark:border-slate-800'
+                  }`}
+                >
+                  <span>📱 3. Dampak di Layar Ponsel Pasien</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInsightTab('solusi')}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    insightTab === 'solusi'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'bg-white/80 dark:bg-slate-900/80 text-slate-600 dark:text-slate-300 hover:bg-amber-500/10 border border-slate-200 dark:border-slate-800'
+                  }`}
+                >
+                  <span>🛠️ 4. Solusi Perbaikan Skalabilitas</span>
+                </button>
+              </div>
+
+              {/* KONTEN TAB 1: ANALOGI KLINIK (BAHASA AWAM) */}
+              {insightTab === 'analogi' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white">
+                      <span className="w-6 h-6 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center text-xs">1</span>
+                      Meja Resepsionis (Identity Service)
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Tempat pasien menunjukkan KTP dan mengambil tiket nomor antrean (Token JWT). Pada 200 pasien antrean masih terkendali. Pada 300 pasien serentak, resepsionis kehabisan blanko tiket sehingga <strong>23 pasien ditolak di pintu masuk</strong> karena tiket gagal terbit.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white">
+                      <span className="w-6 h-6 rounded-lg bg-orange-500/10 text-orange-500 flex items-center justify-center text-xs">2</span>
+                      Ruang Tunggu &amp; Kursi (PostgreSQL Pool)
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Kapasitas kursi antrean database terbatas (sekitar 10-20 koneksi). Pada beban 300 orang, ruang tunggu penuh sesak. Karena antrean tidak bergerak, ratusan pasien <strong>putus asa dan pulang sebelum sempat membaca artikel</strong> (hanya 324 transaksi selesai dari total ~1.200).
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white">
+                      <span className="w-6 h-6 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-xs">3</span>
+                      Pojok Baca Artikel (Lifestyle Service)
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Rak artikel kesehatan sebenarnya bekerja normal dan tidak rusak. Namun karena gerbang tiket dan ruang tunggu macet total di depan, alur membaca artikel ikut terhenti dan dashboard memberi tanda <strong>Silang Merah (Efek Domino)</strong>.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* KONTEN TAB 2: AKAR MASALAH TEKNIS */}
+              {insightTab === 'teknis' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 dark:text-rose-400">
+                      <ShieldAlert className="w-4 h-4" />
+                      1. Setup Auth Timeout (23 Error 401)
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      k6 mendaftarkan 300 akun unik secara sekuensial. Saat antrean otentikasi melebihi batas waktu 15 detik, k6 menyuntikkan token cadangan yang tidak sah. Server microservice langsung menolak dengan <strong>HTTP 401 Unauthorized</strong> (23 transaksi gagal / 7.1% error).
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-amber-600 dark:text-amber-400">
+                      <Database className="w-4 h-4" />
+                      2. Prisma Pool Exhaustion (Hilang ~73% Transaksi)
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Framework Fastify + Prisma memiliki batas antrean koneksi aktif ke PostgreSQL. Saat 300 VU masuk bersamaan, antrean meluap dan server memutus koneksi (<code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">ECONNRESET</code>) demi mencegah crash. Iterasi k6 terputus di tengah jalan sehingga hanya 324 request yang tuntas.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-purple-600 dark:text-purple-400">
+                      <Clock className="w-4 h-4" />
+                      3. Fast-Failure Bias (Ilusi Angka 1.096 ms)
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Latensi 300 VU tampak lebih cepat (1.096 ms vs 3.362 ms di 200 VU) <strong>bukan karena sistem lebih cepat</strong>, melainkan karena ratusan transaksi gagal ditolak instan dalam 1-2 ms oleh gerbang keamanan, sehingga menarik angka rata-rata statistik turun secara semu.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* KONTEN TAB 3: DAMPAK DI LAYAR PONSEL PASIEN */}
+              {insightTab === 'dampak' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
+                      <Smartphone className="w-4 h-4 text-blue-500" />
+                      Layar Loading Berputar Lama
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Pasien yang membuka aplikasi saat jam sibuk (300 pengguna serentak) akan melihat indikator loading berputar selama lebih dari 3 detik tanpa ada respon tampilan artikel.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
+                      <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      Muncul Notifikasi Sesi Berakhir
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Sebanyak 7% pasien (korban 23 request error) akan melihat notifikasi &quot;Sesi Anda telah berakhir, silakan login kembali&quot; meskipun mereka baru saja membuka aplikasi.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-white">
+                      <Users className="w-4 h-4 text-rose-500" />
+                      Pengguna Meninggalkan Aplikasi (Drop-off)
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Karena sebagian besar transaksi terputus di tengah jalan, pasien merasa aplikasi sedang bermasalah dan memilih menutup aplikasi (hilangnya retensi pengguna).
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* KONTEN TAB 4: SOLUSI PERBAIKAN ARSITEKTUR */}
+              {insightTab === 'solusi' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                      <Zap className="w-4 h-4" />
+                      Solusi 1: Pasang Redis Cache Artikel
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Artikel bersifat dibaca banyak orang dan jarang diubah. Simpan hasil katalog dan isi artikel di memori <strong>Redis Cache</strong>. Ini akan memangkas latensi dari <strong>~3.300 ms menjadi &lt; 30 ms</strong> dan database PostgreSQL bebas dari beban 300 kueri serentak.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-blue-600 dark:text-blue-400">
+                      <Database className="w-4 h-4" />
+                      Solusi 2: Perbesar Connection Pool PostgreSQL
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Tambahkan parameter <code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">?connection_limit=50</code> pada konfigurasi Prisma database URL dan naikkan <code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">max_connections = 200</code> pada PostgreSQL agar kursi antrean tidak mudah meluap.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-purple-600 dark:text-purple-400">
+                      <Users className="w-4 h-4" />
+                      Solusi 3: Pre-seeded User Test Pool
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Sediakan pool 500 akun terdaftar tetap di database identity, sehingga tahap setup pengujian tidak perlu mendaftarkan 300 akun baru dari nol yang memakan waktu 60 detik dan rawan timeout.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 3 KARTU KONDISI FITUR (BAHASA AWAM & ALASAN JELAS) */}

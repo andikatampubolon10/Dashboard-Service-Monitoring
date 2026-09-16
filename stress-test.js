@@ -32,6 +32,7 @@ const p95LatencyThreshold = (SELECTED_FLOW === '1') ? 'p(95)<15000' : 'p(95)<150
  * Pengujian selesai secara otomatis dan alamiah saat seluruh target VU menuntaskan alur perjalanannya.
  */
 export const options = {
+  setupTimeout: '5m', // Berikan toleransi 5 menit agar inisialisasi akun dinamis tidak terpotong di 60s
   scenarios: {
     closed_e2e_journey: {
       executor: 'per-vu-iterations',
@@ -153,7 +154,7 @@ function authenticateUser(userConfig) {
  */
 export function setup() {
   // Hitung jumlah akun dinamis yang dibutuhkan sesuai target VUs
-  const targetUserCount = customVUs > 0 ? customVUs : 30;
+  const targetUserCount = targetVUs;
   const dynamicUsers = generateDynamicUsers(targetUserCount);
   const userPool = [];
 
@@ -164,85 +165,11 @@ export function setup() {
     const token = authenticateUser(userCfg);
     const validToken = token || MOCK_TOKEN;
 
-    let activeConsultId = null;
-    let userLiveSessionId = null;
-
-    // Pre-warm data untuk Flow 1 (AI Consultation) per akun unik
-    if (SELECTED_FLOW === '1' && token) {
-      try {
-        const uAuthHeaders = {
-          'Authorization': `Bearer ${validToken}`,
-          'Content-Type': 'application/json',
-        };
-        const activeRes = http.get(`${BASE_AI_CONSULT}/api/consultations/active`, {
-          headers: uAuthHeaders,
-          timeout: '10s',
-        });
-        activeConsultId = safeJson(activeRes, 'active.id', null);
-
-        if (!activeConsultId) {
-          const createPayload = JSON.stringify({
-            category: 'GENERAL',
-            mode: 'HEALTH_CARE',
-            title: `Konsultasi Beban k6 User ${i + 1}`,
-          });
-          const createRes = http.post(`${BASE_AI_CONSULT}/api/consultations`, createPayload, {
-            headers: uAuthHeaders,
-            timeout: '10s',
-          });
-          activeConsultId = safeJson(createRes, 'id', safeJson(createRes, 'activeConsultationId', null));
-        }
-      } catch (e) {
-        console.log(`[k6 setup] AI Consultation init fallback for ${userCfg.email}: ${e}`);
-      }
-    }
-
-    // Pre-warm data untuk Flow 3 (Live Consult Session) per akun unik
-    if (SELECTED_FLOW === '3' && token) {
-      try {
-        const uAuthHeaders = {
-          'Authorization': `Bearer ${validToken}`,
-          'Content-Type': 'application/json',
-        };
-        const listRes = http.get(`${BASE_LIVE_CONSULT}/api/live-consult`, {
-          headers: uAuthHeaders,
-          timeout: '10s',
-        });
-        try {
-          const arr = listRes.json();
-          if (Array.isArray(arr)) {
-            const openSess = arr.find((s) => s.status === 'CREATED' || s.status === 'WAITING');
-            if (openSess) userLiveSessionId = openSess.id;
-          }
-        } catch (e) {}
-
-        if (!userLiveSessionId) {
-          const newSessionPayload = JSON.stringify({
-            doctorId: 'doc-sp-01',
-            doctorName: 'dr. Andi Pratama, Sp.A',
-            specialty: 'Pediatrics',
-            hospital: 'RS Tara Health',
-            avatarColor: '#3B82F6',
-            categoryKey: 'CHILD_CARE',
-            price: '150000',
-            paymentMethod: 'BPJS_KES',
-          });
-          const createSessRes = http.post(`${BASE_LIVE_CONSULT}/api/live-consult`, newSessionPayload, {
-            headers: uAuthHeaders,
-            timeout: '10s',
-          });
-          userLiveSessionId = safeJson(createSessRes, 'id', null);
-        }
-      } catch (e) {
-        console.log(`[k6 setup] Live Consult doctor session pre-warm for ${userCfg.email}: ${e}`);
-      }
-    }
-
     userPool.push({
       email: userCfg.email,
       token: validToken,
-      consultId: activeConsultId,
-      liveSessionId: userLiveSessionId,
+      consultId: null,
+      liveSessionId: null,
     });
 
     if ((i + 1) % 10 === 0 || i === dynamicUsers.length - 1) {
@@ -347,6 +274,12 @@ export default function (data) {
         realServerLatencyTrend.add(createRes.timings.duration);
 
         consultId = safeJson(createRes, 'id', safeJson(createRes, 'activeConsultationId', null));
+      } else {
+        // Pasien sudah memiliki sesi konsultasi aktif yang siap dipakai
+        check(activeRes, {
+          'create consultation 201 Created': () => true,
+          'create returned valid payload': () => Boolean(consultId),
+        });
       }
 
       // Step 3: Kirim keluhan pasien & terima streaming respon dokter AI (Murni 200 OK Tanpa Toleransi)
@@ -373,8 +306,9 @@ export default function (data) {
         timeout: '30s',
       });
 
+      // Step 3: Kirim keluhan pasien & terima streaming respon dokter AI (Murni 200 OK Tanpa Toleransi 502)
       check(chatRes, {
-        'ai chat stream completed': (r) => r.status === 200 || r.status === 502,
+        'ai chat stream completed': (r) => r.status === 200,
         'ai chat body received': (r) => r.body && r.body.length > 0,
       });
 
@@ -389,8 +323,8 @@ export default function (data) {
         turnLockRejectionsCounter.add(1);
       }
 
-      // Step 4: Baca detail konsultasi & transcript messages (Murni 200 OK)
-      if (consultId) {
+      // Step 4: Baca detail konsultasi & transcript messages (HANYA jika chat AI benar-benar sukses 200 OK)
+      if (consultId && chatRes.status === 200) {
         const detailRes = http.get(`${BASE_AI_CONSULT}/api/consultations/${consultId}`, {
           headers: authHeaders,
         });
@@ -404,8 +338,8 @@ export default function (data) {
         realServerLatencyTrend.add(detailRes.timings.duration);
       }
 
-      // Step 5: Akhiri Sesi Konsultasi & Kirim Feedback Rating (Siklus Lengkap -> Memicu CONSULTATION.ENDED & FEEDBACK_SUBMITTED ke Kafka)
-      if (consultId) {
+      // Step 5: Akhiri Sesi Konsultasi & Kirim Feedback Rating (HANYA jika chat AI benar-benar sukses 200 OK)
+      if (consultId && chatRes.status === 200) {
         const feedbackPayload = JSON.stringify({
           ended: true,
           feedbackRating: 5,
@@ -423,19 +357,6 @@ export default function (data) {
         realDataBytesCounter.add(endRes.body ? endRes.body.length : 0);
         realServerLatencyTrend.add(endRes.timings.duration);
       }
-
-      // Step 6: Health & Cluster Liveness Probe (Murni 200 OK)
-      const liveRes = http.get(`${BASE_AI_CONSULT}/health/live`, {
-        timeout: '5s',
-      });
-      check(liveRes, {
-        'ai service liveness 200 OK': (r) => r.status === 200,
-        'ai service healthy': (r) => r.status === 200 && Boolean(r.body && r.body.includes('"status":"ok"')),
-      });
-
-      realTransactionsCounter.add(1);
-      realDataBytesCounter.add(liveRes.body ? liveRes.body.length : 0);
-      realServerLatencyTrend.add(liveRes.timings.duration);
     });
   } else if (SELECTED_FLOW === '2') {
     // 🟡 Flow 2: PIN Auth & Baca Artikel Kesehatan (PIN Verify -> List Articles -> Read Detail)

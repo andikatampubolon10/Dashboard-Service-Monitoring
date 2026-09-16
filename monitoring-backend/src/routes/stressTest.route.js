@@ -140,7 +140,10 @@ function parseK6Output(text) {
   }
 
   // Update Health Grade & Verdict based strictly on SLA
-  if (text.includes('thresholds on metrics') && text.includes('crossed')) {
+  if (text.includes('setup() execution timed out')) {
+    currentTestStatus.healthGrade = 'CRITICAL';
+    currentTestStatus.healthVerdict = 'Inisialisasi Akun Timeout: Persiapan akun melebihi batas waktu (setupTimeout). Pengujian belum sempat berjalan.';
+  } else if (text.includes('thresholds on metrics') && text.includes('crossed')) {
     currentTestStatus.healthGrade = 'CRITICAL';
     currentTestStatus.healthVerdict = 'Kapasitas Terlampaui: Waktu Respon Server Melampaui Batas SLA Toleransi';
   } else if (currentTestStatus.errorRatePercent > 5.0 || currentTestStatus.p95LatencyMs > 2000) {
@@ -444,7 +447,10 @@ router.post('/start', (req, res) => {
       currentTestStatus.rawSummaryText = allStdoutLines.join('\n');
 
       if (code !== 0) {
-        if (currentTestStatus.errorRatePercent > 5.0 || currentTestStatus.p95LatencyMs > 2000) {
+        if (currentTestStatus.rawSummaryText && currentTestStatus.rawSummaryText.includes('setup() execution timed out')) {
+          currentTestStatus.healthGrade = 'CRITICAL';
+          currentTestStatus.healthVerdict = 'Inisialisasi Akun Timeout: Persiapan akun melebihi batas waktu default k6 (setupTimeout). Pengujian belum sempat berjalan.';
+        } else if (currentTestStatus.errorRatePercent > 5.0 || currentTestStatus.p95LatencyMs > 2000) {
           currentTestStatus.healthGrade = 'CRITICAL';
           if (currentTestStatus.p95LatencyMs > 2000) {
             currentTestStatus.healthVerdict = `SLA Terlampaui (Kritis): Latensi P95 mencapai ${currentTestStatus.p95LatencyMs}ms (Batas Kritis: 2000ms)`;

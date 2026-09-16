@@ -402,6 +402,10 @@ export const LivePatientPipeline: React.FC<LivePatientPipelineProps> = ({
                 ? "text-slate-400"
                 : isRunning
                 ? "text-orange-500 animate-pulse"
+                : isCritical
+                ? "text-rose-500"
+                : isDegraded
+                ? "text-amber-500"
                 : "text-emerald-600 dark:text-emerald-400"
             }`}
           >
@@ -409,6 +413,10 @@ export const LivePatientPipeline: React.FC<LivePatientPipelineProps> = ({
               ? "Standby"
               : isRunning
               ? "Sedang Mengeksekusi"
+              : isCritical
+              ? "Kapasitas Penuh"
+              : isDegraded
+              ? "Ada Antrean"
               : "100% Selesai"}
           </span>
         </div>
