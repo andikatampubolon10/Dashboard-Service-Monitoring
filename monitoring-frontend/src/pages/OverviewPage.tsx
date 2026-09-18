@@ -3,9 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity,
-  Network,
   Zap,
-  Clock,
   BarChart3,
 } from 'lucide-react';
 import {
@@ -19,23 +17,15 @@ import {
   ReferenceLine,
   Cell,
 } from 'recharts';
-import { useOverviewMetrics } from '../hooks/useOverviewMetrics';
-import { useServices } from '../hooks/useServices';
-import { useServers } from '../hooks/useServers';
 import {
   getStressTestHistory,
   StressTestRecord,
   stressTestEngine,
 } from '../services/stressTestEngine';
-import { formatNumber } from '../utils/formatters';
 import StressTestResultModal from '../components/monitoring/StressTestResultModal';
 import AiStressInsightCard from '../components/monitoring/AiStressInsightCard';
 
 export const OverviewPage: React.FC = () => {
-  const { data: metrics } = useOverviewMetrics();
-  const { data: services = [] } = useServices();
-  const { data: servers = [] } = useServers();
-
   const [history, setHistory] = useState<StressTestRecord[]>([]);
   const [selectedModalRecord, setSelectedModalRecord] = useState<StressTestRecord | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -63,11 +53,20 @@ export const OverviewPage: React.FC = () => {
   }, []);
 
   const totalRuns = history.length;
-  const passedRuns = history.filter((r) => r.healthGrade === 'HEALTHY').length;
-  const complianceRate = totalRuns > 0 ? Math.round((passedRuns / totalRuns) * 100) : 100;
+  const healthyRuns = history.filter(
+    (r) => r.healthGrade === 'HEALTHY' && r.errorRatePercent === 0
+  );
+  const criticalRuns = history.filter(
+    (r) => r.healthGrade === 'CRITICAL' || r.errorRatePercent > 0
+  );
 
-  const healthyRuns = history.filter((r) => r.healthGrade === 'HEALTHY');
+  // Kapasitas teruji yang terbukti 100% lolos tanpa kendala dari data k6 riil
   const maxSafeVU = healthyRuns.length > 0 ? Math.max(...healthyRuns.map((r) => r.targetVUs)) : 0;
+
+  // Titik overload riil di mana server mulai mengalami penolakan transaksi
+  const breakingPointVU = criticalRuns.length > 0 ? Math.min(...criticalRuns.map((r) => r.targetVUs)) : null;
+
+  const passedRuns = healthyRuns.length;
 
   const getFriendlyFlowName = (flowId: string, title?: string): string => {
     if (flowId === '1') return 'Konsultasi Chat Dokter AI';
@@ -122,97 +121,103 @@ export const OverviewPage: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-12">
-      {/* 1. HEADER UTAMA (BAHASA MUDAH DIPAHAMI) */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2">
+      {/* 1. HEADER HALAMAN (SEDERHANA & BERSIH) */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
-              PEMANTAUAN KESEHATAN SISTEM
+              HASIL UJI DAYA TAHAN SISTEM
             </span>
-            <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Semua Layanan Berjalan Normal
+            <span className="text-xs text-slate-500">
+              {totalRuns > 0 ? `${totalRuns} Sesi Pengujian Valid Tersimpan` : 'Belum Ada Pengujian'}
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight mt-1">
-            Dashboard Kesehatan &amp; Daya Tahan Aplikasi
+            Dashboard Pemantauan &amp; Daya Tahan Sistem
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Pantau seberapa cepat aplikasi merespons dan seberapa banyak pengguna yang sanggup dilayani bersamaan tanpa kendala.
+            Evaluasi kapasitas riil dan wawasan cerdas AI berdasarkan hasil pengujian beban pengguna (Stress Test k6).
           </p>
         </div>
 
         <Link
           to="/stress-test"
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold shadow-sm shadow-orange-500/25 transition self-start sm:self-auto"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold shadow-sm shadow-orange-500/25 transition self-start sm:self-auto shrink-0"
         >
           <Zap className="w-4 h-4 fill-white" />
-          <span>Uji Daya Tahan Sistem ↗</span>
+          <span>+ Jalankan Uji Beban Baru ↗</span>
         </Link>
       </div>
 
-      {/* 2. 4 KARTU RINGKASAN KONDISI APLIKASI (BAHASA AWAM) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Layanan */}
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-            <Network className="w-3.5 h-3.5 text-blue-500" />
-            Layanan Aplikasi
-          </span>
-          <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
-            {services.length || 3} Layanan Aktif
-          </div>
-          <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-            🟢 {servers.length || 3} Komputer Server Siap
-          </span>
-        </div>
-
-        {/* Kecepatan Transaksi */}
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-            <Activity className="w-3.5 h-3.5 text-orange-500" />
-            Kecepatan Menjawab
-          </span>
-          <div className="text-xl font-black font-mono text-orange-500">
-            {metrics?.averageRps || 42} Proses / Detik
-          </div>
-          <span className="text-[11px] text-slate-500 font-medium">
-            Total {metrics ? formatNumber(metrics.totalRequests) : '18.4k'} aktivitas hari ini
-          </span>
-        </div>
-
-        {/* Kecepatan Balasan */}
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-emerald-500" />
-            Waktu Tunggu Pengguna
-          </span>
-          <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
-            {metrics ? `${Math.round(metrics.latencyP95Ms)} ms` : '240 ms'}
-          </div>
-          <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
-            ✅ Sangat Cepat (Hanya 0.2 detik)
-          </span>
-        </div>
-
+      {/* 2. RINGKASAN KAPASITAS VALID (MURNI DARI DATA TEST NYATA) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* Kapasitas Aman Teruji */}
-        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm space-y-1">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-            <Zap className="w-3.5 h-3.5 text-orange-500" />
-            Daya Tampung Teruji
-          </span>
-          <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
-            {maxSafeVU > 0 ? `${maxSafeVU} Pengguna` : 'Belum Dites'}
+        <div className="p-4 sm:p-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 space-y-1.5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Kapasitas Aman Teruji
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+              Valid k6
+            </span>
           </div>
-          <span className="text-[11px] text-slate-500 font-medium">
+          <div className="text-2xl sm:text-3xl font-black font-mono text-emerald-600 dark:text-emerald-400">
+            {maxSafeVU > 0 ? `${maxSafeVU} Pasien` : 'Belum Teruji'}
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            {maxSafeVU > 0
+              ? 'Terbukti 100% tuntas diproses dengan respon kilat (< 1 detik) tanpa ada transaksi yang gagal.'
+              : 'Jalankan uji beban untuk mengetahui batas kapasitas aman sistem Anda.'}
+          </p>
+        </div>
+
+        {/* Titik Overload Teruji */}
+        <div className="p-4 sm:p-5 rounded-2xl border border-rose-500/30 bg-rose-500/5 space-y-1.5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-rose-500" />
+              Titik Overload Teruji
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-700 dark:text-rose-300">
+              Valid k6
+            </span>
+          </div>
+          <div className="text-2xl sm:text-3xl font-black font-mono text-rose-600 dark:text-rose-400">
+            {breakingPointVU ? `${breakingPointVU} Pasien` : 'Belum Ada Overload'}
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            {breakingPointVU
+              ? `Terjadi penolakan transaksi (${criticalRuns[0]?.errorRatePercent ? `${criticalRuns[0].errorRatePercent.toFixed(1)}% gagal` : 'overload'}) saat mencapai beban serentak ini.`
+              : totalRuns > 0
+                ? 'Seluruh beban yang pernah diuji saat ini masih sanggup dilayani oleh server tanpa kegagalan.'
+                : 'Belum ada data pengujian yang menunjukkan beban jenuh.'}
+          </p>
+        </div>
+
+        {/* Total Sesi Uji Valid */}
+        <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] space-y-1.5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5 text-orange-500" />
+              Status Pengujian
+            </span>
+            <span className="text-[10px] font-bold text-slate-500">
+              {totalRuns > 0 ? `${Math.round((passedRuns / totalRuns) * 100)}% Sukses` : '0 Sesi'}
+            </span>
+          </div>
+          <div className="text-2xl sm:text-3xl font-black font-mono text-slate-900 dark:text-white">
+            {totalRuns} Sesi Selesai
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
             {totalRuns > 0
-              ? `${totalRuns} kali dites (${complianceRate}% sukses)`
-              : 'Klik untuk mulai tes pertama ↗'}
-          </span>
+              ? `${passedRuns} sesi berstatus lancar aman, ${totalRuns - passedRuns} sesi mengalami kendala/overload.`
+              : 'Klik tombol di kanan atas untuk memulai pengujian beban pertama.'}
+          </p>
         </div>
       </div>
 
-      {/* 3. AI STRESS TEST INTELLIGENCE HUB (GEMINI AI) */}
+      {/* 3. WAWASAN CERDAS AI (GEMINI AI INSIGHT - DIUTAMAKAN SESUAI PERMINTAAN USER) */}
       <AiStressInsightCard
         records={history}
         onOpenRecordModal={(record) => {

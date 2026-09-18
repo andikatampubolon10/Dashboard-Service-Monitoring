@@ -2,16 +2,12 @@ import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
   RefreshCw,
-  Zap,
   CheckCircle2,
   AlertTriangle,
   ShieldAlert,
-  Cpu,
-  Database,
   BookOpen,
   MessageSquare,
   Stethoscope,
-  Network,
   Layers,
   ArrowRight,
   Info,
@@ -77,44 +73,6 @@ export const AiStressInsightCard: React.FC<AiStressInsightCardProps> = ({
         return <Stethoscope className="w-4 h-4 text-purple-500" />;
       default:
         return <Layers className="w-4 h-4 text-slate-400" />;
-    }
-  };
-
-  const getPriorityBadge = (priority: string) => {
-    switch (priority) {
-      case 'HIGH':
-        return (
-          <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
-            Prioritas Tinggi
-          </span>
-        );
-      case 'MEDIUM':
-        return (
-          <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-            Prioritas Sedang
-          </span>
-        );
-      default:
-        return (
-          <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">
-            Optimasi Rutin
-          </span>
-        );
-    }
-  };
-
-  const getDomainIcon = (domain: string) => {
-    switch (domain) {
-      case 'AI_ENGINE':
-        return <Cpu className="w-3.5 h-3.5 text-rose-400" />;
-      case 'DATABASE':
-        return <Database className="w-3.5 h-3.5 text-purple-400" />;
-      case 'CACHE':
-        return <Zap className="w-3.5 h-3.5 text-amber-400" />;
-      case 'NETWORK':
-        return <Network className="w-3.5 h-3.5 text-cyan-400" />;
-      default:
-        return <Layers className="w-3.5 h-3.5 text-slate-400" />;
     }
   };
 
@@ -356,97 +314,6 @@ export const AiStressInsightCard: React.FC<AiStressInsightCardProps> = ({
           )}
         </div>
       </div>
-
-      {/* 4. BATAS KAPASITAS SISTEM & LEHER BOTOL (CAPACITY CEILING) */}
-      {insight?.capacityCeiling && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 space-y-1">
-            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Kapasitas Aman Teruji (Max Safe VU)
-            </span>
-            <div className="text-xl font-black font-mono text-slate-900 dark:text-white">
-              {insight.capacityCeiling.maxSafeVU > 0
-                ? `${insight.capacityCeiling.maxSafeVU} Pengguna Serentak`
-                : 'Belum Terkalibrasi'}
-            </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              Taraf konkurensi di mana seluruh SLA latency &lt; 1s dan 0% error terpenuhi sempurna.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl border border-rose-500/20 bg-rose-500/5 space-y-1">
-            <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              Titik Melambat / Gagal (Breaking Point)
-            </span>
-            <div className="text-xl font-black font-mono text-rose-500">
-              {insight.capacityCeiling.breakingPointVU
-                ? `${insight.capacityCeiling.breakingPointVU} Pengguna Serentak`
-                : 'Belum Mencapai Titik Jenuh'}
-            </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              {insight.capacityCeiling.breakingPointVU
-                ? 'Titik di mana respon server mulai melambat tajam atau timbul kegagalan request.'
-                : 'Sistem belum menunjukkan tanda-tanda jenuh pada beban pengujian saat ini.'}
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl border border-purple-500/20 bg-purple-500/5 space-y-1">
-            <span className="text-[10px] font-black uppercase tracking-wider text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
-              <Cpu className="w-3.5 h-3.5" />
-              Faktor Pembatas (Limiting Bottleneck)
-            </span>
-            <div className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2">
-              {insight.capacityCeiling.limitingFactor || 'Antrean HTTP & Koneksi DB'}
-            </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              Komponen utama yang paling cepat mencapai ambang batas saat volume request dinaikkan.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* 5. REKOMENDASI TINDAKAN TEKNIS (ACTIONABLE RECOMMENDATIONS) */}
-      {insight?.actionableRecommendations &&
-        insight.actionableRecommendations.length > 0 && (
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-purple-500" />
-                Rekomendasi Arsitektural AI untuk Tim Engineering
-              </span>
-              <span className="text-[11px] text-slate-400">
-                Solusi prioritas untuk meningkatkan skalabilitas
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {insight.actionableRecommendations.map((rec, index) => (
-                <div
-                  key={index}
-                  className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 space-y-2 shadow-sm"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
-                        {getDomainIcon(rec.domain)}
-                      </div>
-                      <span className="font-bold text-xs text-slate-900 dark:text-white">
-                        {rec.title}
-                      </span>
-                    </div>
-                    {getPriorityBadge(rec.priority)}
-                  </div>
-
-                  <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                    {rec.detail}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
     </div>
   );
 };

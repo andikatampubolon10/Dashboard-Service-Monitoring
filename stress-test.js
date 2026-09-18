@@ -32,13 +32,13 @@ const p95LatencyThreshold = (SELECTED_FLOW === '1') ? 'p(95)<15000' : 'p(95)<150
  * Pengujian selesai secara otomatis dan alamiah saat seluruh target VU menuntaskan alur perjalanannya.
  */
 export const options = {
-  setupTimeout: '5m', // Berikan toleransi 5 menit agar inisialisasi akun dinamis tidak terpotong di 60s
+  setupTimeout: '2m', // Berikan toleransi 5 menit agar inisialisasi akun dinamis tidak terpotong di 60s
   scenarios: {
     closed_e2e_journey: {
       executor: 'per-vu-iterations',
       vus: targetVUs,
       iterations: 1,
-      maxDuration: '5m', // Safety ceiling jika server mengalami antrean berat
+      maxDuration: '2m', // Safety ceiling jika server mengalami antrean berat
     },
   },
   thresholds: {

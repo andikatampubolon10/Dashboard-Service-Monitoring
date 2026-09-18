@@ -18,8 +18,12 @@ export interface FlowComparisonItem {
 
 export interface CapacityCeiling {
   maxSafeVU: number;
+  warningVU?: number;
   breakingPointVU: number | null;
   limitingFactor: string;
+  safeRangeText?: string;
+  warningRangeText?: string;
+  overloadRangeText?: string;
 }
 
 export interface ActionableRecommendation {

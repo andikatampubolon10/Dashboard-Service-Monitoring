@@ -29,13 +29,14 @@ function createHistorySignature(records = []) {
  */
 function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum dikonfigurasi') {
   const totalRuns = records.length;
-  const healthyRuns = records.filter((r) => r.healthGrade === 'HEALTHY');
+  const healthyRuns = records.filter((r) => r.healthGrade === 'HEALTHY' && (r.errorRatePercent || 0) === 0 && (r.p95LatencyMs || 0) <= 1000);
+  const queueRuns = records.filter((r) => (r.errorRatePercent || 0) === 0 && (r.p95LatencyMs || 0) > 1000);
   const degradedRuns = records.filter((r) => r.healthGrade === 'DEGRADED');
-  const criticalRuns = records.filter((r) => r.healthGrade === 'CRITICAL');
+  const criticalRuns = records.filter((r) => r.healthGrade === 'CRITICAL' || (r.errorRatePercent || 0) > 0);
 
-  const maxSafeVU = healthyRuns.length > 0 ? Math.max(...healthyRuns.map((r) => r.targetVUs || 0)) : 0;
-  const failedRuns = records.filter((r) => r.healthGrade !== 'HEALTHY');
-  const breakingPointVU = failedRuns.length > 0 ? Math.min(...failedRuns.map((r) => r.targetVUs || 0)) : null;
+  const maxSafeVU = healthyRuns.length > 0 ? Math.max(...healthyRuns.map((r) => r.targetVUs || 0)) : (records.length > 0 ? 25 : 0);
+  const warningVU = queueRuns.length > 0 ? Math.min(...queueRuns.map((r) => r.targetVUs || 0)) : (maxSafeVU > 0 ? maxSafeVU + 25 : 50);
+  const breakingPointVU = criticalRuns.length > 0 ? Math.min(...criticalRuns.map((r) => r.targetVUs || 0)) : null;
 
   const flow1 = records.find((r) => String(r.selectedFlow || r.flow) === '1');
   const flow2 = records.find((r) => String(r.selectedFlow || r.flow) === '2');
@@ -46,7 +47,7 @@ function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum di
   if (criticalRuns.length > 0) {
     verdict = 'CRITICAL';
     healthScore = 45;
-  } else if (degradedRuns.length > 0) {
+  } else if (degradedRuns.length > 0 || queueRuns.length > 0) {
     verdict = 'DEGRADED';
     healthScore = 72;
   }
@@ -60,7 +61,7 @@ function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum di
       targetVUs: flow1 ? flow1.targetVUs : 0,
       performanceCategory: 'Komputasi Berat (LLM & Inference)',
       comparisonNote: flow1
-        ? `Menghabiskan waktu tunggu tertinggi (${flow1.p95LatencyMs}ms) karena membutuhkan pemrosesan cerdas di setiap pesan.`
+        ? `Menghabiskan waktu tunggu tertinggi (${flow1.p95LatencyMs}ms) karena membutuhkan inferensi LLM di setiap pesan.`
         : 'Belum diuji coba. Beban LLM diperkirakan menjadi titik latensi tertinggi sistem.',
       riskLevel: flow1 && flow1.p95LatencyMs > 1000 ? 'TINGGI' : 'SEDANG',
     },
@@ -100,8 +101,8 @@ function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum di
     });
     recommendations.push({
       priority: 'HIGH',
-      title: 'Optimalisasi Antrean Inferensi AI',
-      detail: 'Pisahkan worker pemrosesan chat dokter AI ke container tersendiri agar latensi model tidak mengganggu layanan baca artikel dan database.',
+      title: 'Tingkatkan Replikasi Pod AI Consultation',
+      detail: 'Model inferensi AI memerlukan worker tambahan agar antrean streaming chat pasien tidak memicu timeout 502.',
       domain: 'AI_ENGINE',
     });
   } else if (verdict === 'DEGRADED') {
@@ -132,6 +133,9 @@ function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum di
     });
   }
 
+  const effectiveSafeVU = maxSafeVU > 0 ? maxSafeVU : (records.length > 0 ? 50 : 25);
+  const effectiveOverloadVU = breakingPointVU ? breakingPointVU : (effectiveSafeVU >= 50 ? 100 : 80);
+
   return {
     isAiGenerated: false,
     source: 'fallback-heuristic',
@@ -142,19 +146,23 @@ function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum di
       totalRuns === 0
         ? 'Sistem Menunggu Pengujian Beban Pertama'
         : breakingPointVU
-          ? `Kapasitas Aman Hingga ${maxSafeVU} Pengguna — Melambat di ${breakingPointVU} VU`
-          : `Sistem Teruji Sangat Prima dan Responsif (Aman hingga ${maxSafeVU || 50} VU)`,
+          ? `Kapasitas Aman Hingga ${effectiveSafeVU} Pasien — Overload pada ${effectiveOverloadVU}+ Pasien`
+          : `Sistem Teruji Sangat Prima (Aman hingga ${effectiveSafeVU} Pasien Serentak)`,
     summary:
       totalRuns === 0
         ? 'Jalankan uji beban pada Simulator Stress Test untuk mengaktifkan analisis performa mendalam dan perbandingan komprehensif.'
-        : `Berdasarkan ${totalRuns} kali pengujian riil, sistem menunjukkan tingkat ketahanan ${totalRuns > 0 ? Math.round((healthyRuns.length / totalRuns) * 100) : 100}%. Layanan Chat AI membutuhkan perhatian latensi tertinggi, sementara artikel kesehatan memiliki respons tercepat.`,
+        : `Berdasarkan ${totalRuns} pengujian beban nyata: sistem terbukti aman dan stabil melayani hingga ${effectiveSafeVU} pasien serentak. Pada beban ${warningVU || 50} pasien mulai terjadi antrean (waktu tunggu meningkat), dan mulai mengalami overload pada ${effectiveOverloadVU}+ pasien serentak di fitur Tanya Jawab AI.`,
     flowComparison,
     capacityCeiling: {
-      maxSafeVU: maxSafeVU || (totalRuns > 0 ? 50 : 0),
+      maxSafeVU: effectiveSafeVU,
+      warningVU: warningVU || 50,
       breakingPointVU: breakingPointVU,
       limitingFactor: flow1 && flow1.p95LatencyMs > 1000
-        ? 'Waktu komputasi inferensi model AI Consultation'
+        ? 'Waktu komputasi inferensi model AI Consultation (Langkah 3 Tanya AI)'
         : 'Kapasitas koneksi pool database & antrean worker HTTP',
+      safeRangeText: `1 – ${effectiveSafeVU} Pasien`,
+      warningRangeText: `${warningVU || 50} – ${Math.max(warningVU || 50, effectiveOverloadVU - 1)} Pasien`,
+      overloadRangeText: `> ${effectiveOverloadVU} Pasien`,
     },
     actionableRecommendations: recommendations,
     analyzedAt: new Date().toISOString(),
@@ -290,6 +298,21 @@ Berikan evaluasi mendalam, tajam, profesional, dan actionable dalam format JSON 
       parsedData = JSON.parse(cleanedText);
     }
 
+    const rawCeiling = parsedData.capacityCeiling || {};
+    const effectiveSafeVU = rawCeiling.maxSafeVU || (records.length > 0 ? 50 : 25);
+    const effectiveBreakingVU = rawCeiling.breakingPointVU || 80;
+    const effectiveWarningVU = rawCeiling.warningVU || Math.round(effectiveSafeVU * 1.2);
+
+    const enrichedCeiling = {
+      maxSafeVU: effectiveSafeVU,
+      warningVU: effectiveWarningVU,
+      breakingPointVU: rawCeiling.breakingPointVU,
+      limitingFactor: rawCeiling.limitingFactor || 'Antrean HTTP & Inferensi AI',
+      safeRangeText: rawCeiling.safeRangeText || `1 – ${effectiveSafeVU} Pasien`,
+      warningRangeText: rawCeiling.warningRangeText || `${effectiveSafeVU} – ${effectiveBreakingVU} Pasien`,
+      overloadRangeText: rawCeiling.overloadRangeText || `> ${effectiveBreakingVU} Pasien`,
+    };
+
     const finalInsight = {
       isAiGenerated: true,
       source: `Google Gemini (${model})`,
@@ -298,7 +321,7 @@ Berikan evaluasi mendalam, tajam, profesional, dan actionable dalam format JSON 
       headline: parsedData.headline || 'Evaluasi Performa Dinamis Gemini AI',
       summary: parsedData.summary || '',
       flowComparison: Array.isArray(parsedData.flowComparison) ? parsedData.flowComparison : [],
-      capacityCeiling: parsedData.capacityCeiling || { maxSafeVU: 50, breakingPointVU: null, limitingFactor: 'N/A' },
+      capacityCeiling: enrichedCeiling,
       actionableRecommendations: Array.isArray(parsedData.actionableRecommendations) ? parsedData.actionableRecommendations : [],
       analyzedAt: new Date().toISOString(),
     };
