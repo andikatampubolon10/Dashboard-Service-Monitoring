@@ -74,7 +74,9 @@ export async function fetchAiStatus(): Promise<AiStatusResponse> {
 
 export async function fetchStressAiInsight(
   records: StressTestRecord[] = [],
-  forceRefresh = false
+  forceRefresh = false,
+  projectName?: string,
+  projectId?: string
 ): Promise<StressAiInsight | null> {
   try {
     const res = await fetch(`${BASE_URL}/api/stress-test/ai-insight`, {
@@ -85,6 +87,8 @@ export async function fetchStressAiInsight(
       body: JSON.stringify({
         records,
         forceRefresh,
+        projectName,
+        projectId,
       }),
     });
 

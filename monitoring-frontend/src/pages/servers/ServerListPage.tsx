@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { ErrorState } from '../../components/common/ErrorState';
 import { TableSkeleton } from '../../components/common/LoadingSkeleton';
 import { Modal } from '../../components/common/Modal';
@@ -22,15 +22,136 @@ import {
   ArrowLeft,
   FolderKanban,
   Check,
+  ChevronDown,
+  ChevronRight,
+  ArrowRight,
+  Database,
 } from 'lucide-react';
 import { useServers, useRegisterServer, useDiscoverServer, useUpdateServer, useDeleteServer } from '../../hooks/useServers';
+import { useServices } from '../../hooks/useServices';
 import { Server, DiscoveredService, DiscoverServerResponse, Project } from '../../types';
 import { ProjectService } from '../../services/projectService';
+import { ProjectAiInsightCard } from '../../components/monitoring/ProjectAiInsightCard';
 
 export const ServerListPage: React.FC = () => {
-  const navigate = useNavigate();
   const { id: projectId } = useParams<{ id?: string }>();
   const { data: servers = [], isLoading, isError, refetch } = useServers();
+  const { data: allServices = [] } = useServices();
+
+  const [expandedServerIds, setExpandedServerIds] = useState<Set<string>>(new Set());
+
+  const toggleExpandServer = (serverId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExpandedServerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(serverId)) {
+        next.delete(serverId);
+      } else {
+        next.add(serverId);
+      }
+      return next;
+    });
+  };
+
+  const expandAllServers = () => {
+    setExpandedServerIds(new Set(filteredServers.map((s) => s.id)));
+  };
+
+  const collapseAllServers = () => {
+    setExpandedServerIds(new Set());
+  };
+
+  const getServerServices = (srv: Server) => {
+    if (srv.servicesData && srv.servicesData.length > 0) {
+      return srv.servicesData.map((svc) => {
+        const foundInAll = allServices.find((s) => s.id === svc.id);
+        const isUp =
+          svc.status === 'UP' ||
+          svc.status === 'healthy' ||
+          foundInAll?.rawStatus === 'UP' ||
+          foundInAll?.status === 'healthy';
+        return {
+          id: svc.id,
+          name: svc.name || foundInAll?.name || svc.id,
+          stack: svc.stack || foundInAll?.stack || 'nodejs',
+          description: svc.description || foundInAll?.description || '',
+          status: (isUp ? 'UP' : 'DOWN') as 'UP' | 'DOWN',
+          reqPerSecond: svc.reqPerSecond ?? foundInAll?.throughputRps ?? 0,
+          errorRatePercent: svc.errorRatePercent ?? foundInAll?.errorRatePercent ?? 0,
+          p99LatencyMs: svc.p99LatencyMs ?? foundInAll?.latencyP99Ms ?? 0,
+          version: foundInAll?.version || 'v1.0.0',
+        };
+      });
+    }
+
+    const hostServiceIds = srv.hostedServices || [];
+    const matchedFromAll = allServices.filter(
+      (s) => hostServiceIds.includes(s.id) || s.serverId === srv.id
+    );
+
+    if (matchedFromAll.length > 0) {
+      return matchedFromAll.map((s) => {
+        const isUp = s.rawStatus === 'UP' || s.status === 'healthy';
+        return {
+          id: s.id,
+          name: s.name,
+          stack: s.stack || 'nodejs',
+          description: s.description || '',
+          status: (isUp ? 'UP' : 'DOWN') as 'UP' | 'DOWN',
+          reqPerSecond: s.throughputRps ?? 0,
+          errorRatePercent: s.errorRatePercent ?? 0,
+          p99LatencyMs: s.latencyP99Ms ?? 0,
+          version: s.version || 'v1.0.0',
+        };
+      });
+    }
+
+    return hostServiceIds.map((svcId) => {
+      const found = allServices.find((s) => s.id === svcId);
+      const isUp = found?.rawStatus === 'UP' || found?.status === 'healthy';
+      return {
+        id: svcId,
+        name: found?.name || svcId,
+        stack: found?.stack || 'nodejs',
+        description: found?.description || 'Microservice container',
+        status: (isUp ? 'UP' : 'DOWN') as 'UP' | 'DOWN',
+        reqPerSecond: found?.throughputRps ?? 0,
+        errorRatePercent: found?.errorRatePercent ?? 0,
+        p99LatencyMs: found?.latencyP99Ms ?? 0,
+        version: found?.version || 'v1.0.0',
+      };
+    });
+  };
+
+  const renderStackBadge = (stack: string) => {
+    const s = (stack || '').toLowerCase();
+    if (s.includes('go')) {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-500/20">
+          Go
+        </span>
+      );
+    }
+    if (s.includes('node')) {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+          Node.js
+        </span>
+      );
+    }
+    if (s.includes('python')) {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/20">
+          Python
+        </span>
+      );
+    }
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+        {stack || 'Service'}
+      </span>
+    );
+  };
 
   const [project, setProject] = useState<Project | null>(null);
   const [showManageProjectServersModal, setShowManageProjectServersModal] = useState<boolean>(false);
@@ -485,8 +606,13 @@ export const ServerListPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Search Bar with Rows Count */}
-      <div className="flex items-center justify-between gap-4">
+      {/* AI Telemetry & Infrastructure Insight (Project Detail View) */}
+      {projectId && project && (
+        <ProjectAiInsightCard project={project} />
+      )}
+
+      {/* Search Bar with Rows Count & Expand/Collapse Controls */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="relative max-w-sm w-full">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
@@ -497,9 +623,31 @@ export const ServerListPage: React.FC = () => {
             className="w-full bg-white dark:bg-[#111827]/80 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-cyan-500 shadow-sm transition font-mono"
           />
         </div>
-        <span className="text-xs text-slate-400 font-mono select-none">
-          {filteredServers.length} rows
-        </span>
+        <div className="flex items-center gap-3">
+          {filteredServers.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={expandAllServers}
+                className="px-2.5 py-1 text-[11px] font-mono rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-cyan-500 dark:hover:text-cyan-400 hover:border-cyan-500/40 dark:hover:border-cyan-500/40 hover:bg-cyan-500/5 transition"
+                title="Buka semua detail services server"
+              >
+                Expand Semua
+              </button>
+              <button
+                type="button"
+                onClick={collapseAllServers}
+                className="px-2.5 py-1 text-[11px] font-mono rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
+                title="Tutup semua detail services server"
+              >
+                Collapse Semua
+              </button>
+            </div>
+          )}
+          <span className="text-xs text-slate-400 font-mono select-none">
+            {filteredServers.length} rows
+          </span>
+        </div>
       </div>
 
       {/* Servers Telemetry Table matching screenshot */}
@@ -581,149 +729,351 @@ export const ServerListPage: React.FC = () => {
                   const isDegraded = server.status === 'degraded' || server.status === 'warning';
                   const maxCap = server.maxCapacity || 4;
                   const currentCount = server.hostedServices.length;
+                  const isExpanded = expandedServerIds.has(server.id);
+                  const serverServices = getServerServices(server);
 
                   return (
-                    <tr
-                      key={server.id}
-                      onClick={() => navigate(`/servers/${server.id}`)}
-                      className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition cursor-pointer group"
-                    >
-                      {/* Server Name with Checkbox matching screenshot */}
-                      <td className="py-4 px-5">
-                        <div className="flex items-center gap-3">
-                          <span className="w-4 h-4 rounded border border-slate-400 dark:border-slate-600 inline-flex items-center justify-center shrink-0">
-                            <span className="w-2 h-2 rounded-sm bg-slate-400 dark:bg-slate-600 opacity-60" />
+                    <React.Fragment key={server.id}>
+                      <tr
+                        onClick={() => toggleExpandServer(server.id)}
+                        className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition cursor-pointer group ${
+                          isExpanded ? 'bg-cyan-50/30 dark:bg-cyan-950/10' : ''
+                        }`}
+                      >
+                        {/* Server Name with Expand/Collapse Chevron Button */}
+                        <td className="py-4 px-5">
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={(e) => toggleExpandServer(server.id, e)}
+                              className={`w-5 h-5 rounded flex items-center justify-center border transition shrink-0 ${
+                                isExpanded
+                                  ? 'border-cyan-500 bg-cyan-500/15 text-cyan-600 dark:text-cyan-400'
+                                  : 'border-slate-300 dark:border-slate-700 text-slate-400 hover:border-cyan-500 hover:text-cyan-500'
+                              }`}
+                              title={isExpanded ? 'Tutup daftar services' : 'Lihat services di server ini'}
+                            >
+                              {isExpanded ? (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                            <div>
+                              <Link
+                                to={`/servers/${server.id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="font-bold text-slate-900 dark:text-white hover:text-cyan-600 dark:hover:text-cyan-400 transition block"
+                                title="Buka telemetry detail server"
+                              >
+                                {server.name}
+                              </Link>
+                              <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5 flex-wrap">
+                                <span>{server.host || server.ip}{server.port ? `:${server.port}` : ''}</span>
+                                <span>&bull;</span>
+                                <span>{server.region || 'jakarta-idc'}</span>
+                                {server.probeResult && (
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                      server.probeResult.open
+                                        ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-500/20'
+                                        : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border border-rose-500/20'
+                                    }`}
+                                    title={server.probeResult.message}
+                                  >
+                                    {server.probeResult.open ? 'ONLINE' : 'UNREACHABLE'}
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Status Badge */}
+                        <td className="py-4 px-4">
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
+                              isCritical
+                                ? 'bg-rose-500/10 text-rose-500 border-rose-500/20'
+                                : isDegraded
+                                ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                                : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                isCritical
+                                  ? 'bg-rose-500 animate-pulse'
+                                  : isDegraded
+                                  ? 'bg-amber-500'
+                                  : 'bg-emerald-500'
+                              }`}
+                            />
+                            <span className="capitalize">{server.status}</span>
                           </span>
-                          <div>
-                            <span className="font-bold text-slate-900 dark:text-white group-hover:text-cyan-400 transition block">
-                              {server.name}
+                        </td>
+
+                        {/* CPU Bar + Value */}
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-20 sm:w-28 bg-slate-100 dark:bg-slate-800/80 h-1.5 rounded-full overflow-hidden shrink-0">
+                              <div
+                                className={`h-full rounded-full ${
+                                  server.cpuUsagePercent >= 80
+                                    ? 'bg-rose-500'
+                                    : server.cpuUsagePercent >= 60
+                                    ? 'bg-amber-500'
+                                    : 'bg-emerald-500 dark:bg-emerald-400'
+                                }`}
+                                style={{ width: `${server.cpuUsagePercent}%` }}
+                              />
+                            </div>
+                            <span className="text-slate-800 dark:text-slate-200 font-bold w-10">
+                              {server.cpuUsagePercent}%
                             </span>
-                            <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5 flex-wrap">
-                              <span>{server.host || server.ip}{server.port ? `:${server.port}` : ''}</span>
-                              <span>&bull;</span>
-                              <span>{server.region || 'jakarta-idc'}</span>
-                              {server.probeResult && (
-                                <span
-                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
-                                    server.probeResult.open
-                                      ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-500/20'
-                                      : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border border-rose-500/20'
-                                  }`}
-                                  title={server.probeResult.message}
-                                >
-                                  {server.probeResult.open ? 'ONLINE' : 'UNREACHABLE'}
-                                </span>
+                          </div>
+                        </td>
+
+                        {/* Memory Bar + Value */}
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-20 sm:w-28 bg-slate-100 dark:bg-slate-800/80 h-1.5 rounded-full overflow-hidden shrink-0">
+                              <div
+                                className={`h-full rounded-full ${
+                                  memPercent >= 85
+                                    ? 'bg-rose-500'
+                                    : memPercent >= 70
+                                    ? 'bg-amber-500'
+                                    : 'bg-emerald-500 dark:bg-emerald-400'
+                                }`}
+                                style={{ width: `${memPercent}%` }}
+                              />
+                            </div>
+                            <span className="text-slate-800 dark:text-slate-200 font-bold w-10">
+                              {memPercent}%
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* SERVICES (matching screenshot format 1 / 3, 0 / 4) with quick expand toggle */}
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-2 cursor-pointer group/svc">
+                            <span className="text-sm font-bold text-slate-900 dark:text-white group-hover/svc:text-cyan-600 dark:group-hover/svc:text-cyan-400 transition">
+                              {currentCount} / {maxCap}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {currentCount === 0 ? 'Empty' : currentCount >= maxCap ? 'Full' : 'Available'}
+                            </span>
+                            <span className="text-slate-400 group-hover/svc:text-cyan-500 transition ml-0.5">
+                              {isExpanded ? (
+                                <ChevronDown className="w-3.5 h-3.5 text-cyan-500" />
+                              ) : (
+                                <ChevronRight className="w-3.5 h-3.5" />
                               )}
                             </span>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* Status Badge */}
-                      <td className="py-4 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
-                            isCritical
-                              ? 'bg-rose-500/10 text-rose-500 border-rose-500/20'
-                              : isDegraded
-                              ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                              : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                          }`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              isCritical
-                                ? 'bg-rose-500 animate-pulse'
-                                : isDegraded
-                                ? 'bg-amber-500'
-                                : 'bg-emerald-500'
-                            }`}
-                          />
-                          <span className="capitalize">{server.status}</span>
-                        </span>
-                      </td>
+                        {/* Uptime */}
+                        <td className="py-4 px-5 text-slate-600 dark:text-slate-400">
+                          {server.uptime}
+                        </td>
 
-                      {/* CPU Bar + Value */}
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-20 sm:w-28 bg-slate-100 dark:bg-slate-800/80 h-1.5 rounded-full overflow-hidden shrink-0">
-                            <div
-                              className={`h-full rounded-full ${
-                                server.cpuUsagePercent >= 80
-                                  ? 'bg-rose-500'
-                                  : server.cpuUsagePercent >= 60
-                                  ? 'bg-amber-500'
-                                  : 'bg-emerald-500 dark:bg-emerald-400'
-                              }`}
-                              style={{ width: `${server.cpuUsagePercent}%` }}
-                            />
+                        {/* Actions Column (Edit & Delete) */}
+                        <td className="py-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditModal(server)}
+                              title="Edit konfigurasi server"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-500 hover:bg-cyan-500/10 dark:hover:bg-cyan-500/20 transition border border-transparent hover:border-cyan-500/30"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDeleteModal(server)}
+                              title="Hapus server dari monitoring"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 dark:hover:bg-rose-500/20 transition border border-transparent hover:border-rose-500/30"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
-                          <span className="text-slate-800 dark:text-slate-200 font-bold w-10">
-                            {server.cpuUsagePercent}%
-                          </span>
-                        </div>
-                      </td>
+                        </td>
+                      </tr>
 
-                      {/* Memory Bar + Value */}
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-20 sm:w-28 bg-slate-100 dark:bg-slate-800/80 h-1.5 rounded-full overflow-hidden shrink-0">
-                            <div
-                              className={`h-full rounded-full ${
-                                memPercent >= 85
-                                  ? 'bg-rose-500'
-                                  : memPercent >= 70
-                                  ? 'bg-amber-500'
-                                  : 'bg-emerald-500 dark:bg-emerald-400'
-                              }`}
-                              style={{ width: `${memPercent}%` }}
-                            />
-                          </div>
-                          <span className="text-slate-800 dark:text-slate-200 font-bold w-10">
-                            {memPercent}%
-                          </span>
-                        </div>
-                      </td>
+                      {/* Expandable Services & Components Row */}
+                      {isExpanded && (
+                        <tr className="bg-slate-50/80 dark:bg-[#070c18]/90 border-b border-slate-200 dark:border-slate-800/80">
+                          <td colSpan={7} className="p-0">
+                            <div className="p-4 sm:p-5 border-l-4 border-cyan-500 dark:border-cyan-400 pl-6 space-y-4">
+                              {/* Header sub-panel */}
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-6 h-6 rounded-lg bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
+                                    <Layers className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div>
+                                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                      Services di Host: <span className="text-cyan-600 dark:text-cyan-400">{server.name}</span>
+                                    </h4>
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                      Microservice dan database runtime yang teralokasi pada host {server.host || server.ip}
+                                    </p>
+                                  </div>
+                                  <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-100 dark:bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-500/20">
+                                    {serverServices.length} Service{serverServices.length !== 1 ? 's' : ''}
+                                  </span>
+                                </div>
 
-                      {/* SERVICES (matching screenshot format 1 / 3, 0 / 4) */}
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-sm font-bold text-slate-900 dark:text-white">
-                            {currentCount} / {maxCap}
-                          </span>
-                          <span className="text-[10px] text-slate-400">
-                            {currentCount === 0 ? 'Empty' : currentCount >= maxCap ? 'Full' : 'Available'}
-                          </span>
-                        </div>
-                      </td>
+                                <Link
+                                  to={`/servers/${server.id}`}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-semibold text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/10 border border-cyan-200 dark:border-cyan-500/20 transition"
+                                >
+                                  <span>Lihat Metrik Lengkap Host</span>
+                                  <ArrowRight className="w-3.5 h-3.5" />
+                                </Link>
+                              </div>
 
-                      {/* Uptime */}
-                      <td className="py-4 px-5 text-slate-600 dark:text-slate-400">
-                        {server.uptime}
-                      </td>
+                              {/* Services Table */}
+                              {serverServices.length > 0 ? (
+                                <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1322] shadow-xs">
+                                  <table className="w-full text-left border-collapse">
+                                    <thead>
+                                      <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                        <th className="py-2.5 px-4">Nama Service & Stack</th>
+                                        <th className="py-2.5 px-3">Status</th>
+                                        <th className="py-2.5 px-3">P99 Latency</th>
+                                        <th className="py-2.5 px-3">Throughput</th>
+                                        <th className="py-2.5 px-3">Error Rate</th>
+                                        <th className="py-2.5 px-4 text-right">Aksi</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
+                                      {serverServices.map((svc) => {
+                                        const isUp = svc.status === 'UP';
+                                        return (
+                                          <tr
+                                            key={svc.id}
+                                            className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition"
+                                          >
+                                            <td className="py-3 px-4">
+                                              <div className="flex items-center gap-2.5">
+                                                <div className="flex flex-col">
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                                                      {svc.name}
+                                                    </span>
+                                                    {renderStackBadge(svc.stack)}
+                                                    {svc.version && (
+                                                      <span className="text-[10px] text-slate-400 font-mono">
+                                                        {svc.version}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  {svc.description && (
+                                                    <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-xs sm:max-w-md">
+                                                      {svc.description}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            </td>
+                                            <td className="py-3 px-3">
+                                              <span
+                                                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                                                  isUp
+                                                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                                                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                                                }`}
+                                              >
+                                                <span
+                                                  className={`w-1.5 h-1.5 rounded-full ${
+                                                    isUp ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'
+                                                  }`}
+                                                />
+                                                <span>{svc.status}</span>
+                                              </span>
+                                            </td>
+                                            <td className="py-3 px-3 text-slate-600 dark:text-slate-300 font-mono">
+                                              {svc.p99LatencyMs ? `${svc.p99LatencyMs} ms` : '—'}
+                                            </td>
+                                            <td className="py-3 px-3 text-slate-600 dark:text-slate-300 font-mono">
+                                              {svc.reqPerSecond !== undefined && svc.reqPerSecond !== null
+                                                ? `${svc.reqPerSecond} req/s`
+                                                : '—'}
+                                            </td>
+                                            <td className="py-3 px-3 font-mono">
+                                              <span
+                                                className={
+                                                  svc.errorRatePercent > 1
+                                                    ? 'text-rose-500 font-bold'
+                                                    : 'text-slate-600 dark:text-slate-300'
+                                                }
+                                              >
+                                                {svc.errorRatePercent !== undefined && svc.errorRatePercent !== null
+                                                  ? `${svc.errorRatePercent}%`
+                                                  : '0%'}
+                                              </span>
+                                            </td>
+                                            <td className="py-3 px-4 text-right">
+                                              <Link
+                                                to={`/services/${svc.id}`}
+                                                className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline"
+                                              >
+                                                <span>Detail Service</span>
+                                                <ArrowRight className="w-3 h-3" />
+                                              </Link>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center bg-white/50 dark:bg-slate-900/30">
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Belum ada microservice yang dialokasikan pada server host ini.
+                                  </p>
+                                </div>
+                              )}
 
-                      {/* Actions Column (Tunnel, Edit & Delete) */}
-                      <td className="py-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditModal(server)}
-                            title="Edit konfigurasi server"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-500 hover:bg-cyan-500/10 dark:hover:bg-cyan-500/20 transition border border-transparent hover:border-cyan-500/30"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDeleteModal(server)}
-                            title="Hapus server dari monitoring"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 dark:hover:bg-rose-500/20 transition border border-transparent hover:border-rose-500/30"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                              {/* Databases Section if present on server */}
+                              {server.databases && server.databases.length > 0 && (
+                                <div className="pt-1">
+                                  <div className="flex items-center gap-2 mb-2 text-xs font-bold text-slate-700 dark:text-slate-300">
+                                    <Database className="w-3.5 h-3.5 text-indigo-500" />
+                                    <span>Database Runtime Instances ({server.databases.length})</span>
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                    {server.databases.map((db, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0d1322]"
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                          <span className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                                            {db.name}
+                                          </span>
+                                          <span className="text-[10px] text-slate-400 font-mono">
+                                            :{db.port}
+                                          </span>
+                                        </div>
+                                        <span className="text-[10px] text-slate-500 font-mono">
+                                          {db.status || 'UP'}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>

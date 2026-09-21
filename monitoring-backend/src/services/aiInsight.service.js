@@ -16,9 +16,9 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
 /**
  * Generate a signature for a set of test records
  */
-function createHistorySignature(records = []) {
-  if (!Array.isArray(records) || records.length === 0) return 'empty';
-  return records
+function createHistorySignature(records = [], projectName = '') {
+  if (!Array.isArray(records) || records.length === 0) return `empty::${projectName}`;
+  return `${projectName}::` + records
     .slice(0, 10)
     .map((r) => `${r.id || ''}-${r.selectedFlow || r.flow || ''}-${r.targetVUs || 0}-${r.p95LatencyMs || 0}-${r.errorRatePercent || 0}`)
     .join('|');
@@ -27,7 +27,7 @@ function createHistorySignature(records = []) {
 /**
  * Fallback local heuristic insight generator when GEMINI_API_KEY is not configured or on network error
  */
-function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum dikonfigurasi') {
+function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum dikonfigurasi', projectName = '') {
   const totalRuns = records.length;
   const healthyRuns = records.filter((r) => r.healthGrade === 'HEALTHY' && (r.errorRatePercent || 0) === 0 && (r.p95LatencyMs || 0) <= 1000);
   const queueRuns = records.filter((r) => (r.errorRatePercent || 0) === 0 && (r.p95LatencyMs || 0) > 1000);
@@ -172,8 +172,9 @@ function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum di
 /**
  * Main service method: Analyze stress test records using Google Gemini API
  */
-async function generateStressTestInsight(records = [], forceRefresh = false) {
-  const signature = createHistorySignature(records);
+async function generateStressTestInsight(records = [], forceRefresh = false, options = {}) {
+  const projectName = options.projectName || '';
+  const signature = createHistorySignature(records, projectName);
   const now = Date.now();
 
   // Return cached result if still valid and not forcing refresh
@@ -185,11 +186,11 @@ async function generateStressTestInsight(records = [], forceRefresh = false) {
   }
 
   const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
-  const model = process.env.GEMINI_MODEL ? process.env.GEMINI_MODEL.trim() : 'gemini-1.5-flash';
+  const model = process.env.GEMINI_MODEL ? process.env.GEMINI_MODEL.trim() : 'gemini-2.5-flash';
 
   // If no API key provided, gracefully fallback to rich local heuristic
   if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-    const fallback = generateFallbackInsight(records, 'GEMINI_API_KEY belum dikonfigurasi di backend/.env. Menampilkan analisis heuristik otomatis.');
+    const fallback = generateFallbackInsight(records, 'GEMINI_API_KEY belum dikonfigurasi di backend/.env. Menampilkan analisis heuristik otomatis.', projectName);
     cachedInsight = { signature, data: fallback, cachedAt: now };
     return fallback;
   }
@@ -210,9 +211,11 @@ async function generateStressTestInsight(records = [], forceRefresh = false) {
     breachedReasons: r.breachedReasons || [],
   }));
 
+  const projectContext = projectName ? `projek "${projectName}"` : 'sistem microservice kesehatan (Tara AI)';
+
   const prompt = `
 Anda adalah seorang Principal Site Reliability Engineer (SRE) dan Lead Performance Architect kelas dunia.
-Tugas Anda adalah menganalisis hasil uji beban (*Grafana k6 stress test*) pada sistem microservice kesehatan ("TARA Telemedicine"):
+Tugas Anda adalah menganalisis hasil uji beban (*Grafana k6 stress test*) pada ${projectContext}:
 - Flow 1: Konsultasi Chat Dokter AI (Inference LLM, CPU intensive, latency sensitive).
 - Flow 2: Membaca Artikel Kesehatan (Read heavy, caching candidate, static data).
 - Flow 3: Pencarian Jadwal & Dokter (Database queries, indexing, filtering).

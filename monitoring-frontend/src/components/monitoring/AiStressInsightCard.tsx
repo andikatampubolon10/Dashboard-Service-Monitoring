@@ -22,11 +22,15 @@ import {
 
 interface AiStressInsightCardProps {
   records: StressTestRecord[];
+  projectName?: string;
+  projectId?: string;
   onOpenRecordModal?: (record: StressTestRecord) => void;
 }
 
 export const AiStressInsightCard: React.FC<AiStressInsightCardProps> = ({
   records,
+  projectName,
+  projectId,
   onOpenRecordModal,
 }) => {
   const [insight, setInsight] = useState<StressAiInsight | null>(null);
@@ -43,7 +47,7 @@ export const AiStressInsightCard: React.FC<AiStressInsightCardProps> = ({
 
     try {
       const [insightRes, statusRes] = await Promise.all([
-        fetchStressAiInsight(records, force),
+        fetchStressAiInsight(records, force, projectName, projectId),
         fetchAiStatus(),
       ]);
       if (insightRes) {
@@ -61,7 +65,7 @@ export const AiStressInsightCard: React.FC<AiStressInsightCardProps> = ({
   useEffect(() => {
     loadInsight(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [records.length]);
+  }, [records.length, projectName, projectId]);
 
   const getFlowIcon = (flowId: string) => {
     switch (flowId) {
@@ -89,6 +93,11 @@ export const AiStressInsightCard: React.FC<AiStressInsightCardProps> = ({
               <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
                 AI INTELLIGENCE HUB
               </span>
+              {projectName && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                  {projectName}
+                </span>
+              )}
               <span className="text-xs text-slate-400 font-mono">
                 {insight?.isAiGenerated ? (
                   <span className="text-emerald-500 font-semibold flex items-center gap-1">
@@ -104,7 +113,7 @@ export const AiStressInsightCard: React.FC<AiStressInsightCardProps> = ({
               </span>
             </div>
             <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight mt-0.5">
-              Evaluasi &amp; Wawasan Kinerja Sistem
+              Evaluasi &amp; Wawasan Kinerja Sistem {projectName ? `— Projek ${projectName}` : ''}
             </h2>
           </div>
         </div>

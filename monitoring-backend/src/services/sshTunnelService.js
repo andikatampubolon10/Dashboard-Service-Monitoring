@@ -73,11 +73,18 @@ function initServerTunnel(server, servicesList = []) {
 
       // Create a local TCP proxy for this remote port
       const localServer = net.createServer((socket) => {
+        socket.on('error', () => {
+          try { socket.destroy(); } catch {}
+        });
+
         client.forwardOut('127.0.0.1', socket.remotePort, '127.0.0.1', remotePort, (err, stream) => {
           if (err) {
-            socket.destroy();
+            try { socket.destroy(); } catch {}
             return;
           }
+          stream.on('error', () => {
+            try { socket.destroy(); } catch {}
+          });
           socket.pipe(stream).pipe(socket);
         });
       });

@@ -28,6 +28,15 @@ const { router: stressTestRoute, setSocketServer: setStressTestSocketServer } = 
 // Middleware
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
+// Global guards against unhandled exceptions and promise rejections (registered early)
+process.on('uncaughtException', (err) => {
+  console.error('[App] ⚠️ Uncaught Exception caught:', err?.message || err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[App] ⚠️ Unhandled Promise Rejection at:', promise, 'reason:', reason);
+});
+
 const app = express();
 const server = http.createServer(app);
 
@@ -99,15 +108,6 @@ server.listen(PORT, () => {
 
   // Start the background scraping process
   startCollector();
-});
-
-// Global guards against unhandled exceptions and promise rejections
-process.on('uncaughtException', (err) => {
-  console.error('[App] ⚠️ Uncaught Exception caught:', err.message || err);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[App] ⚠️ Unhandled Promise Rejection at:', promise, 'reason:', reason);
 });
 
 // Graceful shutdown

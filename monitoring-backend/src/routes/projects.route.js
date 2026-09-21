@@ -27,6 +27,7 @@ const {
 } = require('../config/projects.config');
 const { getAllServers, getServerById } = require('../config/servers.config');
 const serversRouter = require('./servers.route');
+const projectAiInsightService = require('../services/projectAiInsight.service');
 
 const router = Router();
 
@@ -157,6 +158,36 @@ router.get('/:id', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── POST /api/projects/:id/ai-insight ───────────────────────────────────────
+// Generate or retrieve cached AI infrastructure insight for a specific project
+router.post('/:id/ai-insight', async (req, res) => {
+  try {
+    const project = getProjectById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, error: 'Projek tidak ditemukan.' });
+    }
+
+    const { forceRefresh = false } = req.body || {};
+    const detailed = await enrichProject(project, true);
+
+    const insight = await projectAiInsightService.generateProjectInfrastructureInsight(
+      detailed,
+      Boolean(forceRefresh)
+    );
+
+    res.json({
+      success: true,
+      data: insight,
+    });
+  } catch (err) {
+    console.error(`[Project AI Route] Failed to generate insight for ${req.params.id}:`, err);
+    res.status(500).json({
+      success: false,
+      error: `Gagal menghasilkan insight: ${err.message}`,
+    });
   }
 });
 

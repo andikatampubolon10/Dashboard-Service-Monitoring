@@ -547,7 +547,7 @@ router.get('/ai-insight/status', (req, res) => {
  */
 router.post('/ai-insight', async (req, res) => {
   try {
-    const { records = [], forceRefresh = false } = req.body || {};
+    const { records = [], forceRefresh = false, projectName, projectId } = req.body || {};
 
     // If no records passed in payload, attempt to construct one from currentTestStatus if available
     let testRecords = Array.isArray(records) ? records : [];
@@ -571,7 +571,10 @@ router.post('/ai-insight', async (req, res) => {
       ];
     }
 
-    const insight = await aiInsightService.generateStressTestInsight(testRecords, Boolean(forceRefresh));
+    const insight = await aiInsightService.generateStressTestInsight(testRecords, Boolean(forceRefresh), {
+      projectName,
+      projectId,
+    });
 
     return res.json({
       success: true,

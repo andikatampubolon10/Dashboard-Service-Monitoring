@@ -113,4 +113,23 @@ export class ProjectService {
     }
     return data.project;
   }
+
+  public static async getProjectAiInsight(projectId: string, forceRefresh = false): Promise<import('../types').ProjectAiInsight | null> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/projects/${encodeURIComponent(projectId)}/ai-insight`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ forceRefresh }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return data.data || null;
+    } catch (err) {
+      console.warn(`[ProjectService] Failed to get AI insight for ${projectId}:`, err);
+      return null;
+    }
+  }
 }

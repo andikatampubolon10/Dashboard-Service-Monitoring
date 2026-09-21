@@ -143,6 +143,50 @@ export interface ProjectPayload {
   serverIds?: string[];
 }
 
+export interface SlaAssessment {
+  availabilityScore: number;
+  riskLevel: 'RENDAH' | 'SEDANG' | 'TINGGI';
+  verdictText: string;
+}
+
+export interface SaturationAnalysis {
+  highestPressureNode: string;
+  limitingResource: 'MEMORY' | 'CPU' | 'DISK' | 'NETWORK' | string;
+  capacityHeadroom: string;
+  imbalanceNote: string;
+}
+
+export interface InfrastructureAnomaly {
+  severity: 'CRITICAL' | 'WARNING' | 'INFO';
+  title: string;
+  component: string;
+  description: string;
+}
+
+export interface SreRecommendation {
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  category: 'CAPACITY' | 'RESILIENCE' | 'SECURITY' | 'PERFORMANCE';
+  title: string;
+  action: string;
+  impact: string;
+}
+
+export interface ProjectAiInsight {
+  isAiGenerated: boolean;
+  source: string;
+  note?: string;
+  verdict: 'OPTIMAL' | 'ATTENTION' | 'DEGRADED' | 'CRITICAL';
+  healthScore: number;
+  headline: string;
+  summary: string;
+  slaAssessment: SlaAssessment;
+  saturationAnalysis: SaturationAnalysis;
+  anomalies: InfrastructureAnomaly[];
+  actionableRecommendations: SreRecommendation[];
+  analyzedAt: string;
+  fromCache?: boolean;
+}
+
 export interface ServerDetail extends Server {
   cpuHistory: { timestamp: string; value: number }[];
   memoryHistory: { timestamp: string; value: number }[];

@@ -445,6 +445,8 @@ export const stressTestEngine = new StressTestEngine();
 
 export interface StressTestRecord {
   id: string;
+  projectId?: string;
+  projectName?: string;
   timestamp: string;
   selectedFlow: SelectedFlowType;
   flowTitle: string;

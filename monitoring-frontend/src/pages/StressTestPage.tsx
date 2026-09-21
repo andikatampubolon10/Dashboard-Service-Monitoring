@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Zap,
   Play,
@@ -15,6 +16,7 @@ import {
   Lock,
   ChevronDown,
   ChevronUp,
+  FolderKanban,
 } from "lucide-react";
 
 import {
@@ -40,6 +42,8 @@ import {
 import { formatNumber } from "../utils/formatters";
 import { useServices } from "../hooks/useServices";
 import { useServers } from "../hooks/useServers";
+import { ProjectService } from "../services/projectService";
+import { Project } from "../types";
 import StressTestResultModal from "../components/monitoring/StressTestResultModal";
 import { LivePatientPipeline } from "../components/monitoring/LivePatientPipeline";
 
@@ -76,6 +80,37 @@ export const StressTestPage = () => {
   const [chartData, setChartData] = useState<LatencyPoint[]>([]);
   const [endpoints, setEndpoints] = useState<ServiceEndpointState>(DEFAULT_ENDPOINTS);
   const [logs, setLogs] = useState<string[]>([]);
+
+  // Multi-Project selection state
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => {
+    return searchParams.get('project') || localStorage.getItem('dashboard_selected_project_id') || '';
+  });
+
+  useEffect(() => {
+    ProjectService.getProjects().then((projs) => {
+      setProjects(projs);
+      const urlProj = searchParams.get('project');
+      if (urlProj && projs.some((p) => p.id === urlProj)) {
+        setSelectedProjectId(urlProj);
+      } else if (!selectedProjectId && projs.length > 0) {
+        setSelectedProjectId(projs[0].id);
+      }
+    });
+  }, []);
+
+  const handleSelectProject = (projectId: string) => {
+    setSelectedProjectId(projectId);
+    localStorage.setItem('dashboard_selected_project_id', projectId);
+    if (projectId) {
+      setSearchParams({ project: projectId }, { replace: true });
+    }
+  };
+
+  const selectedProject = useMemo(() => {
+    return projects.find((p) => p.id === selectedProjectId) || (projects.length > 0 ? projects[0] : null);
+  }, [projects, selectedProjectId]);
 
   // Subscribe to real-time k6 stdout/stderr logs
   useEffect(() => {
@@ -281,6 +316,8 @@ export const StressTestPage = () => {
 
       const newRecord: StressTestRecord = {
         id: `run-${Date.now()}`,
+        projectId: selectedProject?.id,
+        projectName: selectedProject?.name,
         timestamp: new Date().toLocaleString("id-ID", {
           dateStyle: "short",
           timeStyle: "medium",
@@ -609,6 +646,48 @@ export const StressTestPage = () => {
               Sistem Siap Diuji
             </span>
           )}
+        </div>
+      </div>
+
+      {/* Target Project Selection Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-orange-500/10 text-orange-500 flex items-center justify-center shrink-0">
+            <FolderKanban className="w-4 h-4" />
+          </div>
+          <div>
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+              Target Projek Pengujian:
+            </span>
+            <div className="flex items-center gap-2 mt-0.5">
+              <div className="relative">
+                <select
+                  value={selectedProjectId}
+                  onChange={(e) => handleSelectProject(e.target.value)}
+                  className="appearance-none pl-2.5 pr-7 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                >
+                  {projects.map((proj) => (
+                    <option key={proj.id} value={proj.id}>
+                      📁 {proj.name} [{proj.env || 'PRODUCTION'}]
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-slate-400">
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </div>
+              </div>
+
+              {selectedProject && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                  {selectedProject.serversCount || selectedProject.serverIds?.length || 0} Server Host
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+          Evaluasi hasil k6 akan dicatat untuk projek <strong className="text-slate-900 dark:text-white">{selectedProject?.name || 'terpilih'}</strong> di Dashboard.
         </div>
       </div>
 

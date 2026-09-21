@@ -1,10 +1,15 @@
 
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   Zap,
   BarChart3,
+  FolderKanban,
+  Server,
+  Layers,
+  ExternalLink,
+  ChevronRight,
 } from 'lucide-react';
 import {
   BarChart,
@@ -22,14 +27,44 @@ import {
   StressTestRecord,
   stressTestEngine,
 } from '../services/stressTestEngine';
+import { ProjectService } from '../services/projectService';
+import { Project } from '../types';
 import StressTestResultModal from '../components/monitoring/StressTestResultModal';
 import AiStressInsightCard from '../components/monitoring/AiStressInsightCard';
 
 export const OverviewPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [history, setHistory] = useState<StressTestRecord[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState<boolean>(true);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => {
+    return searchParams.get('project') || localStorage.getItem('dashboard_selected_project_id') || 'all';
+  });
   const [selectedModalRecord, setSelectedModalRecord] = useState<StressTestRecord | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // Load Projects from backend
+  useEffect(() => {
+    setIsLoadingProjects(true);
+    ProjectService.getProjects()
+      .then((projs) => {
+        setProjects(projs);
+        const paramProj = searchParams.get('project');
+        if (paramProj && projs.some((p) => p.id === paramProj)) {
+          setSelectedProjectId(paramProj);
+        } else if (!paramProj) {
+          const saved = localStorage.getItem('dashboard_selected_project_id');
+          if (saved && (saved === 'all' || projs.some((p) => p.id === saved))) {
+            setSelectedProjectId(saved);
+          } else if (projs.length > 0 && selectedProjectId === 'all') {
+            // Keep default 'all'
+          }
+        }
+      })
+      .finally(() => setIsLoadingProjects(false));
+  }, []);
+
+  // Load and subscribe to Stress Test History
   useEffect(() => {
     setHistory(getStressTestHistory());
 
@@ -52,11 +87,43 @@ export const OverviewPage: React.FC = () => {
     };
   }, []);
 
-  const totalRuns = history.length;
-  const healthyRuns = history.filter(
+  const handleSelectProject = (projectId: string) => {
+    setSelectedProjectId(projectId);
+    localStorage.setItem('dashboard_selected_project_id', projectId);
+    if (projectId === 'all') {
+      searchParams.delete('project');
+      setSearchParams(searchParams, { replace: true });
+    } else {
+      setSearchParams({ project: projectId }, { replace: true });
+    }
+  };
+
+  const selectedProject = useMemo(() => {
+    return projects.find((p) => p.id === selectedProjectId) || null;
+  }, [projects, selectedProjectId]);
+
+  // Filter history based on selected project
+  const filteredHistory = useMemo(() => {
+    if (selectedProjectId === 'all' || !selectedProjectId) {
+      return history;
+    }
+    return history.filter((r) => {
+      if (r.projectId) {
+        return r.projectId === selectedProjectId;
+      }
+      // For legacy records without explicit projectId:
+      // Associate with Tara AI (or first project in list) so historical records are preserved
+      const isFirstProject = projects.length > 0 && projects[0].id === selectedProjectId;
+      const isTaraMatch = selectedProject?.name?.toLowerCase().includes('tara');
+      return isFirstProject || isTaraMatch;
+    });
+  }, [history, selectedProjectId, selectedProject, projects]);
+
+  const totalRuns = filteredHistory.length;
+  const healthyRuns = filteredHistory.filter(
     (r) => r.healthGrade === 'HEALTHY' && r.errorRatePercent === 0
   );
-  const criticalRuns = history.filter(
+  const criticalRuns = filteredHistory.filter(
     (r) => r.healthGrade === 'CRITICAL' || r.errorRatePercent > 0
   );
 
@@ -78,9 +145,9 @@ export const OverviewPage: React.FC = () => {
     return title || 'Fitur Layanan';
   };
 
-  // DATA GRAFIK PER BEBAN PENGGUNA (HANYA DARI PENGUJIAN NYATA)
+  // DATA GRAFIK PER BEBAN PENGGUNA (HANYA DARI PENGUJIAN NYATA PROJECT TERPILIH)
   const uniqueVUMap = new Map<number, StressTestRecord>();
-  history.forEach((run) => {
+  filteredHistory.forEach((run) => {
     if (!uniqueVUMap.has(run.targetVUs)) {
       uniqueVUMap.set(run.targetVUs, run);
     }
@@ -121,32 +188,127 @@ export const OverviewPage: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-12">
-      {/* 1. HEADER HALAMAN (SEDERHANA & BERSIH) */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
-              HASIL UJI DAYA TAHAN SISTEM
-            </span>
-            <span className="text-xs text-slate-500">
-              {totalRuns > 0 ? `${totalRuns} Sesi Pengujian Valid Tersimpan` : 'Belum Ada Pengujian'}
-            </span>
+      {/* 1. HEADER HALAMAN & PROYEK SELECTOR */}
+      <div className="flex flex-col gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
+                HASIL UJI DAYA TAHAN SISTEM
+              </span>
+              <span className="text-xs text-slate-500">
+                {totalRuns > 0 ? `${totalRuns} Sesi Pengujian Valid Tersimpan` : 'Belum Ada Pengujian'}
+              </span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight mt-1">
+              Dashboard Pemantauan &amp; Daya Tahan Sistem
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Evaluasi kapasitas riil dan wawasan cerdas AI berdasarkan hasil pengujian beban pengguna (Stress Test k6).
+            </p>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight mt-1">
-            Dashboard Pemantauan &amp; Daya Tahan Sistem
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Evaluasi kapasitas riil dan wawasan cerdas AI berdasarkan hasil pengujian beban pengguna (Stress Test k6).
-          </p>
+
+          <div className="flex items-center gap-2.5 flex-wrap self-start sm:self-auto">
+            {selectedProject && (
+              <Link
+                to={`/projects/${selectedProject.id}`}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/70 text-slate-700 dark:text-slate-200 text-xs font-semibold shadow-sm transition"
+              >
+                <Server className="w-3.5 h-3.5 text-slate-500" />
+                <span>Lihat Server Projek</span>
+                <ExternalLink className="w-3 h-3 text-slate-400" />
+              </Link>
+            )}
+
+            <Link
+              to={selectedProject ? `/stress-test?project=${selectedProject.id}` : '/stress-test'}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold shadow-sm shadow-orange-500/25 transition shrink-0"
+            >
+              <Zap className="w-4 h-4 fill-white" />
+              <span>+ Jalankan Uji Beban Baru ↗</span>
+            </Link>
+          </div>
         </div>
 
-        <Link
-          to="/stress-test"
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold shadow-sm shadow-orange-500/25 transition self-start sm:self-auto shrink-0"
-        >
-          <Zap className="w-4 h-4 fill-white" />
-          <span>+ Jalankan Uji Beban Baru ↗</span>
-        </Link>
+        {/* 2. DYNAMIC PROJECT SELECTOR & INFO BAR */}
+        <div className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-orange-500/10 text-orange-500 flex items-center justify-center">
+                <FolderKanban className="w-4 h-4" />
+              </div>
+              <span className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Pilih Projek:
+              </span>
+            </div>
+
+            {/* Dropdown Pemilih Projek */}
+            <div className="relative">
+              <select
+                value={selectedProjectId}
+                onChange={(e) => handleSelectProject(e.target.value)}
+                disabled={isLoadingProjects}
+                className="appearance-none pl-3 pr-8 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+              >
+                <option value="all">🌐 Semua Projek (Agregat Global)</option>
+                {projects.map((proj) => (
+                  <option key={proj.id} value={proj.id}>
+                    📁 {proj.name} [{proj.env || 'PRODUCTION'}] — {proj.serversCount || proj.serverIds?.length || 0} Server
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
+                <ChevronRight className="w-3.5 h-3.5 rotate-90" />
+              </div>
+            </div>
+
+            {/* Environment Badge */}
+            {selectedProject && (
+              <span
+                className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                  selectedProject.env === 'PRODUCTION'
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                    : selectedProject.env === 'STAGING'
+                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                      : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+                }`}
+              >
+                {selectedProject.env || 'PRODUCTION'}
+              </span>
+            )}
+          </div>
+
+          {/* Quick Metrics of Selected Project */}
+          {selectedProject ? (
+            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
+              <span className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
+                <Server className="w-3.5 h-3.5 text-orange-500" />
+                {selectedProject.serversCount || selectedProject.serverIds?.length || 0} Server
+              </span>
+              <span>•</span>
+              <span className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
+                <Layers className="w-3.5 h-3.5 text-blue-500" />
+                {selectedProject.servicesCount || 0} Microservices
+              </span>
+              <span>•</span>
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                {selectedProject.upServicesCount || 0} UP
+              </span>
+              {selectedProject.description && (
+                <>
+                  <span className="hidden lg:inline">•</span>
+                  <span className="hidden lg:inline text-[11px] text-slate-400 truncate max-w-xs">
+                    {selectedProject.description}
+                  </span>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Menampilkan evaluasi gabungan dari seluruh pengujian sistem.
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 2. RINGKASAN KAPASITAS VALID (MURNI DARI DATA TEST NYATA) */}
@@ -219,7 +381,9 @@ export const OverviewPage: React.FC = () => {
 
       {/* 3. WAWASAN CERDAS AI (GEMINI AI INSIGHT - DIUTAMAKAN SESUAI PERMINTAAN USER) */}
       <AiStressInsightCard
-        records={history}
+        records={filteredHistory}
+        projectName={selectedProject?.name}
+        projectId={selectedProject?.id}
         onOpenRecordModal={(record) => {
           setSelectedModalRecord(record);
           setIsModalOpen(true);
@@ -233,7 +397,7 @@ export const OverviewPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-orange-500" />
                 <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
-                  Perbandingan Kecepatan Berdasarkan Jumlah Pengguna
+                  Perbandingan Kecepatan Berdasarkan Jumlah Pengguna {selectedProject ? `— ${selectedProject.name}` : ''}
                 </h3>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -253,18 +417,20 @@ export const OverviewPage: React.FC = () => {
               </div>
               <div className="space-y-1">
                 <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Belum Ada Data Pengetesan Beban
+                  Belum Ada Data Pengetesan Beban {selectedProject ? `untuk Projek ${selectedProject.name}` : ''}
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
-                  Grafik dan tabel di bawah ini akan otomatis terisi setelah Anda menjalankan tes beban pengguna di halaman Simulator Stress Test.
+                  {selectedProject
+                    ? `Projek ${selectedProject.name} belum memiliki riwayat uji beban. Jalankan tes beban pengguna untuk melihat performa dan kapasitas server projek ini.`
+                    : 'Grafik dan tabel di bawah ini akan otomatis terisi setelah Anda menjalankan tes beban pengguna di halaman Simulator Stress Test.'}
                 </p>
               </div>
               <Link
-                to="/stress-test"
+                to={selectedProject ? `/stress-test?project=${selectedProject.id}` : '/stress-test'}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm"
               >
                 <Zap className="w-3.5 h-3.5 fill-white" />
-                <span>Mulai Tes Pertama Anda ↗</span>
+                <span>Mulai Tes Pertama {selectedProject ? `Projek ${selectedProject.name}` : ''} ↗</span>
               </Link>
             </div>
           ) : (
