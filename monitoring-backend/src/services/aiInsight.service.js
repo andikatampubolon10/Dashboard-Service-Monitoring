@@ -172,15 +172,9 @@ function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum di
 /**
  * Main service method: Analyze stress test records using Google Gemini API
  */
-<<<<<<< Updated upstream
 async function generateStressTestInsight(records = [], forceRefresh = false, options = {}) {
   const projectName = options.projectName || '';
   const signature = createHistorySignature(records, projectName);
-=======
-async function generateStressTestInsight(records = [], forceRefresh = false, projectMeta = null) {
-  const projTag = projectMeta && (projectMeta.projectId || projectMeta.name) ? `-${projectMeta.projectId || projectMeta.name}` : '';
-  const signature = createHistorySignature(records) + projTag;
->>>>>>> Stashed changes
   const now = Date.now();
 
   // Return cached result if still valid and not forcing refresh
@@ -219,16 +213,6 @@ async function generateStressTestInsight(records = [], forceRefresh = false, pro
     createdAt: r.createdAt || r.created_at || null,
   }));
 
-<<<<<<< Updated upstream
-  const projectContext = projectName ? `projek "${projectName}"` : 'sistem microservice kesehatan (Tara AI)';
-
-  const prompt = `
-Anda adalah seorang Principal Site Reliability Engineer (SRE) dan Lead Performance Architect kelas dunia.
-Tugas Anda adalah menganalisis hasil uji beban (*Grafana k6 stress test*) pada ${projectContext}:
-- Flow 1: Konsultasi Chat Dokter AI (Inference LLM, CPU intensive, latency sensitive).
-- Flow 2: Membaca Artikel Kesehatan (Read heavy, caching candidate, static data).
-- Flow 3: Pencarian Jadwal & Dokter (Database queries, indexing, filtering).
-=======
   const targetProjectTitle = projectMeta?.projectName || projectMeta?.name || 'Sistem Microservice Telemedicine';
 
   const prompt = `
@@ -236,7 +220,6 @@ Anda adalah seorang Principal Site Reliability Engineer (SRE) dan Lead Performan
 Tugas Anda adalah menganalisis hasil uji beban (*Grafana k6 stress test*) riwayat untuk Project "${targetProjectTitle}":
 - Analisis tren performa dari waktu ke waktu (latensi P95, error rate, throughput RPS).
 - Evaluasi ketahanan layanan dan deteksi potensi regresi performa atau bottleneck arsitektural.
->>>>>>> Stashed changes
 
 Berikut adalah data pengujian riil yang tercatat di database:
 \`\`\`json
