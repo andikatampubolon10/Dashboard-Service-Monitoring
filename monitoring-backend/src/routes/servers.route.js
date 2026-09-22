@@ -19,6 +19,8 @@ const { getLatest, getStatus, getLatestSystemMetrics, getServerStatusHistory } =
 const { probeDatabases } = require('../utils/databaseProber');
 const { discoverViaSsh, discoverViaHttpProbe, inspectServerDatabasesAndServices } = require('../services/discoveryService');
 const { initServerTunnel, teardownServerTunnel } = require('../services/sshTunnelService');
+const { scrapeHostNodeExporter } = require('../services/nodeExporter.service');
+const { saveServerMetrics, getServerMetricsHistory, getServerUptimeHistoryFromDb } = require('../services/historicalMetrics.service');
 
 const router = Router();
 
@@ -167,7 +169,14 @@ async function buildServerResponse(server, includeColocation = false) {
   }
   const serverDbs = Array.from(seenPorts.values());
 
-  const services  = buildServiceSummaries(server.serviceIds || []);
+  // Unified service IDs to prevent count discrepancy between Projects and Server views
+  const allServiceIds = Array.from(
+    new Set([
+      ...(Array.isArray(server.serviceIds) ? server.serviceIds : []),
+      ...serverServices.map((s) => s.id),
+    ])
+  );
+  const services = buildServiceSummaries(allServiceIds);
   const databases = await probeDatabases(serverDbs);
 
   let probeResult = null;
@@ -175,87 +184,35 @@ async function buildServerResponse(server, includeColocation = false) {
     probeResult = await checkTcpPort(server.host || '127.0.0.1', server.port, 1200);
   }
 
-  // Check if live hardware exporter (node-exporter: 9100 or windows_exporter: 9182) is running on remote host
+  // Check if live node-exporter (port 9100) is running on remote host
   let liveHostMetrics = null;
   if (server.host && server.host !== 'localhost' && server.host !== '127.0.0.1') {
     try {
-      const expRes = await axios.get(`http://${server.host}:9100/metrics`, {
-        timeout: 1200,
-        headers: { Accept: 'text/plain' },
-        validateStatus: (s) => s < 400,
-      });
-      const raw = typeof expRes.data === 'string' ? expRes.data : '';
-      if (raw.includes('node_memory_MemTotal_bytes') || raw.includes('node_cpu_seconds_total')) {
-        const memTotalMatch = raw.match(/node_memory_MemTotal_bytes\s+([0-9e+.]+)/);
-        const memAvailMatch = raw.match(/node_memory_MemAvailable_bytes\s+([0-9e+.]+)/);
-        const uptimeMatch = raw.match(/node_time_seconds\s+([0-9e+.]+)/);
-        const bootTimeMatch = raw.match(/node_boot_time_seconds\s+([0-9e+.]+)/);
-        const cpuMatches = raw.match(/node_cpu_seconds_total\{cpu="([0-9]+)"/g);
-
-        // Disk metrics
-        const diskTotalMatch = raw.match(/node_filesystem_size_bytes\{[^}]*mountpoint="\/"[^}]*\}\s+([0-9e+.]+)/);
-        const diskAvailMatch = raw.match(/node_filesystem_avail_bytes\{[^}]*mountpoint="\/"[^}]*\}\s+([0-9e+.]+)/);
-
-        const cores = cpuMatches ? new Set(cpuMatches.map((m) => m.match(/cpu="([0-9]+)"/)[1])).size : (server.spec?.cores || 8);
-        const totalMemBytes = memTotalMatch ? parseFloat(memTotalMatch[1]) : 16 * 1024 * 1024 * 1024;
-        const availMemBytes = memAvailMatch ? parseFloat(memAvailMatch[1]) : totalMemBytes * 0.4;
-        const usedMemBytes = Math.max(0, totalMemBytes - availMemBytes);
-
-        let uptimeSec = 86400 * 2;
-        if (uptimeMatch && bootTimeMatch) {
-          uptimeSec = Math.max(0, Math.floor(parseFloat(uptimeMatch[1]) - parseFloat(bootTimeMatch[1])));
-        }
-        const uptimeDays = Math.floor(uptimeSec / 86400);
-        const uptimeHours = Math.floor((uptimeSec % 86400) / 3600);
-        const uptimeFmt = uptimeDays > 0 ? `${uptimeDays}d ${uptimeHours}h` : `${uptimeHours}h`;
-
-        let totalDiskGb = server.spec?.totalDiskGb || 256;
-        let usedDiskGb = server.spec?.usedDiskGb || 80;
-        if (diskTotalMatch) {
-          const totalDiskBytes = parseFloat(diskTotalMatch[1]);
-          const availDiskBytes = diskAvailMatch ? parseFloat(diskAvailMatch[1]) : totalDiskBytes * 0.5;
-          totalDiskGb = parseFloat((totalDiskBytes / 1024 / 1024 / 1024).toFixed(1));
-          usedDiskGb = parseFloat(((totalDiskBytes - availDiskBytes) / 1024 / 1024 / 1024).toFixed(1));
-        }
-
-        const totalMb = Math.round(totalMemBytes / 1024 / 1024);
-        const usedMb = Math.round(usedMemBytes / 1024 / 1024);
-
-        // Find cpu usage from node-exporter service if already tracked in store
-        let cpuPercent = server.spec?.cpuUsagePercent ?? 0;
-        const nodeExpId = (server.serviceIds || []).find((s) => s.includes('node-exporter'));
-        if (nodeExpId) {
-          const expLatest = getLatest(nodeExpId);
-          if (expLatest?.metrics?.cpu?.usagePercent != null) {
-            cpuPercent = expLatest.metrics.cpu.usagePercent;
-          }
-        }
-
-        liveHostMetrics = {
-          cpu: {
-            usagePercent: parseFloat((cpuPercent || 0).toFixed(1)),
-            cores,
-          },
-          memory: {
-            usedMb,
-            totalMb,
-            usedPercent: parseFloat(((usedMb / totalMb) * 100).toFixed(1)),
-          },
-          disk: {
-            usedGb: usedDiskGb,
-            totalGb: totalDiskGb,
-            usedPercent: parseFloat(((usedDiskGb / totalDiskGb) * 100).toFixed(1)),
-          },
-          uptime: {
-            seconds: uptimeSec,
-            formatted: uptimeFmt,
-          },
-          timestamp: new Date().toISOString(),
-          isLiveExporter: true,
-        };
+      liveHostMetrics = await scrapeHostNodeExporter(server.host, 9100);
+      if (liveHostMetrics) {
+        // Asynchronously persist snapshot to PostgreSQL
+        saveServerMetrics({
+          serverId: server.id,
+          serverName: server.name,
+          cpuPercent: liveHostMetrics.cpu?.usagePercent,
+          memUsedMb: liveHostMetrics.memory?.usedMb,
+          memTotalMb: liveHostMetrics.memory?.totalMb,
+          memCachedMb: liveHostMetrics.memory?.cachedMb,
+          memBuffersMb: liveHostMetrics.memory?.buffersMb,
+          diskUsedGb: liveHostMetrics.disk?.usedGb,
+          diskTotalGb: liveHostMetrics.disk?.totalGb,
+          load1m: liveHostMetrics.loadAverage?.load1,
+          load5m: liveHostMetrics.loadAverage?.load5,
+          load15m: liveHostMetrics.loadAverage?.load15,
+          netRxBytesSec: liveHostMetrics.network?.rxBytesSec,
+          netTxBytesSec: liveHostMetrics.network?.txBytesSec,
+          diskReadBytesSec: liveHostMetrics.disk?.readBytesSec,
+          diskWriteBytesSec: liveHostMetrics.disk?.writeBytesSec,
+          recordedAt: liveHostMetrics.timestamp,
+        }).catch(() => {});
       }
     } catch {
-      // Exporter port 9100 not open on remote host
+      // Exporter port 9100 not reachable
     }
   }
 
@@ -576,21 +533,46 @@ router.get('/:id', async (req, res) => {
 });
 
 // ─── GET /api/servers/:id/uptime-history ──────────────────────────────────────
-router.get('/:id/uptime-history', (req, res) => {
+router.get('/:id/uptime-history', async (req, res) => {
   const server = getServerById(req.params.id);
   if (!server) {
     return res.status(404).json({ success: false, error: 'Server not found' });
   }
   const range = parseInt(req.query.range, 10) || 3600;
   const points = parseInt(req.query.points, 10) || 30;
-  const history = getServerStatusHistory(server.id, range, points);
-  res.json({
-    success: true,
-    serverId: server.id,
-    range,
-    totalPoints: history.length,
-    history,
-  });
+  try {
+    const history = await getServerUptimeHistoryFromDb(server.id, range, points);
+    res.json({
+      success: true,
+      serverId: server.id,
+      range,
+      totalPoints: history.length,
+      history,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── GET /api/servers/:id/metrics/history ───────────────────────────────────
+router.get('/:id/metrics/history', async (req, res) => {
+  const server = getServerById(req.params.id);
+  if (!server) {
+    return res.status(404).json({ success: false, error: 'Server not found' });
+  }
+  const range = req.query.range || '1h'; // '1h' | '6h' | '24h' | '7d'
+  try {
+    const history = await getServerMetricsHistory(server.id, range);
+    res.json({
+      success: true,
+      serverId: server.id,
+      range,
+      totalPoints: history.length,
+      history,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // ─── PUT /api/servers/:id (Update Server Details) ─────────────────────────────

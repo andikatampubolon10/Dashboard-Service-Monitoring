@@ -27,6 +27,8 @@ const {
   pushSystemMetrics,
   pushServerStatus,
 } = require('../store/metricsStore');
+const { scrapeHostNodeExporter } = require('../services/nodeExporter.service');
+const { saveServerMetrics, saveServiceMetrics } = require('../services/historicalMetrics.service');
 
 /**
  * Fast TCP probe helper for server reachability.
@@ -129,6 +131,17 @@ async function runScrapeCycle() {
     // Push to circular buffer
     pushMetrics(service.id, result);
 
+    // Persist to PostgreSQL historical storage
+    saveServiceMetrics({
+      serviceId: service.id,
+      serviceName: service.name,
+      serverId: service.serverId || null,
+      status: result.status,
+      responseTimeMs: result.scrapeLatencyMs,
+      statusCode: result.status === 'UP' ? 200 : 503,
+      recordedAt: result.timestamp,
+    }).catch(() => {});
+
     if (result.status === 'UP') {
       upServices.push({ service, result });
     } else {
@@ -183,12 +196,14 @@ async function runScrapeCycle() {
     }
   }
 
-  // Process and record server availability/uptime
+  // Process and record server availability/uptime and node_exporter telemetry
   try {
     const servers = getAllServers();
     for (const srv of servers) {
       const host = srv.host || '127.0.0.1';
       const port = srv.port || 22;
+
+      // 1. TCP Reachability Probe
       probeServerTcp(host, port, 1200)
         .then((probe) => {
           const isUp = probe.open;
@@ -209,6 +224,42 @@ async function runScrapeCycle() {
           }
         })
         .catch(() => {});
+
+      // 2. Telemetry Scrape via node_exporter (port 9100)
+      if (host !== '127.0.0.1' && host !== 'localhost') {
+        scrapeHostNodeExporter(host, 9100)
+          .then((nodeMetrics) => {
+            if (nodeMetrics) {
+              saveServerMetrics({
+                serverId: srv.id,
+                serverName: srv.name,
+                cpuPercent: nodeMetrics.cpu?.usagePercent,
+                memUsedMb: nodeMetrics.memory?.usedMb,
+                memTotalMb: nodeMetrics.memory?.totalMb,
+                memCachedMb: nodeMetrics.memory?.cachedMb,
+                memBuffersMb: nodeMetrics.memory?.buffersMb,
+                diskUsedGb: nodeMetrics.disk?.usedGb,
+                diskTotalGb: nodeMetrics.disk?.totalGb,
+                load1m: nodeMetrics.loadAverage?.load1,
+                load5m: nodeMetrics.loadAverage?.load5,
+                load15m: nodeMetrics.loadAverage?.load15,
+                netRxBytesSec: nodeMetrics.network?.rxBytesSec,
+                netTxBytesSec: nodeMetrics.network?.txBytesSec,
+                diskReadBytesSec: nodeMetrics.disk?.readBytesSec,
+                diskWriteBytesSec: nodeMetrics.disk?.writeBytesSec,
+                recordedAt: nodeMetrics.timestamp,
+              }).catch(() => {});
+
+              if (io) {
+                io.emit('server:telemetry_update', {
+                  serverId: srv.id,
+                  metrics: nodeMetrics,
+                });
+              }
+            }
+          })
+          .catch(() => {});
+      }
     }
   } catch {
     // Non-blocking

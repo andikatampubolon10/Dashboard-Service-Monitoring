@@ -40,6 +40,20 @@ export function useServerUptimeHistory(
   });
 }
 
+export function useServerMetricsHistory(
+  serverId: string,
+  range: string = '1h'
+) {
+  const { filter, lastRefreshedAt } = useGlobalFilters();
+
+  return useQuery({
+    queryKey: ['server-metrics-history', serverId, range, filter, lastRefreshedAt],
+    queryFn: () => monitoringApi.getServerMetricsHistory(serverId, range),
+    enabled: Boolean(serverId),
+    refetchInterval: filter.refreshInterval > 0 ? filter.refreshInterval * 1000 : 15000,
+  });
+}
+
 export function useDiscoverServer() {
   return useMutation({
     mutationFn: (payload: DiscoverServerPayload) => monitoringApi.discoverServer(payload),

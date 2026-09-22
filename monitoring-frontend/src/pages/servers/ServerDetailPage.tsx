@@ -21,11 +21,13 @@ import {
   Trash2,
   Loader2,
   Radio,
+  Gauge,
+  ArrowDownUp,
 } from 'lucide-react';
 import {
   evaluateServerCompliance,
 } from '../../utils/serverRules';
-import { useUpdateServer, useDeleteServer, useServerUptimeHistory } from '../../hooks/useServers';
+import { useUpdateServer, useDeleteServer, useServerUptimeHistory, useServerMetricsHistory } from '../../hooks/useServers';
 import { Modal } from '../../components/common/Modal';
 
 export const ServerDetailPage: React.FC = () => {
@@ -34,7 +36,9 @@ export const ServerDetailPage: React.FC = () => {
   const { data: server, isLoading, isError, refetch } = useServerDetail(id);
   const { data: allServices = [], isLoading: isLoadingServices } = useServices();
 
-  const [chartMetric, setChartMetric] = useState<'cpu' | 'memory'>('cpu');
+  const [chartMetric, setChartMetric] = useState<'cpu' | 'memory' | 'load' | 'network' | 'disk'>('cpu');
+  const [metricsHistoryRange, setMetricsHistoryRange] = useState<'1h' | '6h' | '24h' | '7d'>('1h');
+  const { data: dbMetricsHistory = [], isLoading: isLoadingDbHistory } = useServerMetricsHistory(id, metricsHistoryRange);
 
   const updateServerMutation = useUpdateServer();
   const deleteServerMutation = useDeleteServer();
@@ -113,10 +117,10 @@ export const ServerDetailPage: React.FC = () => {
     }
   };
 
-  // 1. Calculate System Resources (CPU, Memory, Disk, Uptime)
+  // 1. Calculate System Resources (CPU, Memory, Disk, Uptime, Extended Telemetry)
   const sys = server?.system;
   const cpuPct = sys?.cpu?.usagePercent ?? server?.cpuUsagePercent ?? 0;
-  const cpuCores = sys?.cpu?.cores ?? 16;
+  const cpuCores = sys?.cpu?.cores ?? 2;
 
   const memUsedMb = sys?.memory?.usedMb ?? ((server?.memoryUsedBytes ?? 0) / (1024 * 1024));
   const memTotalMb = sys?.memory?.totalMb ?? ((server?.memoryTotalBytes ?? 0) / (1024 * 1024));
@@ -127,6 +131,18 @@ export const ServerDetailPage: React.FC = () => {
   const diskUsedGb = sys?.disk?.usedGb ?? ((server?.diskUsedBytes ?? 0) / (1024 * 1024 * 1024));
   const diskTotalGb = sys?.disk?.totalGb ?? ((server?.diskTotalBytes ?? 0) / (1024 * 1024 * 1024));
   const diskPct = sys?.disk?.usedPercent ?? Math.round((diskUsedGb / (diskTotalGb || 1)) * 100);
+  const diskFreeGb = sys?.disk?.freeGb ?? Math.max(0, parseFloat((diskTotalGb - diskUsedGb).toFixed(1)));
+
+  // Extended Telemetry from node_exporter
+  const load1 = sys?.loadAverage?.load1 ?? 0;
+  const load5 = sys?.loadAverage?.load5 ?? 0;
+  const load15 = sys?.loadAverage?.load15 ?? 0;
+  const netRxKb = sys?.network?.rxKbSec ?? 0;
+  const netTxKb = sys?.network?.txKbSec ?? 0;
+  const diskReadMb = sys?.disk?.readMbSec ?? 0;
+  const diskWriteMb = sys?.disk?.writeMbSec ?? 0;
+  const memCachedMb = sys?.memory?.cachedMb ?? 0;
+  const memBuffersMb = sys?.memory?.buffersMb ?? 0;
 
   const uptimeFormatted = sys?.uptime?.formatted || server?.uptime || '4h';
 
@@ -194,31 +210,67 @@ export const ServerDetailPage: React.FC = () => {
     return evaluateServerCompliance(server, hostedServicesForCompliance);
   }, [server, hostedServicesForCompliance]);
 
-  // Timeline History Data
+  // Real Timeline History Data from PostgreSQL
   const chartHistory = useMemo(() => {
-    if (chartMetric === 'cpu') {
-      return (
-        server?.cpuHistory ||
-        Array.from({ length: 12 }, (_, i) => ({
-          timestamp: `${i * 2}:00`,
-          value: Math.round(cpuPct + Math.sin(i * 0.8) * 5),
-        }))
-      );
-    } else {
-      return (
-        server?.memoryHistory ||
-        Array.from({ length: 12 }, (_, i) => ({
-          timestamp: `${i * 2}:00`,
-          value: Math.round(memPct + Math.cos(i * 0.5) * 3),
-        }))
-      );
-    }
-  }, [chartMetric, server, cpuPct, memPct]);
+    if (dbMetricsHistory && dbMetricsHistory.length > 0) {
+      return dbMetricsHistory.map((pt) => {
+        const d = new Date(pt.timestamp);
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        let value = 0;
+        let secondaryValue: number | undefined = undefined;
 
-  const currentMetricVal = chartMetric === 'cpu' ? cpuPct : memPct;
+        if (chartMetric === 'cpu') {
+          value = pt.cpuPercent;
+        } else if (chartMetric === 'memory') {
+          value = pt.memUsedPercent;
+        } else if (chartMetric === 'load') {
+          value = pt.load1m;
+          secondaryValue = pt.load5m;
+        } else if (chartMetric === 'network') {
+          value = pt.netRxKbSec;
+          secondaryValue = pt.netTxKbSec;
+        } else if (chartMetric === 'disk') {
+          value = pt.diskWriteMbSec;
+          secondaryValue = pt.diskReadMbSec;
+        }
+
+        return {
+          timestamp: `${hh}:${mm}`,
+          value,
+          secondaryValue,
+        };
+      });
+    }
+
+    // Default curve if history is empty
+    return Array.from({ length: 12 }, (_, i) => {
+      const hh = String(i * 2).padStart(2, '0');
+      let baseVal = cpuPct;
+      if (chartMetric === 'memory') baseVal = memPct;
+      else if (chartMetric === 'load') baseVal = load1;
+      else if (chartMetric === 'network') baseVal = netRxKb;
+      else if (chartMetric === 'disk') baseVal = diskWriteMb;
+
+      return {
+        timestamp: `${hh}:00`,
+        value: baseVal,
+      };
+    });
+  }, [dbMetricsHistory, chartMetric, cpuPct, memPct, load1, netRxKb, diskWriteMb]);
+
+  const currentMetricVal = useMemo(() => {
+    if (chartMetric === 'cpu') return cpuPct;
+    if (chartMetric === 'memory') return memPct;
+    if (chartMetric === 'load') return load1;
+    if (chartMetric === 'network') return netRxKb;
+    if (chartMetric === 'disk') return diskWriteMb;
+    return 0;
+  }, [chartMetric, cpuPct, memPct, load1, netRxKb, diskWriteMb]);
+
   const historyValues = chartHistory.map((h) => h.value);
-  const avgVal = historyValues.length ? Math.round(historyValues.reduce((a, b) => a + b, 0) / historyValues.length) : currentMetricVal;
-  const maxVal = historyValues.length ? Math.max(...historyValues) : currentMetricVal;
+  const avgVal = historyValues.length ? parseFloat((historyValues.reduce((a, b) => a + b, 0) / historyValues.length).toFixed(1)) : currentMetricVal;
+  const maxVal = historyValues.length ? parseFloat(Math.max(...historyValues).toFixed(1)) : currentMetricVal;
 
   // ─── Uptime Timeline State & Calculations ─────────────────────────────────
   const [uptimeRange, setUptimeRange] = useState<'1h' | '6h' | '24h' | '7d'>('1h');
@@ -470,10 +522,13 @@ export const ServerDetailPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ─── 5 METRIC CARDS: CPU, MEMORY, DISK, UPTIME, DATABASES ─────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* ─── 8 TELEMETRY CARDS: CPU, MEMORY, DISK, LOAD AVG, NET I/O, DISK I/O, UPTIME, DATABASES ─── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {isLoading || !server ? (
           <>
+            <CardSkeleton />
+            <CardSkeleton />
+            <CardSkeleton />
             <CardSkeleton />
             <CardSkeleton />
             <CardSkeleton />
@@ -486,7 +541,7 @@ export const ServerDetailPage: React.FC = () => {
             <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
-                  CPU
+                  CPU USAGE
                 </span>
                 <Cpu className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
               </div>
@@ -495,9 +550,8 @@ export const ServerDetailPage: React.FC = () => {
                   {cpuPct.toFixed(1)}<span className="text-lg font-normal text-slate-400">%</span>
                 </div>
                 <div className="text-xs text-slate-400 font-mono mt-0.5">
-                  {cpuCores} cores
+                  {cpuCores} Cores Physical/VCPU
                 </div>
-                {/* Progress bar */}
                 <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${
@@ -513,7 +567,7 @@ export const ServerDetailPage: React.FC = () => {
             <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
-                  MEMORY
+                  MEMORY (RAM)
                 </span>
                 <HardDrive className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
               </div>
@@ -521,10 +575,10 @@ export const ServerDetailPage: React.FC = () => {
                 <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white font-mono">
                   {memPct.toFixed(1)}<span className="text-lg font-normal text-slate-400">%</span>
                 </div>
-                <div className="text-xs text-slate-400 font-mono mt-0.5">
-                  {ramUsedGb} / {ramTotGb} GB
+                <div className="text-xs text-slate-400 font-mono mt-0.5 flex justify-between">
+                  <span>{ramUsedGb} / {ramTotGb} GB</span>
+                  {(memCachedMb > 0 || memBuffersMb > 0) && <span>Cached: {memCachedMb + memBuffersMb} MB</span>}
                 </div>
-                {/* Progress bar */}
                 <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${
@@ -537,21 +591,26 @@ export const ServerDetailPage: React.FC = () => {
             </div>
 
             {/* 3. DISK Card */}
-            <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
+            <div className={`bg-white dark:bg-[#0e1424]/90 border ${diskPct >= 90 ? 'border-rose-500/50 shadow-rose-500/10' : 'border-slate-200 dark:border-slate-800/90'} rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between relative`}>
+              {diskPct >= 90 && (
+                <span className="absolute top-3 right-3 px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-rose-500/15 text-rose-500 border border-rose-500/30 animate-pulse">
+                  CRITICAL
+                </span>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
-                  DISK
+                  DISK STORAGE (ROOT /)
                 </span>
-                <Database className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
+                <Database className={`w-4 h-4 ${diskPct >= 90 ? 'text-rose-500' : 'text-cyan-500 dark:text-cyan-400'}`} />
               </div>
               <div className="mt-3">
                 <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white font-mono">
                   {diskPct.toFixed(1)}<span className="text-lg font-normal text-slate-400">%</span>
                 </div>
-                <div className="text-xs text-slate-400 font-mono mt-0.5">
-                  {diskUsedGb} / {diskTotalGb} GB
+                <div className="text-xs text-slate-400 font-mono mt-0.5 flex justify-between">
+                  <span>{diskUsedGb} / {diskTotalGb} GB</span>
+                  <span className="text-emerald-500">Free: {diskFreeGb} GB</span>
                 </div>
-                {/* Progress bar */}
                 <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${
@@ -563,11 +622,82 @@ export const ServerDetailPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 4. UPTIME Card */}
+            {/* 4. LOAD AVERAGE Card */}
             <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
-                  UPTIME
+                  LOAD AVERAGE
+                </span>
+                <Gauge className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white font-mono">
+                  {load1.toFixed(2)}
+                </div>
+                <div className="text-xs text-slate-400 font-mono mt-0.5 flex items-center gap-2">
+                  <span>5m: <strong className="text-slate-200">{load5.toFixed(2)}</strong></span>
+                  <span>15m: <strong className="text-slate-200">{load15.toFixed(2)}</strong></span>
+                </div>
+                <div className="text-[11px] font-mono mt-3 text-slate-400">
+                  {load1 > cpuCores ? (
+                    <span className="text-amber-400 font-semibold">⚠️ Load &gt; CPU Cores</span>
+                  ) : (
+                    <span className="text-emerald-400 font-semibold">Normal Overhead</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 5. NETWORK I/O Card */}
+            <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
+                  NETWORK I/O
+                </span>
+                <Wifi className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white font-mono">
+                  {(netRxKb + netTxKb).toFixed(1)}<span className="text-base font-normal text-slate-400"> KB/s</span>
+                </div>
+                <div className="text-xs text-slate-400 font-mono mt-0.5 flex items-center justify-between">
+                  <span>RX: <strong className="text-emerald-400">{netRxKb.toFixed(1)} KB/s</strong></span>
+                  <span>TX: <strong className="text-cyan-400">{netTxKb.toFixed(1)} KB/s</strong></span>
+                </div>
+                <div className="text-[11px] font-mono mt-3 text-emerald-400 font-semibold flex items-center gap-1">
+                  <Activity className="w-3 h-3" />
+                  <span>Interface Active</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 6. DISK I/O Card */}
+            <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
+                  DISK I/O RATE
+                </span>
+                <ArrowDownUp className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white font-mono">
+                  {(diskReadMb + diskWriteMb).toFixed(2)}<span className="text-base font-normal text-slate-400"> MB/s</span>
+                </div>
+                <div className="text-xs text-slate-400 font-mono mt-0.5 flex items-center justify-between">
+                  <span>Write: <strong className="text-cyan-400">{diskWriteMb.toFixed(2)} MB/s</strong></span>
+                  <span>Read: <strong className="text-emerald-400">{diskReadMb.toFixed(2)} MB/s</strong></span>
+                </div>
+                <div className="text-[11px] font-mono mt-3 text-slate-400">
+                  Storage Throughput Active
+                </div>
+              </div>
+            </div>
+
+            {/* 7. UPTIME Card */}
+            <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
+                  HOST UPTIME
                 </span>
                 <Clock className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
               </div>
@@ -576,7 +706,7 @@ export const ServerDetailPage: React.FC = () => {
                   {uptimeFormatted}
                 </div>
                 <div className="text-xs text-slate-400 font-mono mt-0.5">
-                  Docker Engine Active
+                  Docker Engine &amp; SSH Active
                 </div>
                 <div className="text-[11px] text-emerald-500 dark:text-emerald-400 font-semibold font-mono mt-3 flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3" />
@@ -585,11 +715,11 @@ export const ServerDetailPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 5. DATABASES Card */}
+            {/* 8. DATABASES Card */}
             <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
-                  DATABASES
+                  DATABASES ONLINE
                 </span>
                 <ServerIcon className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
               </div>
@@ -598,11 +728,13 @@ export const ServerDetailPage: React.FC = () => {
                   {upDatabasesCount} / {totalDatabasesCount}
                 </div>
                 <div className="text-xs text-slate-400 font-mono mt-0.5">
-                  Engines Online
+                  Postgres, Redis, MongoDB
                 </div>
                 <div className="text-[11px] text-slate-400 font-mono mt-3">
-                  {upDatabasesCount === totalDatabasesCount ? (
+                  {upDatabasesCount === totalDatabasesCount && totalDatabasesCount > 0 ? (
                     <span className="text-emerald-400 font-semibold">Semua DB Running</span>
+                  ) : totalDatabasesCount === 0 ? (
+                    <span className="text-slate-400 font-semibold">No Local Databases</span>
                   ) : (
                     <span className="text-rose-400 font-semibold">{totalDatabasesCount - upDatabasesCount} DB Offline</span>
                   )}
@@ -1086,29 +1218,49 @@ export const ServerDetailPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Metric Selector Buttons */}
-          <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800/80 p-1 border border-slate-200 dark:border-slate-700/60 text-xs font-mono">
-            <button
-              onClick={() => setChartMetric('cpu')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-                chartMetric === 'cpu'
-                  ? 'bg-cyan-500 text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              CPU Usage (%)
-            </button>
-            <button
-              onClick={() => setChartMetric('memory')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-                chartMetric === 'memory'
-                  ? 'bg-cyan-500 text-white shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Memory Usage (%)
-            </button>
+          {/* Time Range Selector & Metric Buttons */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800/80 p-1 border border-slate-200 dark:border-slate-700/60 text-xs font-mono">
+              {(['1h', '6h', '24h', '7d'] as const).map((r) => {
+                const labels: Record<string, string> = { '1h': '1 Jam', '6h': '6 Jam', '24h': '24 Jam', '7d': '7 Hari' };
+                return (
+                  <button
+                    key={r}
+                    onClick={() => setMetricsHistoryRange(r)}
+                    className={`px-2.5 py-1 rounded-lg font-semibold transition ${
+                      metricsHistoryRange === r ? 'bg-cyan-500 text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {labels[r]}
+                  </button>
+                );
+              })}
+            </div>
+            {isLoadingDbHistory && <Loader2 className="w-4 h-4 animate-spin text-cyan-500" />}
           </div>
+        </div>
+
+        {/* Metric Selector Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs font-mono">
+          {[
+            { id: 'cpu', label: 'CPU Usage (%)' },
+            { id: 'memory', label: 'Memory Usage (%)' },
+            { id: 'load', label: 'Load Average (1m)' },
+            { id: 'network', label: 'Network I/O (KB/s)' },
+            { id: 'disk', label: 'Disk I/O (MB/s)' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setChartMetric(tab.id as typeof chartMetric)}
+              className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition border ${
+                chartMetric === tab.id
+                  ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-500 dark:text-cyan-400'
+                  : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/40 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         {/* Chart Stats Summary */}
@@ -1116,19 +1268,19 @@ export const ServerDetailPage: React.FC = () => {
           <div>
             <span className="text-[11px] text-slate-400 uppercase">Current</span>
             <div className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">
-              {currentMetricVal.toFixed(1)}%
+              {currentMetricVal.toFixed(1)} {chartMetric === 'network' ? 'KB/s' : chartMetric === 'disk' ? 'MB/s' : chartMetric === 'load' ? '' : '%'}
             </div>
           </div>
           <div>
             <span className="text-[11px] text-slate-400 uppercase">Average</span>
             <div className="text-lg font-bold text-cyan-500 dark:text-cyan-400 mt-0.5">
-              {avgVal}%
+              {avgVal} {chartMetric === 'network' ? 'KB/s' : chartMetric === 'disk' ? 'MB/s' : chartMetric === 'load' ? '' : '%'}
             </div>
           </div>
           <div>
             <span className="text-[11px] text-slate-400 uppercase">Peak</span>
             <div className="text-lg font-bold text-amber-500 dark:text-amber-400 mt-0.5">
-              {maxVal}%
+              {maxVal} {chartMetric === 'network' ? 'KB/s' : chartMetric === 'disk' ? 'MB/s' : chartMetric === 'load' ? '' : '%'}
             </div>
           </div>
         </div>
@@ -1143,69 +1295,60 @@ export const ServerDetailPage: React.FC = () => {
               </linearGradient>
             </defs>
 
-            {/* Horizontal Grid lines */}
-            {[0, 25, 50, 75, 100].map((level) => {
-              const y = 160 - (level / 100) * 140;
-              return (
-                <g key={level}>
-                  <line x1="0" y1={y} x2="700" y2={y} stroke="#334155" strokeWidth="0.75" strokeDasharray="3 3" opacity="0.4" />
-                  <text x="695" y={y - 3} textAnchor="end" fontSize="10" fill="#94a3b8" fontFamily="monospace">
-                    {level}%
-                  </text>
-                </g>
-              );
-            })}
+            {/* Dynamic Grid lines */}
+            {(() => {
+              const yMax = Math.max(1, chartMetric === 'cpu' || chartMetric === 'memory' ? 100 : Math.ceil(maxVal * 1.25) || 10);
+              const steps = [0, 0.25, 0.5, 0.75, 1];
+              const unit = chartMetric === 'network' ? ' KB/s' : chartMetric === 'disk' ? ' MB/s' : chartMetric === 'load' ? '' : '%';
+
+              return steps.map((frac) => {
+                const val = Math.round(frac * yMax);
+                const y = 160 - frac * 140;
+                return (
+                  <g key={frac}>
+                    <line x1="0" y1={y} x2="700" y2={y} stroke="#334155" strokeWidth="0.75" strokeDasharray="3 3" opacity="0.4" />
+                    <text x="695" y={y - 3} textAnchor="end" fontSize="10" fill="#94a3b8" fontFamily="monospace">
+                      {val}{unit}
+                    </text>
+                  </g>
+                );
+              });
+            })()}
 
             {/* Area Path */}
-            {chartHistory.length > 1 && (
-              <>
-                <path
-                  d={(() => {
-                    const step = 700 / (chartHistory.length - 1);
-                    const points = chartHistory.map((pt, i) => {
-                      const x = i * step;
-                      const y = 160 - (Math.min(pt.value, 100) / 100) * 140;
-                      return `${x},${y}`;
-                    });
-                    return `M ${points.join(' L ')} L 700,160 L 0,160 Z`;
-                  })()}
-                  fill="url(#resourceGradient)"
-                />
-                <path
-                  d={(() => {
-                    const step = 700 / (chartHistory.length - 1);
-                    const points = chartHistory.map((pt, i) => {
-                      const x = i * step;
-                      const y = 160 - (Math.min(pt.value, 100) / 100) * 140;
-                      return `${x},${y}`;
-                    });
-                    return `M ${points.join(' L ')}`;
-                  })()}
-                  fill="none"
-                  stroke="#06b6d4"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                />
+            {chartHistory.length > 1 && (() => {
+              const yMax = Math.max(1, chartMetric === 'cpu' || chartMetric === 'memory' ? 100 : Math.ceil(maxVal * 1.25) || 10);
+              const step = 700 / (chartHistory.length - 1);
+              const points = chartHistory.map((pt, i) => {
+                const x = i * step;
+                const ratio = Math.min(pt.value / yMax, 1);
+                const y = 160 - ratio * 140;
+                return `${x},${y}`;
+              });
 
-                {/* Point dots */}
-                {chartHistory.map((pt, i) => {
-                  const step = 700 / (chartHistory.length - 1);
-                  const x = i * step;
-                  const y = 160 - (Math.min(pt.value, 100) / 100) * 140;
-                  return (
-                    <circle
-                      key={i}
-                      cx={x}
-                      cy={y}
-                      r="4"
-                      className="fill-cyan-400 stroke-slate-900 dark:stroke-[#0e1424] stroke-2 hover:r-6 transition-all cursor-pointer"
-                    >
-                      <title>{`${pt.timestamp}: ${pt.value}%`}</title>
-                    </circle>
-                  );
-                })}
-              </>
-            )}
+              return (
+                <>
+                  <path d={`M ${points.join(' L ')} L 700,160 L 0,160 Z`} fill="url(#resourceGradient)" />
+                  <path d={`M ${points.join(' L ')}`} fill="none" stroke="#06b6d4" strokeWidth="2.5" strokeLinecap="round" />
+                  {chartHistory.map((pt, i) => {
+                    const x = i * step;
+                    const ratio = Math.min(pt.value / yMax, 1);
+                    const y = 160 - ratio * 140;
+                    return (
+                      <circle
+                        key={i}
+                        cx={x}
+                        cy={y}
+                        r="3.5"
+                        className="fill-cyan-400 stroke-slate-900 dark:stroke-[#0e1424] stroke-2 hover:r-5 transition-all cursor-pointer"
+                      >
+                        <title>{`${pt.timestamp}: ${pt.value} ${chartMetric === 'network' ? 'KB/s' : chartMetric === 'disk' ? 'MB/s' : '%'}`}</title>
+                      </circle>
+                    );
+                  })}
+                </>
+              );
+            })()}
           </svg>
         </div>
       </div>

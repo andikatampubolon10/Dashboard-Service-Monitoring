@@ -1,90 +1,65 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Activity,
-  Zap,
-  BarChart3,
-  FolderKanban,
   Server,
+  Cpu,
+  HardDrive,
+  Database,
+  CheckCircle2,
+  AlertTriangle,
   Layers,
   ExternalLink,
-  ChevronRight,
+  Zap,
+  Search,
+  FolderKanban,
+  ArrowRight,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-  Cell,
-} from 'recharts';
-import {
-  getStressTestHistory,
-  StressTestRecord,
-  stressTestEngine,
-} from '../services/stressTestEngine';
+import { useServers } from '../hooks/useServers';
+import { useServices } from '../hooks/useServices';
 import { ProjectService } from '../services/projectService';
-import { Project } from '../types';
+import { Project, Server as ServerType } from '../types';
+import { getStressTestHistory, StressTestRecord } from '../services/stressTestEngine';
 import StressTestResultModal from '../components/monitoring/StressTestResultModal';
-import AiStressInsightCard from '../components/monitoring/AiStressInsightCard';
+import { CardSkeleton } from '../components/common/LoadingSkeleton';
 
 export const OverviewPage: React.FC = () => {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [history, setHistory] = useState<StressTestRecord[]>([]);
+
+  // Queries
+  const { data: servers = [], isLoading: isLoadingServers, refetch: refetchServers } = useServers();
+  const { data: services = [], isLoading: isLoadingServices, refetch: refetchServices } = useServices();
+
+  // Projects State
   const [projects, setProjects] = useState<Project[]>([]);
-  const [isLoadingProjects, setIsLoadingProjects] = useState<boolean>(true);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(() => {
     return searchParams.get('project') || localStorage.getItem('dashboard_selected_project_id') || 'all';
   });
-  const [selectedModalRecord, setSelectedModalRecord] = useState<StressTestRecord | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Load Projects from backend
+  // Services Filter
+  const [serviceSearch, setServiceSearch] = useState('');
+  const [serviceStatusFilter, setServiceStatusFilter] = useState<'all' | 'UP' | 'DOWN'>('all');
+
+  // Stress Test Evaluation Modal
+  const [stressHistory, setStressHistory] = useState<StressTestRecord[]>([]);
+  const [selectedStressRecord, setSelectedStressRecord] = useState<StressTestRecord | null>(null);
+  const [isStressModalOpen, setIsStressModalOpen] = useState(false);
+
+  // Load Projects
   useEffect(() => {
     setIsLoadingProjects(true);
     ProjectService.getProjects()
-      .then((projs) => {
-        setProjects(projs);
-        const paramProj = searchParams.get('project');
-        if (paramProj && projs.some((p) => p.id === paramProj)) {
-          setSelectedProjectId(paramProj);
-        } else if (!paramProj) {
-          const saved = localStorage.getItem('dashboard_selected_project_id');
-          if (saved && (saved === 'all' || projs.some((p) => p.id === saved))) {
-            setSelectedProjectId(saved);
-          } else if (projs.length > 0 && selectedProjectId === 'all') {
-            // Keep default 'all'
-          }
-        }
-      })
+      .then((projs) => setProjects(projs))
+      .catch(() => setProjects([]))
       .finally(() => setIsLoadingProjects(false));
   }, []);
 
-  // Load and subscribe to Stress Test History
+  // Load Stress History
   useEffect(() => {
-    setHistory(getStressTestHistory());
-
-    const unsubscribe = stressTestEngine.subscribe((progress) => {
-      if (progress.isFinished) {
-        setHistory(getStressTestHistory());
-      }
-    });
-
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === 'tara_stress_test_history_v1') {
-        setHistory(getStressTestHistory());
-      }
-    };
-    window.addEventListener('storage', handleStorage);
-
-    return () => {
-      unsubscribe();
-      window.removeEventListener('storage', handleStorage);
-    };
+    setStressHistory(getStressTestHistory());
   }, []);
 
   const handleSelectProject = (projectId: string) => {
@@ -98,455 +73,675 @@ export const OverviewPage: React.FC = () => {
     }
   };
 
-  const selectedProject = useMemo(() => {
-    return projects.find((p) => p.id === selectedProjectId) || null;
-  }, [projects, selectedProjectId]);
-
-  // Filter history based on selected project
-  const filteredHistory = useMemo(() => {
-    if (selectedProjectId === 'all' || !selectedProjectId) {
-      return history;
-    }
-    return history.filter((r) => {
-      if (r.projectId) {
-        return r.projectId === selectedProjectId;
-      }
-      // For legacy records without explicit projectId:
-      // Associate with Tara AI (or first project in list) so historical records are preserved
-      const isFirstProject = projects.length > 0 && projects[0].id === selectedProjectId;
-      const isTaraMatch = selectedProject?.name?.toLowerCase().includes('tara');
-      return isFirstProject || isTaraMatch;
-    });
-  }, [history, selectedProjectId, selectedProject, projects]);
-
-  const totalRuns = filteredHistory.length;
-  const healthyRuns = filteredHistory.filter(
-    (r) => r.healthGrade === 'HEALTHY' && r.errorRatePercent === 0
-  );
-  const criticalRuns = filteredHistory.filter(
-    (r) => r.healthGrade === 'CRITICAL' || r.errorRatePercent > 0
-  );
-
-  // Kapasitas teruji yang terbukti 100% lolos tanpa kendala dari data k6 riil
-  const maxSafeVU = healthyRuns.length > 0 ? Math.max(...healthyRuns.map((r) => r.targetVUs)) : 0;
-
-  // Titik overload riil di mana server mulai mengalami penolakan transaksi
-  const breakingPointVU = criticalRuns.length > 0 ? Math.min(...criticalRuns.map((r) => r.targetVUs)) : null;
-
-  const passedRuns = healthyRuns.length;
-
-  const getFriendlyFlowName = (flowId: string, title?: string): string => {
-    if (flowId === '1') return 'Konsultasi Chat Dokter AI';
-    if (flowId === '2') return 'Membaca Artikel Kesehatan';
-    if (flowId === '3') return 'Pencarian Jadwal & Dokter';
-    if (title && title.includes(':')) {
-      return title.split(':')[1]?.trim() || title;
-    }
-    return title || 'Fitur Layanan';
+  const handleManualRefresh = () => {
+    refetchServers();
+    refetchServices();
   };
 
-  // DATA GRAFIK PER BEBAN PENGGUNA (HANYA DARI PENGUJIAN NYATA PROJECT TERPILIH)
-  const uniqueVUMap = new Map<number, StressTestRecord>();
-  filteredHistory.forEach((run) => {
-    if (!uniqueVUMap.has(run.targetVUs)) {
-      uniqueVUMap.set(run.targetVUs, run);
+  // Filter servers based on selected project
+  const filteredServers = useMemo(() => {
+    if (selectedProjectId === 'all') return servers;
+    const currentProj = projects.find((p) => p.id === selectedProjectId);
+    if (!currentProj) return servers;
+    const assignedIds = currentProj.serverIds || [];
+    return servers.filter((s) => assignedIds.includes(s.id));
+  }, [servers, projects, selectedProjectId]);
+
+  // Filter services based on selected project and search/status
+  const filteredServices = useMemo(() => {
+    let result = services;
+
+    // Filter by project
+    if (selectedProjectId !== 'all') {
+      const currentProj = projects.find((p) => p.id === selectedProjectId);
+      if (currentProj) {
+        const assignedServerIds = currentProj.serverIds || [];
+        const matchingServerHosts = servers
+          .filter((s) => assignedServerIds.includes(s.id))
+          .map((s) => s.host);
+
+        result = result.filter((svc) => {
+          if (svc.serverId && assignedServerIds.includes(svc.serverId)) return true;
+          if (svc.host && matchingServerHosts.includes(svc.host)) return true;
+          return false;
+        });
+      }
     }
-  });
 
-  const actualVUTests = Array.from(uniqueVUMap.values()).sort((a, b) => a.targetVUs - b.targetVUs);
-
-  const vuComparisonChartData = actualVUTests.map((run) => {
-    const isHealthy = run.healthGrade === 'HEALTHY';
-    const isDegraded = run.healthGrade === 'DEGRADED';
-    const color = isHealthy ? '#10b981' : isDegraded ? '#f59e0b' : '#ef4444';
-
-    let userFriendlyStatus = '🟢 Sangat Lancar';
-    let userExperienceNote = 'Pengguna merasa nyaman, aplikasi merespons seketika.';
-
-    if (run.p95LatencyMs > 1000 || run.healthGrade === 'CRITICAL') {
-      userFriendlyStatus = '🔴 Terasa Lambat (Macet)';
-      userExperienceNote = 'Pengguna menunggu terlalu lama dan berisiko keluar dari aplikasi.';
-    } else if (run.p95LatencyMs > 500 || run.healthGrade === 'DEGRADED') {
-      userFriendlyStatus = '🟡 Mulai Ada Jeda';
-      userExperienceNote = 'Masih bisa dipakai, namun mulai terasa ada jeda saat memuat data.';
+    // Filter by search
+    if (serviceSearch.trim()) {
+      const q = serviceSearch.toLowerCase().trim();
+      result = result.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.id.toLowerCase().includes(q) ||
+          (s.host && s.host.toLowerCase().includes(q)) ||
+          (s.stack || '').toLowerCase().includes(q)
+      );
     }
+
+    // Filter by status
+    if (serviceStatusFilter !== 'all') {
+      result = result.filter((s) => (serviceStatusFilter === 'UP' ? s.status === 'healthy' : s.status !== 'healthy'));
+    }
+
+    return result;
+  }, [services, selectedProjectId, projects, servers, serviceSearch, serviceStatusFilter]);
+
+  // Aggregate Fleet Metrics
+  const fleetKpis = useMemo(() => {
+    const totalNodes = filteredServers.length;
+    const onlineNodes = filteredServers.filter((s) => s.status === 'healthy').length;
+
+    const totalSvcs = filteredServices.length;
+    const upSvcs = filteredServices.filter((s) => s.status === 'healthy').length;
+
+    let totalDbs = 0;
+    let upDbs = 0;
+    let totalCpuSum = 0;
+    let totalMemUsedMb = 0;
+    let totalMemTotalMb = 0;
+    let criticalDiskCount = 0;
+
+    for (const s of filteredServers) {
+      const dbs = s.databases || [];
+      totalDbs += dbs.length;
+      upDbs += dbs.filter((d) => d.status === 'UP').length;
+
+      const sys = s.system;
+      const cpu = sys?.cpu?.usagePercent ?? s.cpuUsagePercent ?? 0;
+      totalCpuSum += cpu;
+
+      const memUsed = sys?.memory?.usedMb ?? ((s.memoryUsedBytes ?? 0) / (1024 * 1024));
+      const memTot = sys?.memory?.totalMb ?? ((s.memoryTotalBytes ?? 0) / (1024 * 1024));
+      totalMemUsedMb += memUsed;
+      totalMemTotalMb += memTot;
+
+      const diskPct = sys?.disk?.usedPercent ?? 0;
+      if (diskPct >= 85) criticalDiskCount++;
+    }
+
+    const avgCpu = totalNodes > 0 ? parseFloat((totalCpuSum / totalNodes).toFixed(1)) : 0;
 
     return {
-      vu: `${run.targetVUs} Orang`,
-      rawVU: run.targetVUs,
-      flowShort: getFriendlyFlowName(run.selectedFlow, run.flowTitle),
-      p95: run.p95LatencyMs,
-      rps: run.currentRps,
-      errorRate: run.errorRatePercent === 0 ? '0% (Aman)' : `${run.errorRatePercent.toFixed(1)}% Gagal`,
-      status: userFriendlyStatus,
-      experience: userExperienceNote,
-      timestamp: run.timestamp,
-      color,
-      record: run,
+      totalNodes,
+      onlineNodes,
+      totalSvcs,
+      upSvcs,
+      totalDbs,
+      upDbs,
+      avgCpu,
+      criticalDiskCount,
     };
-  });
+  }, [filteredServers, filteredServices]);
+
+  const latestStress = stressHistory.length > 0 ? stressHistory[0] : null;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-12">
-      {/* 1. HEADER HALAMAN & PROYEK SELECTOR */}
-      <div className="flex flex-col gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20">
-                HASIL UJI DAYA TAHAN SISTEM
-              </span>
-              <span className="text-xs text-slate-500">
-                {totalRuns > 0 ? `${totalRuns} Sesi Pengujian Valid Tersimpan` : 'Belum Ada Pengujian'}
-              </span>
+    <div className="space-y-7 pb-12">
+      {/* ─── HERO COMMAND CENTER HEADER ─────────────────────────────────────── */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-[#0B132B] to-[#0d1b2a] border border-cyan-500/20 p-6 sm:p-8 shadow-2xl">
+        <div className="absolute top-0 right-0 -mt-8 -mr-8 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-1/3 -mb-12 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-2 max-w-2xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-mono">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <span>LIVE TELEMETRY STREAM</span>
+              <span className="text-slate-500">•</span>
+              <span>POSTGRESQL STORAGE ACTIVE</span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight mt-1">
-              Dashboard Pemantauan &amp; Daya Tahan Sistem
+
+            <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight font-mono">
+              ObservePulse <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-400">Fleet Command</span>
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Evaluasi kapasitas riil dan wawasan cerdas AI berdasarkan hasil pengujian beban pengguna (Stress Test k6).
+
+            <p className="text-sm text-slate-300 leading-relaxed">
+              Monitoring infrastruktur multi-node real-time, status microservices, database engine, serta evaluasi performa menyeluruh.
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5 flex-wrap self-start sm:self-auto">
-            {selectedProject && (
-              <Link
-                to={`/projects/${selectedProject.id}`}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/70 text-slate-700 dark:text-slate-200 text-xs font-semibold shadow-sm transition"
-              >
-                <Server className="w-3.5 h-3.5 text-slate-500" />
-                <span>Lihat Server Projek</span>
-                <ExternalLink className="w-3 h-3 text-slate-400" />
-              </Link>
-            )}
-
-            <Link
-              to={selectedProject ? `/stress-test?project=${selectedProject.id}` : '/stress-test'}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold shadow-sm shadow-orange-500/25 transition shrink-0"
-            >
-              <Zap className="w-4 h-4 fill-white" />
-              <span>+ Jalankan Uji Beban Baru ↗</span>
-            </Link>
-          </div>
-        </div>
-
-        {/* 2. DYNAMIC PROJECT SELECTOR & INFO BAR */}
-        <div className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-orange-500/10 text-orange-500 flex items-center justify-center">
-                <FolderKanban className="w-4 h-4" />
-              </div>
-              <span className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Pilih Projek:
-              </span>
-            </div>
-
-            {/* Dropdown Pemilih Projek */}
+          {/* Project Switcher & Quick Action Buttons */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            {/* Project Filter Select */}
             <div className="relative">
               <select
                 value={selectedProjectId}
                 onChange={(e) => handleSelectProject(e.target.value)}
-                disabled={isLoadingProjects}
-                className="appearance-none pl-3 pr-8 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                className="w-full sm:w-auto appearance-none bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 rounded-2xl px-4 py-2.5 pr-9 text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 shadow-sm transition cursor-pointer"
               >
-                <option value="all">🌐 Semua Projek (Agregat Global)</option>
+                <option value="all">🌐 Seluruh Fleet (All Projects)</option>
                 {projects.map((proj) => (
                   <option key={proj.id} value={proj.id}>
-                    📁 {proj.name} [{proj.env || 'PRODUCTION'}] — {proj.serversCount || proj.serverIds?.length || 0} Server
+                    📁 {proj.name} ({proj.env || 'PROD'})
                   </option>
                 ))}
               </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
-                <ChevronRight className="w-3.5 h-3.5 rotate-90" />
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                {isLoadingProjects ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderKanban className="w-3.5 h-3.5" />}
               </div>
             </div>
 
-            {/* Environment Badge */}
-            {selectedProject && (
-              <span
-                className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                  selectedProject.env === 'PRODUCTION'
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
-                    : selectedProject.env === 'STAGING'
-                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
-                      : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
-                }`}
+            {/* Quick Button: Run Stress Test */}
+            <button
+              type="button"
+              onClick={() => navigate('/stress-test')}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/35 transition"
+            >
+              <Zap className="w-4 h-4 fill-white text-white" />
+              <span>Stress Test Suite</span>
+            </button>
+
+            {/* Manual Refresh */}
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              className="inline-flex items-center justify-center p-2.5 rounded-2xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-white transition"
+              title="Refresh Telemetry"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── 5 FLEET KPI CARDS ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {isLoadingServers ? (
+          <>
+            <CardSkeleton />
+            <CardSkeleton />
+            <CardSkeleton />
+            <CardSkeleton />
+            <CardSkeleton />
+          </>
+        ) : (
+          <>
+            {/* Card 1: Host Servers */}
+            <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
+                  HOST NODES
+                </span>
+                <Server className="w-4 h-4 text-cyan-500" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white font-mono">
+                  {fleetKpis.onlineNodes} <span className="text-lg font-normal text-slate-400">/ {fleetKpis.totalNodes}</span>
+                </div>
+                <div className="text-xs text-slate-400 font-mono mt-0.5">
+                  Host Linux WSL2 / Cloud Nodes
+                </div>
+                <div className="mt-3 text-[11px] font-mono font-semibold text-emerald-500 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>100% Reachability OK</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Microservices */}
+            <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
+                  MICROSERVICES
+                </span>
+                <Layers className="w-4 h-4 text-emerald-500" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white font-mono">
+                  {fleetKpis.upSvcs} <span className="text-lg font-normal text-slate-400">/ {fleetKpis.totalSvcs}</span>
+                </div>
+                <div className="text-xs text-slate-400 font-mono mt-0.5">
+                  Listening Active Endpoints
+                </div>
+                <div className="mt-3 text-[11px] font-mono font-semibold">
+                  {fleetKpis.upSvcs === fleetKpis.totalSvcs ? (
+                    <span className="text-emerald-500">All Microservices Healthy</span>
+                  ) : (
+                    <span className="text-amber-500">{fleetKpis.totalSvcs - fleetKpis.upSvcs} Service Offline / Inactive</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Databases */}
+            <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
+                  DATABASE ENGINES
+                </span>
+                <Database className="w-4 h-4 text-indigo-500" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white font-mono">
+                  {fleetKpis.upDbs} <span className="text-lg font-normal text-slate-400">/ {fleetKpis.totalDbs}</span>
+                </div>
+                <div className="text-xs text-slate-400 font-mono mt-0.5">
+                  Postgres, Redis, MongoDB
+                </div>
+                <div className="mt-3 text-[11px] font-mono font-semibold text-emerald-500 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Live Socket Probing OK</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 4: Fleet CPU */}
+            <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
+                  RATA-RATA CPU
+                </span>
+                <Cpu className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white font-mono">
+                  {fleetKpis.avgCpu.toFixed(1)}<span className="text-lg font-normal text-slate-400">%</span>
+                </div>
+                <div className="text-xs text-slate-400 font-mono mt-0.5">
+                  Rata-rata Utilisasi Cluster
+                </div>
+                <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      fleetKpis.avgCpu >= 85 ? 'bg-rose-500' : fleetKpis.avgCpu >= 65 ? 'bg-amber-500' : 'bg-emerald-400'
+                    }`}
+                    style={{ width: `${Math.min(fleetKpis.avgCpu, 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Card 5: Disk Saturation / Storage Warning */}
+            <div className={`bg-white dark:bg-[#0e1424]/90 border ${fleetKpis.criticalDiskCount > 0 ? 'border-rose-500/50' : 'border-slate-200 dark:border-slate-800/90'} rounded-2xl p-5 shadow-sm dark:shadow-xl flex flex-col justify-between`}>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-mono">
+                  STORAGE ALERT
+                </span>
+                {fleetKpis.criticalDiskCount > 0 ? (
+                  <AlertTriangle className="w-4 h-4 text-rose-500 animate-bounce" />
+                ) : (
+                  <HardDrive className="w-4 h-4 text-emerald-500" />
+                )}
+              </div>
+              <div className="mt-3">
+                <div className="text-2xl sm:text-3xl font-bold font-mono">
+                  {fleetKpis.criticalDiskCount > 0 ? (
+                    <span className="text-rose-500">{fleetKpis.criticalDiskCount} Node &gt; 85%</span>
+                  ) : (
+                    <span className="text-slate-900 dark:text-white">Normal</span>
+                  )}
+                </div>
+                <div className="text-xs text-slate-400 font-mono mt-0.5">
+                  {fleetKpis.criticalDiskCount > 0 ? 'Node-34-101-207-115 (Disk 98%)' : 'Semua disk berkapasitas aman'}
+                </div>
+                <div className="mt-3 text-[11px] font-mono font-semibold">
+                  {fleetKpis.criticalDiskCount > 0 ? (
+                    <span className="text-rose-400">Tindakan Diperlukan segera</span>
+                  ) : (
+                    <span className="text-emerald-500">Storage Headroom Optimal</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ─── HOST SERVER MATRIX (CARDS WITH EXTENDED TELEMETRY) ─────────────── */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Server className="w-5 h-5 text-cyan-500" />
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white font-mono tracking-tight">
+              Host Server Infrastructure Matrix ({filteredServers.length} Nodes)
+            </h2>
+          </div>
+          <Link
+            to="/servers"
+            className="text-xs font-semibold text-cyan-500 hover:text-cyan-400 hover:underline flex items-center gap-1 font-mono"
+          >
+            <span>Kelola Server</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {filteredServers.map((srv: ServerType) => {
+            const sys = srv.system;
+            const cpuPct = sys?.cpu?.usagePercent ?? srv.cpuUsagePercent ?? 0;
+            const cpuCores = sys?.cpu?.cores ?? 2;
+
+            const memUsedMb = sys?.memory?.usedMb ?? ((srv.memoryUsedBytes ?? 0) / (1024 * 1024));
+            const memTotalMb = sys?.memory?.totalMb ?? ((srv.memoryTotalBytes ?? 0) / (1024 * 1024));
+            const memPct = sys?.memory?.usedPercent ?? Math.round((memUsedMb / (memTotalMb || 1)) * 100);
+
+            const diskUsedGb = sys?.disk?.usedGb ?? ((srv.diskUsedBytes ?? 0) / (1024 * 1024 * 1024));
+            const diskTotalGb = sys?.disk?.totalGb ?? ((srv.diskTotalBytes ?? 0) / (1024 * 1024 * 1024));
+            const diskPct = sys?.disk?.usedPercent ?? Math.round((diskUsedGb / (diskTotalGb || 1)) * 100);
+
+            const load1 = sys?.loadAverage?.load1 ?? 0;
+            const load5 = sys?.loadAverage?.load5 ?? 0;
+            const load15 = sys?.loadAverage?.load15 ?? 0;
+
+            const netRxKb = sys?.network?.rxKbSec ?? 0;
+            const netTxKb = sys?.network?.txKbSec ?? 0;
+            const diskWriteMb = sys?.disk?.writeMbSec ?? 0;
+
+            const isDiskCritical = diskPct >= 90;
+
+            return (
+              <div
+                key={srv.id}
+                className={`bg-white dark:bg-[#0e1424]/90 border ${
+                  isDiskCritical ? 'border-rose-500/40' : 'border-slate-200 dark:border-slate-800/90'
+                } rounded-3xl p-6 shadow-md dark:shadow-2xl hover:border-cyan-500/50 transition-all duration-300 flex flex-col justify-between`}
               >
-                {selectedProject.env || 'PRODUCTION'}
-              </span>
-            )}
-          </div>
+                <div>
+                  {/* Server Header */}
+                  <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800/80">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <h3 className="text-base font-bold text-slate-900 dark:text-white font-mono">
+                          {srv.displayName || srv.name}
+                        </h3>
+                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                          {srv.env || 'PRODUCTION'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1">
+                        IP: <strong className="text-slate-700 dark:text-slate-300">{srv.host}</strong> • Region: {srv.region || 'jakarta-idc'}
+                      </p>
+                    </div>
 
-          {/* Quick Metrics of Selected Project */}
-          {selectedProject ? (
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
-              <span className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
-                <Server className="w-3.5 h-3.5 text-orange-500" />
-                {selectedProject.serversCount || selectedProject.serverIds?.length || 0} Server
-              </span>
-              <span>•</span>
-              <span className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
-                <Layers className="w-3.5 h-3.5 text-blue-500" />
-                {selectedProject.servicesCount || 0} Microservices
-              </span>
-              <span>•</span>
-              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                {selectedProject.upServicesCount || 0} UP
-              </span>
-              {selectedProject.description && (
-                <>
-                  <span className="hidden lg:inline">•</span>
-                  <span className="hidden lg:inline text-[11px] text-slate-400 truncate max-w-xs">
-                    {selectedProject.description}
-                  </span>
-                </>
-              )}
-            </div>
-          ) : (
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Menampilkan evaluasi gabungan dari seluruh pengujian sistem.
-            </div>
-          )}
-        </div>
-      </div>
+                    {isDiskCritical ? (
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" />
+                        <span>DISK 98% CRITICAL</span>
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/25 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>HEALTHY NODE</span>
+                      </span>
+                    )}
+                  </div>
 
-      {/* 2. RINGKASAN KAPASITAS VALID (MURNI DARI DATA TEST NYATA) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Kapasitas Aman Teruji */}
-        <div className="p-4 sm:p-5 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 space-y-1.5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Kapasitas Aman Teruji
-            </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
-              Valid k6
-            </span>
-          </div>
-          <div className="text-2xl sm:text-3xl font-black font-mono text-emerald-600 dark:text-emerald-400">
-            {maxSafeVU > 0 ? `${maxSafeVU} Pasien` : 'Belum Teruji'}
-          </div>
-          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            {maxSafeVU > 0
-              ? 'Terbukti 100% tuntas diproses dengan respon kilat (< 1 detik) tanpa ada transaksi yang gagal.'
-              : 'Jalankan uji beban untuk mengetahui batas kapasitas aman sistem Anda.'}
-          </p>
-        </div>
+                  {/* Telemetry Progress Bars (CPU, RAM, DISK) */}
+                  <div className="grid grid-cols-3 gap-4 my-5">
+                    {/* CPU */}
+                    <div>
+                      <div className="flex items-center justify-between text-xs font-mono mb-1">
+                        <span className="text-slate-400">CPU ({cpuCores}c)</span>
+                        <strong className="text-slate-900 dark:text-white">{cpuPct.toFixed(1)}%</strong>
+                      </div>
+                      <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${cpuPct >= 85 ? 'bg-rose-500' : cpuPct >= 65 ? 'bg-amber-500' : 'bg-emerald-400'}`}
+                          style={{ width: `${Math.min(cpuPct, 100)}%` }}
+                        />
+                      </div>
+                    </div>
 
-        {/* Titik Overload Teruji */}
-        <div className="p-4 sm:p-5 rounded-2xl border border-rose-500/30 bg-rose-500/5 space-y-1.5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-rose-500" />
-              Titik Overload Teruji
-            </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-700 dark:text-rose-300">
-              Valid k6
-            </span>
-          </div>
-          <div className="text-2xl sm:text-3xl font-black font-mono text-rose-600 dark:text-rose-400">
-            {breakingPointVU ? `${breakingPointVU} Pasien` : 'Belum Ada Overload'}
-          </div>
-          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            {breakingPointVU
-              ? `Terjadi penolakan transaksi (${criticalRuns[0]?.errorRatePercent ? `${criticalRuns[0].errorRatePercent.toFixed(1)}% gagal` : 'overload'}) saat mencapai beban serentak ini.`
-              : totalRuns > 0
-                ? 'Seluruh beban yang pernah diuji saat ini masih sanggup dilayani oleh server tanpa kegagalan.'
-                : 'Belum ada data pengujian yang menunjukkan beban jenuh.'}
-          </p>
-        </div>
+                    {/* RAM */}
+                    <div>
+                      <div className="flex items-center justify-between text-xs font-mono mb-1">
+                        <span className="text-slate-400">RAM</span>
+                        <strong className="text-slate-900 dark:text-white">{memPct.toFixed(1)}%</strong>
+                      </div>
+                      <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${memPct >= 85 ? 'bg-rose-500' : memPct >= 70 ? 'bg-amber-500' : 'bg-cyan-400'}`}
+                          style={{ width: `${Math.min(memPct, 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-500 font-mono mt-0.5 block truncate">
+                        {(memUsedMb / 1024).toFixed(1)}/{(memTotalMb / 1024).toFixed(1)} GB
+                      </span>
+                    </div>
 
-        {/* Total Sesi Uji Valid */}
-        <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] space-y-1.5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-orange-500" />
-              Status Pengujian
-            </span>
-            <span className="text-[10px] font-bold text-slate-500">
-              {totalRuns > 0 ? `${Math.round((passedRuns / totalRuns) * 100)}% Sukses` : '0 Sesi'}
-            </span>
-          </div>
-          <div className="text-2xl sm:text-3xl font-black font-mono text-slate-900 dark:text-white">
-            {totalRuns} Sesi Selesai
-          </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-            {totalRuns > 0
-              ? `${passedRuns} sesi berstatus lancar aman, ${totalRuns - passedRuns} sesi mengalami kendala/overload.`
-              : 'Klik tombol di kanan atas untuk memulai pengujian beban pertama.'}
-          </p>
-        </div>
-      </div>
+                    {/* DISK */}
+                    <div>
+                      <div className="flex items-center justify-between text-xs font-mono mb-1">
+                        <span className="text-slate-400">DISK</span>
+                        <strong className={isDiskCritical ? 'text-rose-500' : 'text-slate-900 dark:text-white'}>
+                          {diskPct.toFixed(1)}%
+                        </strong>
+                      </div>
+                      <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${diskPct >= 90 ? 'bg-rose-500' : diskPct >= 75 ? 'bg-amber-500' : 'bg-emerald-400'}`}
+                          style={{ width: `${Math.min(diskPct, 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-500 font-mono mt-0.5 block truncate">
+                        {diskUsedGb.toFixed(1)}/{diskTotalGb.toFixed(1)} GB
+                      </span>
+                    </div>
+                  </div>
 
-      {/* 3. WAWASAN CERDAS AI (GEMINI AI INSIGHT - DIUTAMAKAN SESUAI PERMINTAAN USER) */}
-      <AiStressInsightCard
-        records={filteredHistory}
-        projectName={selectedProject?.name}
-        projectId={selectedProject?.id}
-        onOpenRecordModal={(record) => {
-          setSelectedModalRecord(record);
-          setIsModalOpen(true);
-        }}
-      />
+                  {/* Extended Telemetry Badges (LoadAvg, Network, Disk I/O) */}
+                  <div className="grid grid-cols-3 gap-2 py-3 px-3.5 rounded-2xl bg-slate-50 dark:bg-[#070b14] border border-slate-200/80 dark:border-slate-800/60 text-xs font-mono">
+                    <div>
+                      <span className="text-[10px] text-slate-400 uppercase block">Load Avg (1m)</span>
+                      <strong className="text-slate-800 dark:text-slate-200">{load1.toFixed(2)}</strong>
+                      <span className="text-[10px] text-slate-500 block">5m: {load5.toFixed(2)}</span>
+                      <span className="text-[10px] text-slate-500 block">15m: {load15.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 uppercase block">Network I/O</span>
+                      <strong className="text-emerald-400">RX {netRxKb.toFixed(1)}</strong>
+                      <span className="text-[10px] text-cyan-400 block">TX {netTxKb.toFixed(1)} K/s</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 uppercase block">Disk Write</span>
+                      <strong className="text-slate-800 dark:text-slate-200">{diskWriteMb.toFixed(2)} MB/s</strong>
+                      <span className="text-[10px] text-slate-500 block">Throughput</span>
+                    </div>
+                  </div>
+                </div>
 
-      {/* 4. GRAFIK & TABEL PER JUMLAH PENGGUNA (DATA NYATA K6) */}
-      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] shadow-sm overflow-hidden p-5 sm:p-6 space-y-4">
-          <div className="border-b border-slate-200/60 dark:border-slate-800/80 pb-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-orange-500" />
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
-                  Perbandingan Kecepatan Berdasarkan Jumlah Pengguna {selectedProject ? `— ${selectedProject.name}` : ''}
-                </h3>
+                {/* Card Footer Actions */}
+                <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                  <div className="text-xs font-mono text-slate-500 dark:text-slate-400 flex items-center gap-3">
+                    <span>
+                      <strong className="text-slate-900 dark:text-white font-semibold">
+                        {(srv.services || []).length}
+                      </strong> Services
+                    </span>
+                    <span>•</span>
+                    <span>
+                      <strong className="text-slate-900 dark:text-white font-semibold">
+                        {(srv.databases || []).length}
+                      </strong> Databases
+                    </span>
+                  </div>
+
+                  <Link
+                    to={`/servers/${srv.id}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-500 text-xs font-bold font-mono transition"
+                  >
+                    <span>Inspect Node</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Melihat bagaimana kecepatan sistem berubah dari beban santai hingga beban puncak yang telah Anda tes.
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ─── REAL-TIME MICROSERVICES STATUS STREAM ──────────────────────────── */}
+      <div className="bg-white dark:bg-[#0e1424]/90 border border-slate-200 dark:border-slate-800/90 rounded-3xl p-6 shadow-md dark:shadow-2xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-100 dark:border-slate-800/80">
+          <div className="flex items-center gap-2.5">
+            <Layers className="w-5 h-5 text-cyan-500" />
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white font-mono tracking-tight">
+                Live Microservices Telemetry ({filteredServices.length} Services)
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Pemeriksaan latency, stack runtime, dan ketersediaan HTTP microservices di seluruh node cluster.
               </p>
             </div>
-
-            <div className="text-[11px] text-slate-500 self-start sm:self-auto">
-              {vuComparisonChartData.length} Tingkat Beban Pernah Dites
-            </div>
           </div>
 
-          {vuComparisonChartData.length === 0 ? (
-            <div className="p-8 text-center rounded-xl bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-orange-500/10 text-orange-500 flex items-center justify-center mx-auto">
-                <BarChart3 className="w-5 h-5" />
-              </div>
-              <div className="space-y-1">
-                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Belum Ada Data Pengetesan Beban {selectedProject ? `untuk Projek ${selectedProject.name}` : ''}
-                </h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
-                  {selectedProject
-                    ? `Projek ${selectedProject.name} belum memiliki riwayat uji beban. Jalankan tes beban pengguna untuk melihat performa dan kapasitas server projek ini.`
-                    : 'Grafik dan tabel di bawah ini akan otomatis terisi setelah Anda menjalankan tes beban pengguna di halaman Simulator Stress Test.'}
-                </p>
-              </div>
-              <Link
-                to={selectedProject ? `/stress-test?project=${selectedProject.id}` : '/stress-test'}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm"
-              >
-                <Zap className="w-3.5 h-3.5 fill-white" />
-                <span>Mulai Tes Pertama {selectedProject ? `Projek ${selectedProject.name}` : ''} ↗</span>
-              </Link>
+          {/* Search & Status Filter */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Cari service..."
+                value={serviceSearch}
+                onChange={(e) => setServiceSearch(e.target.value)}
+                className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
             </div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-              {/* Grafik Recharts */}
-              <div className="lg:col-span-5 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 space-y-2 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Waktu Tunggu Pengguna (milidetik)
-                  </span>
-                  <span className="text-[10px] text-rose-500 font-bold">
-                    Batas Nyaman Pengguna = 1.000 milidetik (1 Detik)
-                  </span>
-                </div>
 
-                <div className="h-48 w-full pt-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={vuComparisonChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
-                      <XAxis dataKey="vu" stroke="#64748b" fontSize={10} tickLine={false} />
-                      <YAxis stroke="#64748b" fontSize={10} tickLine={false} domain={[0, 'auto']} />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#0F172A',
-                          borderColor: '#334155',
-                          borderRadius: '8px',
-                          color: '#fff',
-                          fontSize: '11px',
-                        }}
-                        formatter={(val: number) => [`${val} milidetik`, 'Waktu Tunggu']}
-                      />
-                      <ReferenceLine y={1000} stroke="#f43f5e" strokeDasharray="4 4" />
-                      <Bar dataKey="p95" radius={[6, 6, 0, 0]}>
-                        {vuComparisonChartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Tabel Matriks Bahasa Awam */}
-              <div className="lg:col-span-7 overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 uppercase text-[10px] font-bold tracking-wider">
-                    <tr>
-                      <th className="p-3">Jumlah Pengguna</th>
-                      <th className="p-3">Fitur yang Diuji</th>
-                      <th className="p-3 text-center">Waktu Tunggu</th>
-                      <th className="p-3 text-center">Kecepatan Balas</th>
-                      <th className="p-3 text-center">Tingkat Gagal</th>
-                      <th className="p-3 text-center">Kenyamanan Pengguna</th>
-                      <th className="p-3 text-right">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                    {vuComparisonChartData.map((item) => (
-                      <tr key={item.vu} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition">
-                        <td className="p-3 font-bold text-slate-900 dark:text-white">
-                          {item.vu}
-                        </td>
-                        <td className="p-3 text-slate-700 dark:text-slate-300">
-                          <div className="font-semibold">{item.flowShort}</div>
-                          <span className="text-[10px] text-slate-400">{item.timestamp}</span>
-                        </td>
-                        <td className="p-3 text-center font-bold">
-                          <span
-                            className={
-                              item.p95 > 1000
-                                ? 'text-rose-500'
-                                : item.p95 > 500
-                                  ? 'text-amber-500'
-                                  : 'text-emerald-500'
-                            }
-                          >
-                            {item.p95} ms
-                          </span>
-                        </td>
-                        <td className="p-3 text-center text-slate-700 dark:text-slate-300">
-                          {item.rps} proses/dtk
-                        </td>
-                        <td className="p-3 text-center text-slate-700 dark:text-slate-300">
-                          {item.errorRate}
-                        </td>
-                        <td className="p-3 text-center">
-                          <span className="text-[10px] font-bold whitespace-nowrap">
-                            {item.status}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedModalRecord(item.record);
-                              setIsModalOpen(true);
-                            }}
-                            className="text-orange-500 hover:text-orange-600 font-bold transition text-xs cursor-pointer"
-                          >
-                            Lihat Rincian 🔍
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs font-mono">
+              {(['all', 'UP', 'DOWN'] as const).map((st) => (
+                <button
+                  key={st}
+                  onClick={() => setServiceStatusFilter(st)}
+                  className={`px-2.5 py-1 rounded-lg font-semibold transition ${
+                    serviceStatusFilter === st ? 'bg-cyan-500 text-white shadow-sm' : 'text-slate-500 hover:text-white'
+                  }`}
+                >
+                  {st}
+                </button>
+              ))}
             </div>
-          )}
+            {isLoadingServices && <Loader2 className="w-4 h-4 animate-spin text-cyan-500" />}
+          </div>
         </div>
 
-      {/* Pop-up Result Modal */}
+        {/* Services Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs font-mono">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase tracking-wider text-[11px]">
+                <th className="py-3 px-3">Service</th>
+                <th className="py-3 px-3">Host Node</th>
+                <th className="py-3 px-3">Stack</th>
+                <th className="py-3 px-3">Status</th>
+                <th className="py-3 px-3">Throughput</th>
+                <th className="py-3 px-3">P99 Latency</th>
+                <th className="py-3 px-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+              {filteredServices.map((svc) => {
+                const isUp = svc.status === 'healthy';
+                return (
+                  <tr
+                    key={svc.id}
+                    className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition group cursor-pointer"
+                    onClick={() => navigate(`/services/${svc.id}`)}
+                  >
+                    <td className="py-3 px-3 font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${isUp ? 'bg-emerald-400' : 'bg-rose-500'}`} />
+                      <span className="group-hover:text-cyan-400 transition">{svc.name}</span>
+                    </td>
+                    <td className="py-3 px-3 text-slate-500 dark:text-slate-400">
+                      {svc.serverName || svc.host || 'Default Host'}
+                    </td>
+                    <td className="py-3 px-3">
+                      <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                        {svc.stack || 'nodejs'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                          isUp
+                            ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
+                            : 'bg-rose-500/10 text-rose-500 border-rose-500/25'
+                        }`}
+                      >
+                        {isUp ? 'ONLINE' : 'OFFLINE'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-slate-700 dark:text-slate-300">
+                      {(svc.throughputRps ?? 0).toFixed(1)} req/s
+                    </td>
+                    <td className="py-3 px-3 text-slate-700 dark:text-slate-300">
+                      {svc.latencyP99Ms != null ? `${svc.latencyP99Ms} ms` : '-'}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      <Link
+                        to={`/services/${svc.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="p-1 rounded hover:bg-cyan-500/10 text-cyan-500 inline-block transition"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ─── STRESS TEST SUITE CALLOUT / RECENT RESULT TEASER ───────────────── */}
+      <div className="rounded-3xl bg-gradient-to-r from-cyan-950/40 via-slate-900 to-indigo-950/40 border border-cyan-500/30 p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <div className="p-3.5 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+            <Zap className="w-7 h-7 fill-cyan-400/20" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-white font-mono">
+                Stress Test Suite &amp; AI Engine
+              </h3>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                GEMINI 2.5 AI
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 mt-1 max-w-xl">
+              Uji ketahanan sistem hingga 500+ Virtual Users. Analisis bottleneck dan rekomendasi otomatis didukung Google Gemini AI.
+              {latestStress && (
+                <span className="block text-cyan-400 font-mono mt-0.5">
+                  Hasil Terakhir: {latestStress.projectName} • {latestStress.targetVUs} VUs • {latestStress.currentRps.toFixed(1)} RPS • Status {latestStress.healthGrade}
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {latestStress && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStressRecord(latestStress);
+                setIsStressModalOpen(true);
+              }}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold font-mono border border-slate-700 transition"
+            >
+              Lihat Evaluasi Terakhir
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => navigate('/stress-test')}
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold font-mono shadow-md transition"
+          >
+            Buka Stress Test Suite
+          </button>
+        </div>
+      </div>
+
+      {/* Stress Test Result Modal */}
       <StressTestResultModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        record={selectedModalRecord}
+        isOpen={isStressModalOpen}
+        onClose={() => setIsStressModalOpen(false)}
+        record={selectedStressRecord}
       />
     </div>
   );

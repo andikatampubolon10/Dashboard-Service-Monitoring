@@ -1176,6 +1176,24 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
     return s?.uptimeHistory || [];
   }
 
+  async getServerMetricsHistory(
+    serverId: string,
+    range: string = '1h'
+  ): Promise<import('../types').ServerMetricsHistoryPoint[]> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/servers/${serverId}/metrics/history?range=${range}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.history)) {
+          return data.history;
+        }
+      }
+    } catch {
+      // Graceful fallback
+    }
+    return [];
+  }
+
   async acknowledgeAlert(_alertId: string): Promise<boolean> {
     return true;
   }

@@ -88,8 +88,37 @@ export interface Server {
   totalDatabases?: number;
   system?: {
     cpu: { usagePercent: number; cores: number };
-    memory: { usedMb: number; totalMb: number; usedPercent: number };
-    disk: { usedGb: number; totalGb: number; usedPercent: number };
+    memory: {
+      usedMb: number;
+      totalMb: number;
+      usedPercent: number;
+      freeMb?: number;
+      cachedMb?: number;
+      buffersMb?: number;
+    };
+    disk: {
+      usedGb: number;
+      totalGb: number;
+      usedPercent: number;
+      freeGb?: number;
+      readBytesSec?: number;
+      writeBytesSec?: number;
+      readMbSec?: number;
+      writeMbSec?: number;
+    };
+    loadAverage?: {
+      load1: number;
+      load5: number;
+      load15: number;
+    };
+    network?: {
+      rxBytesSec: number;
+      txBytesSec: number;
+      rxKbSec: number;
+      txKbSec: number;
+      rxMbSec: number;
+      txMbSec: number;
+    };
     uptime: { seconds: number; formatted: string };
     timestamp?: string;
   } | null;
@@ -98,6 +127,30 @@ export interface Server {
     cannotShare: string[];
   } | null;
   uptimeHistory?: ServerUptimePoint[];
+}
+
+export interface ServerMetricsHistoryPoint {
+  timestamp: string;
+  cpuPercent: number;
+  memUsedMb: number;
+  memTotalMb: number;
+  memCachedMb: number;
+  memBuffersMb: number;
+  memUsedPercent: number;
+  diskUsedGb: number;
+  diskTotalGb: number;
+  diskUsedPercent: number;
+  load1m: number;
+  load5m: number;
+  load15m: number;
+  netRxBytesSec: number;
+  netTxBytesSec: number;
+  netRxKbSec: number;
+  netTxKbSec: number;
+  diskReadBytesSec: number;
+  diskWriteBytesSec: number;
+  diskReadMbSec: number;
+  diskWriteMbSec: number;
 }
 
 export interface ServerUptimePoint {

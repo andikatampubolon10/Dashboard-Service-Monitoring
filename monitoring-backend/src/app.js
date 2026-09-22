@@ -107,6 +107,12 @@ server.listen(PORT, () => {
   console.log(`📈 Metrics API: http://localhost:${PORT}/api/metrics/summary`);
   console.log(`====================================================`);
 
+  // Initialize PostgreSQL database and tables
+  const { initDatabase } = require('./database/initDb');
+  initDatabase().catch((err) => {
+    console.warn('[App] ⚠️ PostgreSQL initialization warning:', err.message);
+  });
+
   // Start the background scraping process
   startCollector();
 

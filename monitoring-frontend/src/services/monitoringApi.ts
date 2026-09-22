@@ -74,6 +74,16 @@ class MonitoringApiService {
     return [];
   }
 
+  public async getServerMetricsHistory(
+    serverId: string,
+    range: string = '1h'
+  ): Promise<import('../types').ServerMetricsHistoryPoint[]> {
+    if (this.provider.getServerMetricsHistory) {
+      return this.provider.getServerMetricsHistory(serverId, range);
+    }
+    return [];
+  }
+
   public async discoverServer(payload: DiscoverServerPayload): Promise<DiscoverServerResponse> {
     return this.provider.discoverServer(payload);
   }

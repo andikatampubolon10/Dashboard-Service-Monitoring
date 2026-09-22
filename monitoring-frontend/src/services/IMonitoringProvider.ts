@@ -34,6 +34,7 @@ export interface IMonitoringProvider {
   getServers(filter: GlobalFilterState): Promise<Server[]>;
   getServerById(id: string): Promise<ServerDetail | null>;
   getServerUptimeHistory?(serverId: string, rangeSec?: number, points?: number): Promise<ServerUptimePoint[]>;
+  getServerMetricsHistory?(serverId: string, range?: string): Promise<import('../types').ServerMetricsHistoryPoint[]>;
   discoverServer(payload: DiscoverServerPayload): Promise<DiscoverServerResponse>;
   registerServer(payload: RegisterServerPayload): Promise<Server>;
   updateServer(id: string, payload: UpdateServerPayload): Promise<Server>;
