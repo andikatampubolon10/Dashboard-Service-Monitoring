@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   CheckCircle2,
   AlertTriangle,
@@ -12,6 +12,8 @@ import {
   Copy,
   CheckCheck,
   Check,
+  Layers,
+  Activity,
 } from "lucide-react";
 import { StressTestRecord } from "../../services/stressTestEngine";
 import { formatNumber } from "../../utils/formatters";
@@ -32,6 +34,33 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
   const [activeTab, setActiveTab] = useState<"summary" | "terminal">("summary");
   const [copied, setCopied] = useState(false);
 
+  // Deteksi failure point yang nyata dari record.failurePoint ataupun log k6 otentik
+  // (Diletakkan di tingkat teratas sebelum early return sesuai aturan Hooks React)
+  const detectedFailureFromLogs = useMemo(() => {
+    if (!record) return null;
+    if (record.failurePoint) return record.failurePoint;
+    const textToScan = (record.rawSummaryText || "") + "\n" + (record.logs ? record.logs.join("\n") : "");
+    if (!textToScan) return null;
+    const lines = textToScan.split("\n");
+    for (const line of lines) {
+      const match = line.match(/\[GAGAL TAHAP\s*(\d+)\/(\d+)\](?:\s*VU\s*\d+:)?\s*\\?"([^\\"]+)\\?"\s*->\s*(.+)/i);
+      if (match) {
+        const rawReason = match[4]
+          .replace(/\\?"\s*source=console.*$/i, "")
+          .replace(/\.?\s*Tahap berikutnya dibatalkan\.?$/i, "")
+          .replace(/^[->\s:]+/, "")
+          .trim();
+        return {
+          stepNum: parseInt(match[1], 10),
+          totalSteps: parseInt(match[2], 10),
+          stepName: match[3].trim(),
+          reason: rawReason || "Gagal",
+        };
+      }
+    }
+    return null;
+  }, [record?.failurePoint, record?.rawSummaryText, record?.logs]);
+
   if (!isOpen || !record) return null;
 
   // Real quantitative metrics directly from k6
@@ -46,11 +75,6 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
   if (successCount === 0 || (failedCount > 0 && successCount === totalRequests)) {
     successCount = Math.max(0, totalRequests - failedCount);
   }
-
-  // Estimasi beban ideal dan kalkulasi drop-off berdasarkan alur yang dipilih
-  const stepMultiplier = record.selectedFlow === "1" ? 5 : record.selectedFlow === "2" ? 4 : 4;
-  const expectedTotal = record.targetVUs * stepMultiplier;
-  const missingRequests = Math.max(0, expectedTotal - totalRequests);
 
   // Latency metrics
   const m = record.k6Metrics;
@@ -83,18 +107,36 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
     Boolean(record.rawSummaryText && record.rawSummaryText.includes("setup() execution timed out")) ||
     Boolean(record.healthVerdict && (record.healthVerdict.includes("setupTimeout") || record.healthVerdict.includes("Inisialisasi Akun Timeout")));
 
-  // Status Overload yang otentik: jika ada kegagalan request signifikan (error rate >= 5% atau status CRITICAL)
+  const effectiveFailurePoint = record.failurePoint || detectedFailureFromLogs;
+
+  const checkFailuresCount =
+    record.k6Metrics?.checks?.fails ??
+    (record.checks ? record.checks.reduce((acc, c) => acc + (c.fails || 0), 0) : 0);
+  const hasFailedChecks = checkFailuresCount > 0;
+
+  // Status Overload yang otentik: jika ada kegagalan request nyata, check gagal, atau ada alur terputus
+  const hasRealFailures =
+    !isSetupTimeout &&
+    (failedCount > 0 ||
+      record.errorRatePercent > 0 ||
+      hasFailedChecks ||
+      Boolean(effectiveFailurePoint) ||
+      record.healthGrade === "CRITICAL");
+
   const isOverload =
     !isSetupTimeout &&
-    (record.errorRatePercent >= 5.0 ||
-      record.healthGrade === "CRITICAL" ||
-      failedCount > 0);
+    (hasRealFailures ||
+      record.errorRatePercent >= 5.0 ||
+      record.healthGrade === "CRITICAL");
 
-  const isDroppedMidway = !isSetupTimeout && (isOverload || missingRequests > 0);
-  const hasRealFailures = !isSetupTimeout && (failedCount > 0 || isOverload);
-  const isFullyCompleted = !isSetupTimeout && !hasRealFailures && totalRequests >= Math.floor(expectedTotal * 0.85);
+  const isFullyCompleted =
+    !isSetupTimeout &&
+    !hasRealFailures &&
+    !effectiveFailurePoint &&
+    !hasFailedChecks &&
+    failedCount === 0;
   const isSlowQueue = isFullyCompleted && p95Latency > 1000;
-  const isOptimal = isFullyCompleted && !isSlowQueue && failedCount === 0;
+  const isOptimal = isFullyCompleted && !isSlowQueue && failedCount === 0 && !hasFailedChecks;
 
   const copyRawLog = () => {
     const textToCopy = record.rawSummaryText || JSON.stringify(record, null, 2);
@@ -111,7 +153,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
     bottleneckDesc: string,
     unreachedDesc: string
   ) => {
-    // Kasus 0: Jika k6 membatalkan pengujian karena setup timeout sebelum pengujian sempat berjalan
+    // Kasus 0: Jika k6 membatalkan pengujian karena setup timeout
     if (isSetupTimeout) {
       return {
         status: "unreached" as const,
@@ -121,7 +163,81 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
       };
     }
 
-    // Kasus 1: Seluruh alur selesai dijalankan sampai tuntas oleh semua pasien (seperti 200 VU)
+    // Kasus 1: Terdeteksi titik kegagalan eksplisit (Fail-Fast Stop di k6)
+    if (effectiveFailurePoint) {
+      const failStep = effectiveFailurePoint.stepNum;
+      if (stepIndex < failStep) {
+        const chk = findCheck(patterns);
+        const fails = chk?.fails ?? 0;
+        const passes = chk?.passes ?? 0;
+        if (fails > 0) {
+          return {
+            status: "bottleneck" as const,
+            title: normalTitle,
+            desc: `Gagal (${formatNumber(fails)} penolakan check k6)`,
+            badge: "Titik Gagal",
+          };
+        }
+        return {
+          status: "success" as const,
+          title: normalTitle,
+          desc: passes > 0 ? `${formatNumber(passes)} Selesai Tervalidasi k6` : normalDesc,
+          badge: "Lolos",
+        };
+      } else if (stepIndex === failStep) {
+        const chk = findCheck(patterns);
+        const fails = chk?.fails ?? 0;
+        const passes = chk?.passes ?? 0;
+        return {
+          status: "bottleneck" as const,
+          title: normalTitle,
+          desc:
+            chk && (passes > 0 || fails > 0)
+              ? `${formatNumber(passes)} Lolos, ${formatNumber(fails)} Gagal (${effectiveFailurePoint.reason})`
+              : `Titik Kegagalan k6: ${effectiveFailurePoint.reason}`,
+          badge: "Titik Gagal",
+        };
+      } else {
+        return {
+          status: "unreached" as const,
+          title: normalTitle,
+          desc: `Tidak Dieksekusi (Tahap #${failStep} Gagal)`,
+          badge: "Dilewati",
+        };
+      }
+    }
+
+    // Kasus 2: Periksa check otentik k6 dari metrik riil
+    const chk = findCheck(patterns);
+    if (chk) {
+      const fails = chk.fails ?? 0;
+      const passes = chk.passes ?? 0;
+
+      if (fails > 0 && passes === 0) {
+        return {
+          status: "bottleneck" as const,
+          title: normalTitle,
+          desc: bottleneckDesc || `${normalTitle} Gagal (${formatNumber(fails)} gagal)`,
+          badge: "Titik Macet",
+        };
+      } else if (passes > 0 && fails > 0) {
+        return {
+          status: "partial" as const,
+          title: normalTitle,
+          desc: `${formatNumber(passes)} Lolos (${formatNumber(fails)} Gagal)`,
+          badge: `${chk.passRate || Math.round((passes / (passes + fails)) * 100)}% Lolos`,
+        };
+      } else if (fails === 0 && (passes > 0 || chk.passed)) {
+        return {
+          status: "success" as const,
+          title: normalTitle,
+          desc: passes > 0 ? `${formatNumber(passes)} Sukses Tervalidasi k6` : normalDesc,
+          badge: "100% Lolos",
+        };
+      }
+    }
+
+    // Kasus 3: Seluruh alur selesai dijalankan sampai tuntas tanpa kegagalan apapun
     if (isFullyCompleted) {
       return {
         status: "success" as const,
@@ -131,78 +247,13 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
       };
     }
 
-    // Kasus 2: Periksa check otentik k6
-    const chk = findCheck(patterns);
-    if (chk) {
-      const fails = chk.fails ?? 0;
-      const passes = chk.passes ?? 0;
-
-      if (fails === 0 && (passes > 0 || chk.passed)) {
-        return {
-          status: "success" as const,
-          title: normalTitle,
-          desc: normalDesc,
-          badge: "100% Lolos",
-        };
-      } else if (passes > 0 && fails > 0) {
-        return {
-          status: "partial" as const,
-          title: normalTitle,
-          desc: `${formatNumber(passes)} Lolos (${formatNumber(fails)} Ditolak)`,
-          badge: "Sebagian Lolos",
-        };
-      } else if (fails > 0 && passes === 0) {
-        return {
-          status: "bottleneck" as const,
-          title: normalTitle,
-          desc: bottleneckDesc,
-          badge: "Titik Macet",
-        };
-      }
-    }
-
-    // Kaidah Integritas Kausalitas:
-    // Jika langkah setelah ini (misal Step 3) sudah sempat dieksekusi (memiliki check k6),
-    // maka langkah saat ini (Step 2) secara fisik PASTI telah berhasil dilewati / sesi siap!
-    const isNextStepReached =
-      (stepIndex === 1 && (Boolean(findCheck(["create consultation"])) || Boolean(findCheck(["ai chat"])) || Boolean(findCheck(["consultation detail"])))) ||
-      (stepIndex === 2 && (Boolean(findCheck(["ai chat"])) || Boolean(findCheck(["consultation detail"])) || Boolean(findCheck(["end consultation"]))));
-
-    if (isNextStepReached && !chk) {
-      return {
-        status: "success" as const,
-        title: normalTitle,
-        desc: stepIndex === 2 ? "Sesi Konsultasi Siap (Sesi Aktif)" : normalDesc,
-        badge: "100% Lolos",
-      };
-    }
-
-    // Kasus 3: Jika langkah ini tidak terekam (chk === null) karena alur terputus di tengah jalan
-    if (!chk && (hasRealFailures || isDroppedMidway)) {
-      if (stepIndex === 1) {
-        if (failedCount > 0) {
-          const estimatedFailedVUs = Math.min(record.targetVUs, failedCount);
-          const estimatedPassedVUs = Math.max(0, record.targetVUs - estimatedFailedVUs);
-          return {
-            status: "partial" as const,
-            title: normalTitle,
-            desc: `${formatNumber(estimatedPassedVUs)} Pasien Lolos (${formatNumber(estimatedFailedVUs)} Ditolak)`,
-            badge: "Sebagian Lolos",
-          };
-        }
-        return {
-          status: "success" as const,
-          title: normalTitle,
-          desc: `${formatNumber(record.targetVUs)} Pasien Berhasil Masuk`,
-          badge: "Lolos",
-        };
-      }
-
+    // Kasus 4: Jika terjadi kegagalan / overload nyata dan step tidak tercatat check k6
+    if (hasRealFailures) {
       return {
         status: "unreached" as const,
         title: normalTitle,
-        desc: unreachedDesc,
-        badge: "Alur Terputus",
+        desc: unreachedDesc || "Tidak Tercatat oleh k6",
+        badge: "Dilewati",
       };
     }
 
@@ -216,69 +267,73 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
 
   // Definisi tahapan alur yang ramah pengguna dengan 4 status visual yang intuitif
   const flowSteps =
-    record.flowTitle.includes("AI") || record.flowTitle.includes("Flow 1") || record.selectedFlow === "1"
+    record.customSteps && record.customSteps.length > 0
+      ? record.customSteps.map((cs, idx) => {
+          const stepNum = idx + 1;
+          const searchKeys = [cs.name.toLowerCase(), cs.path.toLowerCase(), cs.serviceKey.toLowerCase(), `[tahap ${stepNum}]`];
+          return {
+            id: stepNum,
+            targetDesc: `${cs.serviceKey} • ${cs.method} ${cs.path}`,
+            ...evaluateStep(
+              stepNum,
+              searchKeys,
+              `${stepNum}. ${cs.name}`,
+              `${cs.method} ${cs.path} Sukses`,
+              `${cs.method} ${cs.path} Gagal/Macet`,
+              "Belum Terjangkau (Dibatalkan)"
+            ),
+          };
+        })
+      : record.flowTitle.includes("AI") || record.flowTitle.includes("Flow 1") || record.selectedFlow === "1"
       ? [
-          { id: 1, ...evaluateStep(1, ["active consultation", "auth"], "1. Masuk Akun Pasien", "Verifikasi Akun Pasien", "Pintu Masuk Terlalu Padat", "Belum Terjangkau") },
-          { id: 2, ...evaluateStep(2, ["create consultation", "consultation session"], "2. Buka Sesi Konsultasi", "Ruang Dokter Siap", "Koneksi Ruang Dokter Macet", "Belum Terjangkau") },
-          { id: 3, ...evaluateStep(3, ["ai chat"], "3. Tanya Jawab AI", "Diagnosa Berjalan", "Waktu Tunggu AI Habis", "Alur Terputus di Awal") },
-          { id: 4, ...evaluateStep(4, ["consultation detail", "detail has valid body"], "4. Simpan Riwayat", "Transkrip Tersimpan", "Gagal Simpan Chat", "Belum Sempat Tersimpan") },
-          { id: 5, ...evaluateStep(5, ["end consultation"], "5. Rating & Penutupan", "Sesi Selesai Normal", "Koneksi Terputus", "Belum Sempat Rating") },
+          { id: 1, targetDesc: "ai-consultation • GET /api/consultations/active", ...evaluateStep(1, ["tahap 1", "cek sesi konsultasi aktif", "cek sesi aktif"], "1. Cek Sesi Konsultasi Aktif", "Verifikasi Sesi Aktif Berhasil", "Pintu Masuk Terlalu Padat", "Belum Terjangkau") },
+          { id: 2, targetDesc: "ai-consultation • POST /api/consultations", ...evaluateStep(2, ["tahap 2", "pembuatan sesi konsultasi baru", "sesi konsultasi tersedia"], "2. Buat Sesi Konsultasi Baru", "Ruang Dokter Siap", "Koneksi Ruang Dokter Macet", "Belum Terjangkau") },
+          { id: 3, targetDesc: "ai-consultation • POST /api/consultation/chat", ...evaluateStep(3, ["tahap 3", "streaming respon dokter ai"], "3. Kirim Chat AI Streaming", "Diagnosa Berjalan", "Waktu Tunggu AI Habis", "Alur Terputus di Awal") },
+          { id: 4, targetDesc: "ai-consultation • GET /api/consultations/:id", ...evaluateStep(4, ["tahap 4", "baca detail konsultasi"], "4. Baca Riwayat Konsultasi", "Transkrip Tersimpan", "Gagal Simpan Chat", "Belum Sempat Tersimpan") },
+          { id: 5, targetDesc: "ai-consultation • PATCH /api/consultations/:id", ...evaluateStep(5, ["tahap 5", "akhiri sesi & feedback", "akhiri sesi"], "5. Rating & Penutupan Sesi", "Sesi Selesai Normal", "Koneksi Terputus", "Belum Sempat Rating") },
         ]
       : record.flowTitle.includes("Lifestyle") || record.flowTitle.includes("Flow 2") || record.selectedFlow === "2"
       ? [
-          { id: 1, ...evaluateStep(1, ["auth", "pin status"], "1. Masuk & Verifikasi Akun", "Otorisasi Pasien Berhasil", "Antrean Masuk Padat (Ditolak)", "Belum Terjangkau") },
-          { id: 2, ...evaluateStep(2, ["articles list", "articles body"], "2. Buka Katalog Artikel", "Daftar Artikel Siap Dibaca", "Antrean Server & Database Penuh", "Belum Sempat Dibuka") },
-          { id: 3, ...evaluateStep(3, ["article detail", "detail body"], "3. Baca Isi Artikel Lengkap", "Artikel Terbuka Sempurna", "Gagal Membaca Konten", "Belum Sempat Dibaca Pasien") },
+          { id: 1, targetDesc: "identity • GET /health", ...evaluateStep(1, ["tahap 1", "validasi status akun identity"], "1. Validasi Akun Identity", "Otorisasi Pasien Berhasil", "Antrean Masuk Padat (Ditolak)", "Belum Terjangkau") },
+          { id: 2, targetDesc: "lifestyle • GET /api/articles", ...evaluateStep(2, ["tahap 2", "ambil katalog artikel kesehatan"], "2. Buka Katalog Artikel Medis", "Daftar Artikel Siap Dibaca", "Antrean Server & Database Penuh", "Belum Sempat Dibuka") },
+          { id: 3, targetDesc: "lifestyle • GET /api/articles/:slug", ...evaluateStep(3, ["tahap 3", "baca detail artikel lengkap"], "3. Baca Konten Detail Artikel", "Artikel Terbuka Sempurna", "Gagal Membaca Konten", "Belum Sempat Dibaca Pasien") },
         ]
       : [
-          { id: 1, ...evaluateStep(1, ["doctor sessions", "sessions body"], "1. Cari Jadwal Dokter", "Daftar Spesialis Terbuka", "Pencarian Dokter Penuh", "Belum Terjangkau") },
-          { id: 2, ...evaluateStep(2, ["doctor session detail", "create doctor session"], "2. Pilih Profil Dokter", "Pemesanan Jadwal Selesai", "Antrean Reservasi Penuh", "Belum Sempat Memesan") },
-          { id: 3, ...evaluateStep(3, ["ws connected", "chat sent"], "3. Chat Langsung Dokter", "Koneksi Chat Terhubung", "Sambungan Terputus", "Belum Terhubung") },
-          { id: 4, ...evaluateStep(4, ["live consult health"], "4. Verifikasi Layanan", "Semua Layanan Stabil", "Layanan Sedang Lambat", "Alur Terputus") },
+          { id: 1, targetDesc: "live-consult • GET /api/live-consult", ...evaluateStep(1, ["tahap 1", "daftar jadwal sesi dokter"], "1. Cari Jadwal Sesi Dokter", "Daftar Spesialis Terbuka", "Pencarian Dokter Penuh", "Belum Terjangkau") },
+          { id: 2, targetDesc: "live-consult • GET /api/live-consult/:id", ...evaluateStep(2, ["tahap 2", "detail sesi konsultasi dokter"], "2. Detail Sesi Konsultasi", "Pemesanan Jadwal Selesai", "Antrean Reservasi Penuh", "Belum Sempat Memesan") },
+          { id: 3, targetDesc: "live-consult • WS /ws/live-consult/:id", ...evaluateStep(3, ["tahap 3", "koneksi websocket", "chat dokter"], "3. Sambungan WebSocket & Chat", "Koneksi Chat Terhubung", "Sambungan Terputus", "Belum Terhubung") },
+          { id: 4, targetDesc: "live-consult • GET /health/live", ...evaluateStep(4, ["tahap 4", "health probe live consult"], "4. Health Probe Layanan", "Semua Layanan Stabil", "Layanan Sedang Lambat", "Alur Terputus") },
         ];
 
   // Metrik Langkah Alur Pasien (Sinkron 1:1 dengan Kartu Tahapan Pasien)
-  const totalFlowSteps = flowSteps.length;
-  const plannedTotalActions = record.targetVUs * totalFlowSteps;
-
-  const passedStepsCount = flowSteps.filter((s) => s.status === "success").length;
-  const bottleneckStepsCount = flowSteps.filter((s) => s.status === "bottleneck").length;
-  const partialStepsCount = flowSteps.filter((s) => s.status === "partial").length;
   const unreachedStepsCount = flowSteps.filter((s) => s.status === "unreached").length;
-
   const bottleneckStep = flowSteps.find((s) => s.status === "bottleneck" || s.status === "partial");
   const bottleneckTitle = bottleneckStep ? bottleneckStep.title : "titik macet";
 
   const passedStepIds = flowSteps.filter((s) => s.status === "success").map((s) => s.id);
   const passedStepNames = passedStepIds.length > 0 ? passedStepIds.join(" & ") : "";
-  const unreachedStepIds = flowSteps.filter((s) => s.status === "unreached").map((s) => s.id);
-  const unreachedStepNames = unreachedStepIds.length > 0 ? unreachedStepIds.join(" & ") : "";
 
-  // Sinkronisasi angka aksi dengan alur perjalanan pasien agar tidak terjadi kontradiksi matematika
-  let displaySuccess = successCount;
-  let displayFailed = failedCount;
-  let displayMissing = missingRequests;
-  let displayTotal = expectedTotal;
+  // 100% DATA OTENTIK DARI GRAFANA k6 (BEBAS DARI ASUMSI / PENGADA-ADAAN):
+  const totalHttpRequests = totalRequests;
+  const successHttpRequests = successCount;
+  const failedHttpRequests = failedCount;
 
-  if (isOverload) {
-    displayTotal = plannedTotalActions;
-    displaySuccess = passedStepsCount * record.targetVUs;
-    displayFailed = bottleneckStepsCount * record.targetVUs;
-    displayMissing = unreachedStepsCount * record.targetVUs;
+  const passedChecksCount =
+    record.k6Metrics?.checks?.passes ??
+    (record.checks ? record.checks.reduce((acc, c) => acc + (c.passes || 0), 0) : 0);
+  const failedChecksCount =
+    record.k6Metrics?.checks?.fails ??
+    (record.checks ? record.checks.reduce((acc, c) => acc + (c.fails || 0), 0) : 0);
+  const totalChecksCount = passedChecksCount + failedChecksCount;
 
-    if (partialStepsCount > 0) {
-      const partialFails = Math.min(record.targetVUs, failedCount > 0 ? failedCount : Math.round(record.targetVUs * 0.5));
-      const partialPasses = Math.max(0, record.targetVUs - partialFails);
-      displaySuccess += partialPasses;
-      displayFailed += partialFails;
-    }
-  }
+  const calcBase = Math.max(totalHttpRequests, 1);
+  const pctSuccess = totalHttpRequests > 0 ? Number(((successHttpRequests / calcBase) * 100).toFixed(1)) : 0;
+  const pctFailed = totalHttpRequests > 0 ? Number(((failedHttpRequests / calcBase) * 100).toFixed(1)) : 0;
+  const pctChecksPass = totalChecksCount > 0 ? Number(((passedChecksCount / totalChecksCount) * 100).toFixed(1)) : 0;
+  const pctChecksFail = totalChecksCount > 0 ? Number(((failedChecksCount / totalChecksCount) * 100).toFixed(1)) : 0;
 
-  const displayProcessed = displaySuccess + displayFailed;
-  const calculationBase = Math.max(displayTotal, 1);
-  const pctSuccess = Number(Math.min(100, (displaySuccess / calculationBase) * 100).toFixed(1));
-  const pctFailed = Number(Math.min(100 - pctSuccess, (displayFailed / calculationBase) * 100).toFixed(1));
-  const pctMissing = Math.max(0, Number((100 - pctSuccess - pctFailed).toFixed(1)));
+  // Kasus khusus kegagalan non-HTTP (misal WebSocket rate limit 429 atau check assertion gagal sementara seluruh HTTP 200)
+  const isWsOrCheckFailureOnly = (hasRealFailures || isOverload) && failedChecksCount > 0 && failedHttpRequests === 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-2 sm:p-4 animate-in fade-in duration-200">
@@ -308,7 +363,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
-                  Hasil Pengujian Beban Sistem
+                  {record.testType === "load_test" ? "Hasil Load Test (1x Gelombang)" : "Hasil Stress Test (Ketahanan Server)"}
                 </h2>
                 <span
                   className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase border ${
@@ -329,9 +384,12 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                     ? "Antrean Padat"
                     : "Kapasitas Terlampaui"}
                 </span>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                  {record.testType === "load_test" ? "1x Iterasi Serentak" : "Tekanan Berkelanjutan"}
+                </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {record.flowTitle} • Diuji dengan <strong>{record.targetVUs} Pasien Serentak</strong> selama {record.durationSec || 1} detik
+                {record.flowTitle} • Diuji dengan <strong>{record.targetVUs} Pasien Serentak</strong> {record.testType === "load_test" ? `(1x iterasi penuh, tuntas dalam ${record.durationSec || 1}s)` : `selama ${record.durationSec || 1} detik`}
               </p>
             </div>
           </div>
@@ -381,6 +439,72 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
           {/* TAB 1: RINGKASAN RAMAH PENGGUNA */}
           {activeTab === "summary" && (
             <div className="space-y-3.5 animate-in fade-in duration-150">
+
+              {/* Banner Pembeda Kategori: Load Test vs Stress Test */}
+              {record.testType === "load_test" ? (
+                <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-indigo-950 dark:text-indigo-200 shadow-2xs">
+                  <div className="flex items-center gap-2.5 font-bold">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-xs">
+                      <Zap className="w-4 h-4" />
+                    </span>
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 block">
+                        Kategori Pengujian:
+                      </span>
+                      <span className="text-xs font-black text-slate-900 dark:text-white">
+                        LOAD TEST (Beban Serentak 1x Gelombang)
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-indigo-700 dark:text-indigo-300 font-medium sm:text-right">
+                    Kapasitas Konkurensi: <strong>{record.targetVUs} Pasien Masuk Sekaligus</strong> (Selesai dalam {record.durationSec || 1}s)
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-purple-950 dark:text-purple-200 shadow-2xs">
+                  <div className="flex items-center gap-2.5 font-bold">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-purple-600 text-white shadow-xs">
+                      <Activity className="w-4 h-4" />
+                    </span>
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-purple-600 dark:text-purple-400 block">
+                        Kategori Pengujian:
+                      </span>
+                      <span className="text-xs font-black text-slate-900 dark:text-white">
+                        STRESS TEST (Uji Daya Tahan & Breakpoint Server)
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-purple-700 dark:text-purple-300 font-medium sm:text-right">
+                    Uji Ketahanan: <strong>Puncak {record.targetVUs} VU</strong> selama <strong>{record.durationSec || 1} Detik</strong> (Looping Terus-menerus)
+                  </div>
+                </div>
+              )}
+
+              {/* Banner Titik Kegagalan Alur Sekuensial */}
+              {effectiveFailurePoint && (
+                <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 dark:bg-rose-950/30 flex items-start gap-3 shadow-xs">
+                  <div className="w-9 h-9 rounded-xl bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-xs font-black">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                        Titik Macet Terdeteksi (Tahap {effectiveFailurePoint.stepNum} dari {effectiveFailurePoint.totalSteps})
+                      </span>
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-700 dark:text-rose-300">
+                        FAIL-FAST STOP
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                      "{effectiveFailurePoint.stepName}" gagal: {effectiveFailurePoint.reason}
+                    </h3>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                      Sesuai alur sekuensial ketat, pengujian langsung dihentikan pada tahap ini untuk mencegah cascading failure. Seluruh tahap berikutnya ({effectiveFailurePoint.stepNum + 1} s/d {effectiveFailurePoint.totalSteps}) dibatalkan secara tertib.
+                    </p>
+                  </div>
+                </div>
+              )}
               
               {/* 1. 4 KARTU METRIK UTAMA (BAHASA MUDAH & JELAS) */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
@@ -399,7 +523,9 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                       ? "text-orange-600 dark:text-orange-400"
                       : "text-emerald-600 dark:text-emerald-400"
                   }`}>
-                    {hasRealFailures
+                    {effectiveFailurePoint
+                      ? `Terhenti di Tahap #${effectiveFailurePoint.stepNum}`
+                      : hasRealFailures
                       ? "Sebagian Alur Terhenti"
                       : isSlowQueue
                       ? "Antrean Padat (Terlayani Semua)"
@@ -454,7 +580,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                     className={`text-2xl font-black font-mono my-0.5 ${
                       isSetupTimeout
                         ? "text-amber-500"
-                        : isOverload
+                        : effectiveFailurePoint || isOverload
                         ? "text-rose-500"
                         : isSlowQueue
                         ? "text-orange-500"
@@ -463,6 +589,8 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                   >
                     {isSetupTimeout
                       ? "Batal (Timeout)"
+                      : effectiveFailurePoint
+                      ? `Gagal di Tahap #${effectiveFailurePoint.stepNum}`
                       : isOverload
                       ? "Overload"
                       : isSlowQueue
@@ -472,8 +600,12 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                   <span className="text-[10px] text-slate-400 truncate">
                     {isSetupTimeout
                       ? "Persiapan Akun > 60 Detik"
+                      : effectiveFailurePoint
+                      ? `Alur terputus: ${effectiveFailurePoint.stepName}`
                       : isOverload
-                      ? `Kapasitas Terlampaui (${record.errorRatePercent.toFixed(1)}% Error)`
+                      ? isWsOrCheckFailureOnly
+                        ? `Kapasitas Terlampaui (${formatNumber(failedChecksCount)} Sesi Ditolak)`
+                        : `Kapasitas Terlampaui (${record.errorRatePercent.toFixed(1)}% Error)`
                       : isSlowQueue
                       ? "Semua Pasien Tuntas Terlayani"
                       : "Semua Alur Tuntas"}
@@ -491,7 +623,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                   <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
                     isSetupTimeout
                       ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                      : isOverload
+                      : effectiveFailurePoint || isOverload
                       ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
                       : failedCount > 0
                       ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
@@ -501,6 +633,8 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                   }`}>
                     {isSetupTimeout
                       ? "⚠️ Pengujian Dibatalkan (Persiapan Akun Melebihi Batas Waktu 60 Detik)"
+                      : effectiveFailurePoint
+                      ? `⚠️ Terhenti di Tahap #${effectiveFailurePoint.stepNum} (${effectiveFailurePoint.stepName})`
                       : isOverload
                       ? "⚠️ Alur Terhenti Akibat Beban Puncak di Titik Macet"
                       : failedCount > 0
@@ -511,7 +645,19 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 pt-0.5">
+                <div
+                  className={`grid gap-2 pt-0.5 ${
+                    flowSteps.length === 1
+                      ? "grid-cols-1 max-w-xl"
+                      : flowSteps.length === 2
+                      ? "grid-cols-1 sm:grid-cols-2"
+                      : flowSteps.length === 3
+                      ? "grid-cols-1 sm:grid-cols-3"
+                      : flowSteps.length === 4
+                      ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+                      : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5"
+                  }`}
+                >
                   {flowSteps.map((step) => {
                     const isSuccess = step.status === "success";
                     const isPartial = step.status === "partial";
@@ -521,7 +667,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                     return (
                       <div
                         key={step.id}
-                        className={`p-2.5 rounded-xl border flex flex-col justify-between gap-1.5 transition ${
+                        className={`p-3 rounded-xl border flex flex-col justify-between gap-2 transition ${
                           isSuccess
                             ? "bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-500/30 text-slate-800 dark:text-slate-200"
                             : isPartial
@@ -531,10 +677,10 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                             : "bg-slate-50/50 dark:bg-slate-900/30 border-dashed border-slate-300 dark:border-slate-800 text-slate-400"
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-1">
-                          <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="flex items-start gap-1.5 min-w-0 flex-1">
                             <div
-                              className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
+                              className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5 ${
                                 isSuccess
                                   ? "bg-emerald-500 text-white"
                                   : isPartial
@@ -549,7 +695,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                               {isBottleneck && <X className="w-3 h-3" />}
                               {isUnreached && <span className="text-[10px] leading-none">–</span>}
                             </div>
-                            <span className="font-bold text-xs truncate" title={step.title}>
+                            <span className="font-bold text-xs leading-snug break-words" title={step.title}>
                               {step.title}
                             </span>
                           </div>
@@ -569,12 +715,93 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                           </span>
                         </div>
 
-                        <div className="text-[10px] opacity-80 leading-tight line-clamp-1" title={step.desc}>
+                        <div className="text-[10px] opacity-85 leading-relaxed break-words" title={step.desc}>
                           {step.desc}
                         </div>
                       </div>
                     );
                   })}
+                </div>
+              </div>
+
+              {/* TABEL MATRIKS EKSEKUSI TAHAPAN BERURUTAN (STEP EXECUTION MATRIX) */}
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0B0F19] overflow-hidden shadow-xs">
+                <div className="p-3 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-orange-500" />
+                    Matriks Eksekusi Tahapan Berurutan (Step-by-Step Matrix)
+                  </span>
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                    {flowSteps.length} Tahap
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200/80 dark:border-slate-800 text-[10px] font-black uppercase tracking-wider text-slate-400 bg-slate-50/50 dark:bg-slate-900/40">
+                        <th className="py-2.5 px-3 w-12 text-center">Tahap</th>
+                        <th className="py-2.5 px-3">Nama Skenario</th>
+                        <th className="py-2.5 px-3">Target Microservice & Endpoint</th>
+                        <th className="py-2.5 px-3 text-center w-28">Status</th>
+                        <th className="py-2.5 px-3 text-right">Hasil Diagnostik</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                      {flowSteps.map((st, i) => {
+                        const isSuccess = st.status === "success";
+                        const isBottleneck = st.status === "bottleneck";
+                        const isPartial = st.status === "partial";
+
+                        return (
+                          <tr
+                            key={st.id || i}
+                            className={`transition hover:bg-slate-50/70 dark:hover:bg-slate-900/40 ${
+                              isBottleneck ? "bg-rose-500/5 dark:bg-rose-950/20" : ""
+                            }`}
+                          >
+                            <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-400">
+                              #{st.id}
+                            </td>
+                            <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
+                              {st.title}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-[11px] text-slate-600 dark:text-slate-400">
+                              {(st as any).targetDesc || "-"}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <span
+                                className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase border ${
+                                  isSuccess
+                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                                    : isBottleneck
+                                    ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                                    : isPartial
+                                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                                    : "bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700"
+                                }`}
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    isSuccess
+                                      ? "bg-emerald-500"
+                                      : isBottleneck
+                                      ? "bg-rose-500 animate-pulse"
+                                      : isPartial
+                                      ? "bg-amber-500"
+                                      : "bg-slate-400"
+                                  }`}
+                                />
+                                {isSuccess ? "Lulus" : isBottleneck ? "Titik Gagal" : isPartial ? "Sebagian" : "Dilewati"}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                              {st.desc}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
@@ -599,15 +826,21 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                       {isSetupTimeout && `Kesimpulan: Persiapan Pengujian (setup) Melebihi Batas Waktu 60 Detik`}
                       {!isSetupTimeout && isOptimal && `Kesimpulan: Server Sangat Prima Melayani ${record.targetVUs} Pasien Serentak`}
                       {!isSetupTimeout && isSlowQueue && `Kesimpulan: Antrean Padat — Seluruh ${record.targetVUs} Pasien Berhasil Tuntas (${formattedP95} ms)`}
-                      {!isSetupTimeout && isOverload && `Kesimpulan: Server Mengalami Kendala Beban pada ${record.targetVUs} Pasien Serentak (${record.errorRatePercent.toFixed(1)}% Gagal)`}
+                      {!isSetupTimeout && isOverload && (
+                        isWsOrCheckFailureOnly
+                          ? `Kesimpulan: Server Mengalami Kendala Beban — ${formatNumber(failedChecksCount)} Sesi Ditolak (${effectiveFailurePoint?.reason || 'Batas Sambungan Terlampaui'})`
+                          : `Kesimpulan: Server Mengalami Kendala Beban pada ${record.targetVUs} Pasien Serentak (${record.errorRatePercent.toFixed(1)}% Gagal)`
+                      )}
                       {!isSetupTimeout && !isOverload && failedCount > 0 && `Kesimpulan: Seluruh ${record.targetVUs} Pasien Berhasil Tuntas (${failedCount} Penolakan Sesi Dipulihkan)`}
                     </span>
                   </div>
                   <span className="text-[11px] font-mono font-bold shrink-0 opacity-85">
                     {isSetupTimeout
-                      ? `${formatNumber(totalRequests)} aksi di tahap setup`
-                      : `${formatNumber(displayProcessed)} dari ~${formatNumber(displayTotal)} aksi diproses`}
-                    {isFullyCompleted ? " (100%)" : ""}
+                      ? `${formatNumber(totalRequests)} request di tahap setup`
+                      : isWsOrCheckFailureOnly
+                      ? `${formatNumber(totalHttpRequests)} HTTP Lolos • ${formatNumber(failedChecksCount)} Sesi Ditolak`
+                      : `${formatNumber(totalHttpRequests)} Total Request HTTP (${formatNumber(successHttpRequests)} Sukses, ${formatNumber(failedHttpRequests)} Gagal)`}
+                    {isFullyCompleted ? " • 100% Lolos" : ""}
                   </span>
                 </div>
 
@@ -646,109 +879,166 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                   </div>
                 ) : isOverload ? (
                   <div className="space-y-2 text-xs">
-                    <p className="leading-relaxed opacity-95">
-                      Saat disimulasikan <strong>{record.targetVUs} pasien masuk bersamaan</strong>, server melayani hingga batas kapasitasnya dan mengalami penolakan respon pada <strong>{bottleneckTitle}</strong> ({formatNumber(displayFailed)} aksi gagal/ditolak).
-                      Dari rencana alur aktivitas pasien (total <strong>{formatNumber(displayTotal)} aksi</strong> dari {totalFlowSteps} tahapan alur), sebanyak <strong>{formatNumber(displaySuccess)} aksi berhasil</strong> diproses normal oleh server{passedStepNames ? ` (Langkah ${passedStepNames} lolos)` : ""}, sedangkan <strong>{formatNumber(displayFailed)} aksi ditolak / gagal diproses</strong> saat beban puncak di titik macet.
-                      {displayMissing > 0 ? (
-                        <span> Sebanyak <strong>~{formatNumber(displayMissing)} rencana alur lanjutan otomatis terhenti</strong>{unreachedStepNames ? ` (Langkah ${unreachedStepNames})` : ""} di titik kendala agar server tidak mengalami mati total (crash).</span>
-                      ) : (
-                        <span> Seluruh alur transaksi selesai dievaluasi hingga akhir.</span>
-                      )}
-                    </p>
+                    {isWsOrCheckFailureOnly ? (
+                      <p className="leading-relaxed opacity-95">
+                        Hasil pengujian k6 dengan beban <strong>{record.targetVUs} pasien serentak</strong> mencatat seluruh <strong>{formatNumber(totalHttpRequests)} request HTTP fisik berhasil diproses normal (100%)</strong> tanpa kegagalan HTTP{passedStepNames ? ` (Tahap ${passedStepNames} lolos)` : ""}.
+                        Namun saat memasuki tahap interaksi real-time pada <strong>{bottleneckTitle}</strong>, batas koneksi server tercapai sehingga <strong>{formatNumber(failedChecksCount)} sambungan WebSocket ditolak ({pctChecksFail}%)</strong>{effectiveFailurePoint?.reason ? ` (${effectiveFailurePoint.reason})` : " (Status 429 Too Many Requests)"}.
+                        {effectiveFailurePoint ? (
+                          <span> Pengujian dihentikan secara tertib (fail-fast) pada <strong>Tahap #{effectiveFailurePoint.stepNum}: {effectiveFailurePoint.stepName}</strong> untuk menjaga stabilitas sistem.</span>
+                        ) : unreachedStepsCount > 0 ? (
+                          <span> Sebanyak {unreachedStepsCount} tahapan berikutnya dilewati untuk mencegah kegagalan berantai (cascading failure).</span>
+                        ) : null}
+                      </p>
+                    ) : (
+                      <p className="leading-relaxed opacity-95">
+                        Hasil pengujian k6 dengan beban <strong>{record.targetVUs} pasien serentak</strong> mencatat total <strong>{formatNumber(totalHttpRequests)} request HTTP fisik</strong> yang dieksekusi oleh sistem.
+                        Sebanyak <strong>{formatNumber(successHttpRequests)} request berhasil ({pctSuccess}%)</strong> diproses normal oleh server{passedStepNames ? ` (Langkah ${passedStepNames} lolos)` : ""}, sedangkan <strong>{formatNumber(failedHttpRequests)} request mengalami penolakan / kegagalan ({pctFailed}%)</strong>{bottleneckStep ? ` pada ${bottleneckTitle}` : ""}.
+                        {totalChecksCount > 0 && (
+                          <span> Dari validasi k6 (checks), tercatat <strong>{formatNumber(passedChecksCount)} validasi lolos ({pctChecksPass}%)</strong> dan <strong>{formatNumber(failedChecksCount)} validasi gagal ({pctChecksFail}%)</strong>.</span>
+                        )}
+                        {effectiveFailurePoint ? (
+                          <span> Pengujian terhenti secara tertib di <strong>Tahap #{effectiveFailurePoint.stepNum}: {effectiveFailurePoint.stepName}</strong> karena: <em>{effectiveFailurePoint.reason}</em>.</span>
+                        ) : unreachedStepsCount > 0 ? (
+                          <span> Sebanyak {unreachedStepsCount} tahapan berikutnya tidak dieksekusi untuk mencegah beban berlebih (cascading failure).</span>
+                        ) : (
+                          <span> Seluruh alur transaksi selesai dievaluasi hingga akhir.</span>
+                        )}
+                      </p>
+                    )}
 
                     {/* 3 Kotak Rincian Transparan */}
-                    <div className="p-2.5 rounded-lg bg-white/70 dark:bg-slate-900/60 border border-rose-500/20 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
-                      <div>
-                        <span className="text-emerald-600 dark:text-emerald-400 font-bold block text-xs">
-                          ✓ {formatNumber(displaySuccess)} Aksi Berhasil ({pctSuccess}%)
-                        </span>
-                        <span className="text-slate-500 text-[10px]">
-                          {passedStepNames ? `Langkah ${passedStepNames} lolos diproses` : "Aksi lolos diproses server"}
-                        </span>
+                    {isWsOrCheckFailureOnly ? (
+                      <div className="p-2.5 rounded-lg bg-white/70 dark:bg-slate-900/60 border border-rose-500/20 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                        <div>
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold block text-xs">
+                            ✓ {formatNumber(totalHttpRequests)} HTTP Sukses (100%)
+                          </span>
+                          <span className="text-slate-500 text-[10px]">
+                            {passedStepNames ? `Tahap ${passedStepNames} lolos tervalidasi` : "Semua request HTTP lolos"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-rose-500 font-bold block text-xs">
+                            ✗ {formatNumber(failedChecksCount)} Sesi Ditolak ({pctChecksFail}%)
+                          </span>
+                          <span className="text-slate-500 text-[10px]">
+                            {bottleneckStep ? `Koneksi ditolak di ${bottleneckTitle}` : "Batas koneksi WebSocket tercapai"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-blue-600 dark:text-blue-400 font-bold block text-xs">
+                            📋 {formatNumber(passedChecksCount)}/{formatNumber(totalChecksCount)} Check Lolos ({pctChecksPass}%)
+                          </span>
+                          <span className="text-slate-500 text-[10px]">
+                            Rasio validasi k6 yang terpenuhi
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-rose-500 font-bold block text-xs">
-                          ✗ {formatNumber(displayFailed)} Aksi Gagal ({pctFailed}%)
-                        </span>
-                        <span className="text-slate-500 text-[10px]">Penolakan beban di {bottleneckTitle}</span>
+                    ) : (
+                      <div className="p-2.5 rounded-lg bg-white/70 dark:bg-slate-900/60 border border-rose-500/20 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                        <div>
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold block text-xs">
+                            ✓ {formatNumber(successHttpRequests)} Request Sukses ({pctSuccess}%)
+                          </span>
+                          <span className="text-slate-500 text-[10px]">
+                            {passedStepNames ? `Langkah ${passedStepNames} lolos dieksekusi` : "Request HTTP lolos diproses"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-rose-500 font-bold block text-xs">
+                            ✗ {formatNumber(failedHttpRequests)} Request Gagal ({pctFailed}%)
+                          </span>
+                          <span className="text-slate-500 text-[10px]">
+                            {bottleneckStep ? `Penolakan respon di ${bottleneckTitle}` : "Request HTTP ditolak server"}
+                          </span>
+                        </div>
+                        <div>
+                          {totalChecksCount > 0 ? (
+                            <>
+                              <span className="text-blue-600 dark:text-blue-400 font-bold block text-xs">
+                                📋 {formatNumber(passedChecksCount)}/{formatNumber(totalChecksCount)} Check Lolos ({pctChecksPass}%)
+                              </span>
+                              <span className="text-slate-500 text-[10px]">
+                                {failedChecksCount > 0 ? `${formatNumber(failedChecksCount)} validasi check k6 gagal` : "Semua check k6 terpenuhi"}
+                              </span>
+                            </>
+                          ) : effectiveFailurePoint ? (
+                            <>
+                              <span className="text-amber-600 dark:text-amber-400 font-bold block text-xs">
+                                ⚠️ Titik Gagal: Tahap #{effectiveFailurePoint.stepNum}
+                              </span>
+                              <span className="text-slate-500 text-[10px] truncate block" title={effectiveFailurePoint.reason}>
+                                {effectiveFailurePoint.stepName}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-slate-600 dark:text-slate-400 font-bold block text-xs">
+                                ⏱️ Error Rate: {record.errorRatePercent.toFixed(1)}%
+                              </span>
+                              <span className="text-slate-500 text-[10px]">Tingkat kegagalan total k6</span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-amber-600 dark:text-amber-400 font-bold block text-xs">
-                          ⚠️ ~{formatNumber(displayMissing)} Alur Terhenti ({pctMissing.toFixed(0)}%)
-                        </span>
-                        <span className="text-slate-500 text-[10px]">
-                          {unreachedStepNames ? `Langkah ${unreachedStepNames} tidak dijalankan` : "Langkah lanjutan terhenti"}
-                        </span>
-                      </div>
-                    </div>
+                    )}
 
-                    {/* Stacked Progress Bar 100% Terbuka */}
+                    {/* Stacked Progress Bar 100% Data Riil k6 */}
                     <div className="pt-1 space-y-1">
                       <div className="h-2.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden flex shadow-inner">
                         <div
                           className="h-full bg-emerald-500 transition-all duration-300"
-                          style={{ width: `${pctSuccess}%` }}
-                          title={`Aksi Berhasil: ${displaySuccess} (${pctSuccess}%)`}
+                          style={{ width: `${isWsOrCheckFailureOnly ? pctChecksPass : pctSuccess}%` }}
+                          title={isWsOrCheckFailureOnly ? `Validasi Lolos: ${passedChecksCount} (${pctChecksPass}%)` : `Request Sukses: ${successHttpRequests} (${pctSuccess}%)`}
                         />
                         <div
                           className="h-full bg-rose-500 transition-all duration-300"
-                          style={{ width: `${pctFailed}%` }}
-                          title={`Aksi Ditolak: ${displayFailed} (${pctFailed}%)`}
-                        />
-                        <div
-                          className="h-full bg-amber-400/80 dark:bg-amber-500/60 transition-all duration-300"
-                          style={{ width: `${pctMissing}%` }}
-                          title={`Aksi Terhenti: ~${displayMissing} (${pctMissing.toFixed(0)}%)`}
+                          style={{ width: `${isWsOrCheckFailureOnly ? pctChecksFail : pctFailed}%` }}
+                          title={isWsOrCheckFailureOnly ? `Sesi Ditolak: ${failedChecksCount} (${pctChecksFail}%)` : `Request Gagal: ${failedHttpRequests} (${pctFailed}%)`}
                         />
                       </div>
                       <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 px-0.5">
                         <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                          ● {formatNumber(displaySuccess)} Aksi Berhasil ({pctSuccess}%)
+                          ● {isWsOrCheckFailureOnly ? `${formatNumber(passedChecksCount)} Validasi Lolos (${pctChecksPass}%)` : `${formatNumber(successHttpRequests)} Request Sukses (${pctSuccess}%)`}
                         </span>
                         <span className="text-rose-500 font-semibold">
-                          ● {formatNumber(displayFailed)} Ditolak ({pctFailed}%)
+                          ● {isWsOrCheckFailureOnly ? `${formatNumber(failedChecksCount)} Sesi Ditolak (${pctChecksFail}%)` : `${formatNumber(failedHttpRequests)} Request Gagal (${pctFailed}%)`}
                         </span>
-                        <span className="text-amber-600 dark:text-amber-400 font-semibold">
-                          ● ~{formatNumber(displayMissing)} Terhenti ({pctMissing.toFixed(0)}%)
+                        <span className="text-slate-500 dark:text-slate-400 font-semibold">
+                          {isWsOrCheckFailureOnly
+                            ? `Total ${formatNumber(totalChecksCount)} Validasi k6 (${pctChecksFail}% Ditolak)`
+                            : `Total ${formatNumber(totalHttpRequests)} Request HTTP (Error: ${record.errorRatePercent.toFixed(1)}%)`}
                         </span>
                       </div>
                     </div>
-
-                    {totalRequests !== displayProcessed && totalRequests > 0 && (
-                      <div className="text-[10px] text-slate-400 dark:text-slate-500 border-t border-slate-200/50 dark:border-slate-800/50 pt-2 flex items-center justify-between">
-                        <span>
-                          ℹ️ <em>Catatan teknis socket: k6 mencatat {formatNumber(totalRequests)} request HTTP fisik (termasuk otentikasi akun di tahap inisialisasi).</em>
-                        </span>
-                        <span>Error Rate Socket: {record.errorRatePercent.toFixed(1)}%</span>
-                      </div>
-                    )}
                   </div>
                 ) : !isOverload && failedCount > 0 ? (
                   <div className="space-y-2 text-xs">
                     <p className="leading-relaxed opacity-95">
-                      Seluruh <strong>{record.targetVUs} pasien berhasil menyelesaikan seluruh alur pengujian</strong> (Langkah 3 Tanya AI, Langkah 4 Simpan Riwayat, dan Langkah 5 Penutupan tuntas 100%).
-                      Tercatat <strong>{formatNumber(failedCount)} penolakan request</strong> (karena sesi konsultasi pasien sebelumnya masih tersimpan aktif / respon 409 Konflik), namun sistem k6 langsung menggunakan sesi aktif tersebut sehingga pasien tetap sukses berkonsultasi hingga akhir tanpa alur yang terputus.
+                      Seluruh <strong>{record.targetVUs} pasien berhasil menyelesaikan seluruh alur pengujian</strong>
+                      {flowSteps.length > 0 ? ` (${flowSteps.filter(s => s.status === "success").map(s => s.title).join(", ")} — tuntas 100%)` : ""}.
+                      Tercatat <strong>{formatNumber(failedCount)} penolakan HTTP</strong> (respon error non-2xx, kemungkinan status 409 Konflik karena sesi sebelumnya masih aktif), namun k6 langsung melanjutkan alur menggunakan sesi tersebut sehingga seluruh pasien berhasil menyelesaikan transaksi tanpa terputus.
                     </p>
 
                     {/* 3 Kotak Rincian Transparan */}
                     <div className="p-2.5 rounded-lg bg-white/70 dark:bg-slate-900/60 border border-amber-500/20 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
                       <div>
                         <span className="text-emerald-600 dark:text-emerald-400 font-bold block text-xs">
-                          ✓ {formatNumber(successCount)} Aksi Berhasil ({pctSuccess}%)
+                          ✓ {formatNumber(successHttpRequests)} Request Berhasil ({pctSuccess}%)
                         </span>
                         <span className="text-slate-500 text-[10px]">Aksi HTTP sukses diproses server</span>
                       </div>
                       <div>
                         <span className="text-amber-600 dark:text-amber-400 font-bold block text-xs">
-                          ℹ️ {formatNumber(failedCount)} Sesi Aktif Dipakai ({pctFailed}%)
+                          ℹ️ {formatNumber(failedHttpRequests)} Request Ditolak ({pctFailed}%)
                         </span>
-                        <span className="text-slate-500 text-[10px]">Konflik sesi 409 dipulihkan otomatis</span>
+                        <span className="text-slate-500 text-[10px]">Respon error HTTP / status non-2xx</span>
                       </div>
                       <div>
                         <span className="text-emerald-600 dark:text-emerald-400 font-bold block text-xs">
-                          ✓ 0 Aksi Terhenti (0%)
+                          ✓ {totalChecksCount > 0 ? `${formatNumber(passedChecksCount)}/${formatNumber(totalChecksCount)} Check Lolos` : `Total ${formatNumber(totalHttpRequests)} Request`}
                         </span>
-                        <span className="text-slate-500 text-[10px]">Semua alur berhasil tuntas</span>
+                        <span className="text-slate-500 text-[10px]">Tervalidasi langsung oleh k6</span>
                       </div>
                     </div>
 
@@ -758,23 +1048,23 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                         <div
                           className="h-full bg-emerald-500 transition-all duration-300"
                           style={{ width: `${pctSuccess}%` }}
-                          title={`Aksi Berhasil: ${successCount} (${pctSuccess}%)`}
+                          title={`Request Berhasil: ${successHttpRequests} (${pctSuccess}%)`}
                         />
                         <div
                           className="h-full bg-amber-500 transition-all duration-300"
                           style={{ width: `${pctFailed}%` }}
-                          title={`Sesi Terpakai: ${failedCount} (${pctFailed}%)`}
+                          title={`Request Ditolak: ${failedHttpRequests} (${pctFailed}%)`}
                         />
                       </div>
                       <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 px-0.5">
                         <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                          ● {formatNumber(successCount)} Aksi Berhasil ({pctSuccess}%)
+                          ● {formatNumber(successHttpRequests)} Request Sukses ({pctSuccess}%)
                         </span>
                         <span className="text-amber-600 dark:text-amber-400 font-semibold">
-                          ● {formatNumber(failedCount)} Sesi Dipulihkan ({pctFailed}%)
+                          ● {formatNumber(failedHttpRequests)} Request Ditolak ({pctFailed}%)
                         </span>
-                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                          ● 100% Alur Tuntas Selesai
+                        <span className="text-slate-500 dark:text-slate-400 font-semibold">
+                          Total {formatNumber(totalHttpRequests)} Request HTTP
                         </span>
                       </div>
                     </div>

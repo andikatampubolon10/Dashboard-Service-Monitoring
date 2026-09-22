@@ -11,7 +11,40 @@ export interface StressStage {
   targetVUs: number;
 }
 
-export type SelectedFlowType = '1' | '2' | '3';
+export type SelectedFlowType = string;
+
+export interface CustomFlowStep {
+  id: string;
+  name: string;
+  serviceKey: string;
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  path: string;
+  url?: string;
+  body?: any;
+  headers?: Record<string, string>;
+  expectedStatus?: number;
+}
+
+export interface CustomFlowAuthConfig {
+  type: 'identity' | 'custom' | 'apiKey' | 'none';
+  identityServiceKey?: string;
+  loginUrl?: string;
+  loginPayload?: string;
+  tokenField?: string;
+  headerName?: string;
+  apiKeyValue?: string;
+}
+
+export interface CustomFlow {
+  id: string;
+  projectId?: string;
+  name: string;
+  description?: string;
+  authConfig: CustomFlowAuthConfig;
+  steps: CustomFlowStep[];
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export interface ServiceEndpointsConfig {
   identity?: string;
@@ -93,6 +126,8 @@ export interface StressTestProgress {
   checks: K6CheckItem[];
   k6Metrics?: K6MetricsSummary | null;
   rawSummaryText?: string;
+  failurePoint?: { stepNum: number; totalSteps: number; stepName: string; reason: string } | null;
+  testType?: 'load_test' | 'stress_test';
   flowStats: {
     flow1: number;
     flow2: number;
@@ -132,6 +167,8 @@ class StressTestEngine {
   private checks: K6CheckItem[] = [];
   private k6Metrics: K6MetricsSummary | null = null;
   private rawSummaryText = '';
+  private failurePoint: { stepNum: number; totalSteps: number; stepName: string; reason: string } | null = null;
+  private testType: 'load_test' | 'stress_test' = 'load_test';
 
   private listeners: Set<StressTestListener> = new Set();
   private logListeners: Set<StressTestLogListener> = new Set();
@@ -229,6 +266,8 @@ class StressTestEngine {
     if (data.checks && Array.isArray(data.checks)) this.checks = data.checks;
     if (data.k6Metrics) this.k6Metrics = data.k6Metrics;
     if (data.rawSummaryText) this.rawSummaryText = data.rawSummaryText;
+    if (data.failurePoint !== undefined) this.failurePoint = data.failurePoint;
+    if (data.testType) this.testType = data.testType;
 
     this.breachedReasons = [];
     if (this.p95LatencyMs > 1000) {
@@ -318,6 +357,7 @@ class StressTestEngine {
     return {
       isRunning: this.isRunning,
       isFinished: this.isFinished,
+      testType: this.testType,
       selectedFlow: this.selectedFlow,
       currentStageIndex: this.isRunning ? 1 : 0,
       totalStages: 1,
@@ -343,6 +383,7 @@ class StressTestEngine {
       checks: this.checks,
       k6Metrics: this.k6Metrics,
       rawSummaryText: this.rawSummaryText,
+      failurePoint: this.failurePoint,
       flowStats: {
         flow1: this.selectedFlow === '1' ? this.totalRequests : 0,
         flow2: this.selectedFlow === '2' ? this.totalRequests : 0,
@@ -358,13 +399,19 @@ class StressTestEngine {
     flow: SelectedFlowType = '1',
     targetVUs: number = 50,
     durationSec: number = 30,
-    serviceEndpoints?: ServiceEndpointsConfig
+    serviceEndpoints?: ServiceEndpointsConfig,
+    stages?: StressStage[],
+    customFlow?: CustomFlow | null,
+    testType: 'load_test' | 'stress_test' = 'load_test',
+    projectId?: string,
+    projectName?: string
   ) {
     if (this.isRunning) return;
 
     this.selectedFlow = flow;
     this.targetVUs = targetVUs;
     this.durationSec = durationSec;
+    this.testType = testType;
     if (serviceEndpoints) {
       this.targetEndpoints = serviceEndpoints;
     }
@@ -387,8 +434,10 @@ class StressTestEngine {
     this.checks = [];
     this.k6Metrics = null;
     this.rawSummaryText = '';
+    this.failurePoint = null;
     this.breachedReasons = [];
-    this.logs = [`[k6 Controller] Mengirim instruksi eksekusi k6 ke backend (Flow ${flow}, ${targetVUs} Pasien, Closed Workload Iterasi)...`];
+    const modeLabel = testType === 'load_test' ? 'Load Test (1x Gelombang)' : 'Stress Test (Ketahanan)';
+    this.logs = [`[k6 Controller] Mengirim instruksi eksekusi k6 ke backend (${modeLabel}, Flow: ${customFlow ? customFlow.name : 'Flow ' + flow}, ${targetVUs} Pasien, ${testType === 'stress_test' && stages && stages.length > 0 ? stages.length + ' Stages' : durationSec + 's'})...`];
     this.notifyLogListeners();
     this.notify(this.getProgress());
 
@@ -397,10 +446,15 @@ class StressTestEngine {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          testType,
           flow,
           targetVUs,
           durationSec,
+          projectId: projectId || customFlow?.projectId || undefined,
+          projectName: projectName || undefined,
           serviceEndpoints: this.targetEndpoints,
+          stages: stages && stages.length > 0 ? stages : undefined,
+          customFlow: customFlow || undefined,
         }),
       });
 
@@ -448,6 +502,7 @@ export interface StressTestRecord {
   projectId?: string;
   projectName?: string;
   timestamp: string;
+  testType?: 'load_test' | 'stress_test';
   selectedFlow: SelectedFlowType;
   flowTitle: string;
   targetVUs: number;
@@ -470,6 +525,9 @@ export interface StressTestRecord {
   checks?: K6CheckItem[];
   k6Metrics?: K6MetricsSummary | null;
   rawSummaryText?: string;
+  logs?: string[];
+  failurePoint?: { stepNum: number; totalSteps: number; stepName: string; reason: string } | null;
+  customSteps?: CustomFlowStep[];
 }
 
 export function generateRecommendations(
@@ -564,3 +622,117 @@ export function clearStressTestHistory(): void {
     console.error('Failed to clear stress test history', e);
   }
 }
+
+const API_BASE_URL =
+  import.meta.env.VITE_MONITORING_API_URL !== undefined
+    ? import.meta.env.VITE_MONITORING_API_URL.replace(/\/$/, '')
+    : (import.meta.env.DEV ? 'http://localhost:5000' : '');
+
+export async function fetchCustomFlows(projectId?: string): Promise<CustomFlow[]> {
+  try {
+    const url = projectId
+      ? `${API_BASE_URL}/api/stress-test/flows?projectId=${encodeURIComponent(projectId)}`
+      : `${API_BASE_URL}/api/stress-test/flows`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.flows || [];
+  } catch (err) {
+    console.warn('[k6 engine] Failed to fetch custom flows:', err);
+    return [];
+  }
+}
+
+export async function saveCustomFlow(flow: CustomFlow): Promise<CustomFlow | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/stress-test/flows`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(flow),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.flow || null;
+  } catch (err) {
+    console.error('[k6 engine] Failed to save custom flow:', err);
+    return null;
+  }
+}
+
+export async function deleteCustomFlow(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/stress-test/flows/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('[k6 engine] Failed to delete custom flow:', err);
+    return false;
+  }
+}
+
+/**
+ * Fetch persistent stress test history from Online PostgreSQL (NeonDB)
+ */
+export async function fetchDbStressTestHistory(projectId?: string): Promise<StressTestRecord[]> {
+  try {
+    const url = projectId
+      ? `${API_BASE_URL}/api/stress-test/runs?projectId=${encodeURIComponent(projectId)}&limit=50`
+      : `${API_BASE_URL}/api/stress-test/runs?limit=50`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.runs || []).map((r: any) => ({
+      id: r.id,
+      timestamp: new Date(r.created_at).toLocaleString('id-ID', {
+        dateStyle: 'short',
+        timeStyle: 'medium',
+      }),
+      createdAt: r.created_at,
+      projectId: r.project_id,
+      projectName: r.project_name,
+      testType: r.test_type,
+      selectedFlow: r.flow_id,
+      flowTitle: r.flow_name,
+      targetVUs: r.target_vus,
+      durationSec: r.duration_sec,
+      totalRequests: r.total_requests,
+      successRequests: r.success_requests,
+      failedRequests: r.failed_requests,
+      currentRps: r.current_rps,
+      p95LatencyMs: r.p95_latency_ms,
+      p90LatencyMs: r.p90_latency_ms,
+      avgLatencyMs: r.avg_latency_ms,
+      minLatencyMs: r.min_latency_ms,
+      maxLatencyMs: r.max_latency_ms,
+      errorRatePercent: parseFloat(r.error_rate_percent || 0),
+      healthGrade: r.health_grade,
+      healthVerdict: r.health_verdict,
+      recommendations: [],
+      checks: r.checks || [],
+      failurePoint: r.failure_point,
+      targetEndpoints: r.target_endpoints,
+      k6Metrics: r.k6_metrics,
+    }));
+  } catch (err) {
+    console.warn('[k6 engine] Failed to fetch db history:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetch aggregated project analytics from Online PostgreSQL (NeonDB)
+ */
+export async function fetchProjectStressAnalytics(projectId: string) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/stress-test/projects/${encodeURIComponent(projectId)}/analytics`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.data || null;
+  } catch (err) {
+    console.warn('[k6 engine] Failed to fetch project analytics:', err);
+    return null;
+  }
+}
+
+

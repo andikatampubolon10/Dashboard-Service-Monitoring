@@ -5,6 +5,8 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const aiInsightService = require('../services/aiInsight.service');
+const stressTestRepository = require('../repositories/stressTest.repository');
+const { getProjectById } = require('../config/projects.config');
 const router = express.Router();
 
 let ioServer = null;
@@ -34,6 +36,7 @@ let currentTestStatus = {
   checks: [],
   k6Metrics: null,
   rawSummaryText: '',
+  failurePoint: null,
 };
 
 function setSocketServer(io) {
@@ -161,6 +164,110 @@ function parseK6Output(text) {
   broadcastProgress();
 }
 
+const CUSTOM_FLOWS_FILE = path.join(__dirname, '../../data/custom_flows.json');
+
+function loadCustomFlows() {
+  try {
+    if (fs.existsSync(CUSTOM_FLOWS_FILE)) {
+      const raw = fs.readFileSync(CUSTOM_FLOWS_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      return Array.isArray(data) ? data : [];
+    }
+  } catch (err) {
+    console.error('[k6 flows] Failed to load custom flows:', err.message);
+  }
+  return [];
+}
+
+function saveCustomFlows(flows) {
+  try {
+    fs.writeFileSync(CUSTOM_FLOWS_FILE, JSON.stringify(flows, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[k6 flows] Failed to save custom flows:', err.message);
+  }
+}
+
+/**
+ * GET /api/stress-test/flows
+ * List custom test flows (optionally filtered by projectId)
+ */
+router.get('/flows', (req, res) => {
+  const { projectId } = req.query;
+  const flows = loadCustomFlows();
+  if (projectId) {
+    const filtered = flows.filter((f) => f.projectId === projectId);
+    return res.json({ success: true, flows: filtered });
+  }
+  return res.json({ success: true, flows });
+});
+
+/**
+ * POST /api/stress-test/flows
+ * Create or update a custom test flow
+ */
+router.post('/flows', (req, res) => {
+  try {
+    const { id, name, description, projectId, authConfig, steps } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Nama Flow wajib diisi.' });
+    }
+    if (!Array.isArray(steps) || steps.length === 0) {
+      return res.status(400).json({ success: false, message: 'Flow harus memiliki minimal 1 langkah transaksi (step).' });
+    }
+
+    const flows = loadCustomFlows();
+    const flowId = id || `flow-custom-${Date.now()}`;
+    const newFlow = {
+      id: flowId,
+      name: name.trim(),
+      description: description || '',
+      projectId: projectId || null,
+      authConfig: authConfig || { type: 'identity' },
+      steps: steps.map((s, idx) => ({
+        id: s.id || `step-${idx + 1}`,
+        name: s.name || `Langkah ${idx + 1}`,
+        serviceKey: s.serviceKey || 'custom',
+        url: s.url || '',
+        method: (s.method || 'GET').toUpperCase(),
+        path: s.path || '/',
+        body: s.body || null,
+        headers: s.headers || {},
+        expectedStatus: parseInt(s.expectedStatus || '200', 10),
+      })),
+      updatedAt: new Date().toISOString(),
+      createdAt: req.body.createdAt || new Date().toISOString(),
+    };
+
+    const existingIdx = flows.findIndex((f) => f.id === flowId);
+    if (existingIdx >= 0) {
+      flows[existingIdx] = newFlow;
+    } else {
+      flows.push(newFlow);
+    }
+
+    saveCustomFlows(flows);
+    return res.json({ success: true, flow: newFlow });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: `Gagal menyimpan flow: ${err.message}` });
+  }
+});
+
+/**
+ * DELETE /api/stress-test/flows/:id
+ * Delete a custom test flow
+ */
+router.delete('/flows/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const flows = loadCustomFlows();
+    const filtered = flows.filter((f) => f.id !== id);
+    saveCustomFlows(filtered);
+    return res.json({ success: true, message: `Flow ${id} berhasil dihapus.` });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: `Gagal menghapus flow: ${err.message}` });
+  }
+});
+
 /**
  * GET /api/stress-test/status
  */
@@ -173,7 +280,7 @@ router.get('/status', (req, res) => {
 
 /**
  * POST /api/stress-test/start
- * Body: { flow: '1'|'2'|'3', targetVUs: 50, durationSec: 30 }
+ * Body: { flow: '1'|'2'|'3'|customId, targetVUs: 50, durationSec: 30, stages?: [], customFlow?: object, serviceEndpoints?: object }
  */
 router.post('/start', (req, res) => {
   if (activeK6Process) {
@@ -185,17 +292,51 @@ router.post('/start', (req, res) => {
   }
 
   const flow = String(req.body.flow || '1');
-  const targetVUs = Math.max(1, parseInt(req.body.targetVUs || '50', 10));
-  const durationSec = Math.max(5, parseInt(req.body.durationSec || '30', 10));
+  const customFlow = req.body.customFlow || null;
+  const stages = req.body.stages || null;
+  const testType = req.body.testType || (req.body.iterations === 1 ? 'load_test' : (Array.isArray(stages) && stages.length > 0 ? 'stress_test' : 'load_test'));
+  const projectId = req.body.projectId || (customFlow ? customFlow.projectId : null) || null;
+  const projectObj = projectId ? getProjectById(projectId) : null;
+  const projectName = req.body.projectName || (projectObj ? projectObj.name : null) || (projectId ? `Projek ${projectId}` : null);
+  const flowTitle = customFlow ? customFlow.name : (flow === '1' ? 'Konsultasi Chat AI' : flow === '2' ? 'Artikel Kesehatan' : 'Pencarian Dokter');
+  let targetVUs = Math.max(1, parseInt(req.body.targetVUs || '50', 10));
+  let durationSec = Math.max(5, parseInt(req.body.durationSec || '30', 10));
+
+  // Normalisasi stages dinamis jika dikirim oleh client (khusus mode stress_test)
+  let normalizedStages = [];
+  if (testType === 'stress_test' && Array.isArray(stages) && stages.length > 0) {
+    normalizedStages = stages.map((s) => {
+      const durSec = Math.max(3, parseInt(s.durationSec || s.duration || '10', 10));
+      const vu = Math.max(0, Math.min(500, parseInt(s.targetVUs !== undefined ? s.targetVUs : s.target, 10) || 0));
+      return {
+        duration: `${durSec}s`,
+        target: vu,
+      };
+    });
+
+    // Hitung total durasi dan peak VUs dari stages
+    durationSec = normalizedStages.reduce((acc, s) => acc + (parseInt(s.duration, 10) || 0), 0);
+    const peakVU = Math.max(...normalizedStages.map((s) => s.target));
+    if (peakVU > 0) targetVUs = peakVU;
+  }
 
   // Dynamic Service Endpoints (per-service custom/preset URLs)
   const endpoints = req.body.serviceEndpoints || req.body.targetUrls || {};
-  const identityUrl = endpoints.identity || process.env.SERVICE_IDENTITY_URL || 'http://localhost:8081';
-  const aiConsultUrl = endpoints.aiConsult || process.env.STRESS_TEST_AI_CONSULT_URL || process.env.SERVICE_AI_CONSULTATION_URL || 'http://localhost:4006';
-  const lifestyleUrl = endpoints.lifestyle || process.env.SERVICE_LIFESTYLE_URL || 'http://localhost:4007';
-  const liveConsultUrl = endpoints.liveConsult || process.env.SERVICE_LIVE_CONSULT_URL || 'http://localhost:4004';
-  const healthProfileUrl = endpoints.healthProfile || process.env.SERVICE_HEALTH_PROFILE_URL || 'http://localhost:3001';
-  const medicalUrl = endpoints.medical || process.env.SERVICE_MEDICAL_RECORD_URL || 'http://localhost:3002';
+  function sanitizeUrl(urlStr, defaultFallback) {
+    if (!urlStr || typeof urlStr !== 'string') return defaultFallback;
+    const cleaned = urlStr.replace(/:\s*undefined/gi, '').replace(/\/$/, '');
+    if (!cleaned || cleaned.endsWith(':') || cleaned === 'http:/' || cleaned === 'https:/') {
+      return defaultFallback;
+    }
+    return cleaned;
+  }
+
+  const identityUrl = sanitizeUrl(endpoints.identity, process.env.SERVICE_IDENTITY_URL || 'http://34.101.207.115:8080');
+  const aiConsultUrl = sanitizeUrl(endpoints.aiConsult, process.env.STRESS_TEST_AI_CONSULT_URL || process.env.SERVICE_AI_CONSULTATION_URL || 'http://34.101.122.171:4006');
+  const lifestyleUrl = sanitizeUrl(endpoints.lifestyle, process.env.SERVICE_LIFESTYLE_URL || 'http://34.101.207.115:4005');
+  const liveConsultUrl = sanitizeUrl(endpoints.liveConsult, process.env.SERVICE_LIVE_CONSULT_URL || 'http://34.101.207.115:4004');
+  const healthProfileUrl = sanitizeUrl(endpoints.healthProfile, process.env.SERVICE_HEALTH_PROFILE_URL || 'http://34.101.207.115:3001');
+  const medicalUrl = sanitizeUrl(endpoints.medical, process.env.SERVICE_MEDICAL_RECORD_URL || 'http://34.101.122.171:3002');
 
   // Path ke bin/k6.exe dan stress-test.js
   const rootDir = path.resolve(__dirname, '../../../');
@@ -206,6 +347,7 @@ router.post('/start', (req, res) => {
   const args = [
     'run',
     '--summary-export', summaryJsonPath,
+    '--env', `TEST_TYPE=${testType}`,
     '--env', `FLOW=${flow}`,
     '--env', `VUS=${targetVUs}`,
     '--env', `DURATION=${durationSec}s`,
@@ -215,16 +357,27 @@ router.post('/start', (req, res) => {
     '--env', `LIVE_CONSULT_URL=${liveConsultUrl}`,
     '--env', `HEALTH_PROFILE_URL=${healthProfileUrl}`,
     '--env', `MEDICAL_URL=${medicalUrl}`,
-    scriptPath,
   ];
+
+  if (normalizedStages.length > 0) {
+    args.push('--env', `STAGES=${JSON.stringify(normalizedStages)}`);
+  }
+
+  if (customFlow) {
+    args.push('--env', `CUSTOM_FLOW=${JSON.stringify(customFlow)}`);
+  }
+
+  args.push(scriptPath);
 
   console.log(`[k6] Spawning: ${k6ExePath} ${args.join(' ')}`);
 
-  const activeEndpointsDesc = flow === '1'
-    ? `Identity (${identityUrl}) | AI Consult (${aiConsultUrl})`
-    : flow === '2'
-      ? `Identity (${identityUrl}) | Lifestyle (${lifestyleUrl})`
-      : `Identity (${identityUrl}) | Live Consult (${liveConsultUrl})`;
+  const activeEndpointsDesc = customFlow
+    ? `Custom Flow: "${customFlow.name}" (${customFlow.steps?.length || 0} langkah)`
+    : flow === '1'
+      ? `Identity (${identityUrl}) | AI Consult (${aiConsultUrl})`
+      : flow === '2'
+        ? `Identity (${identityUrl}) | Lifestyle (${lifestyleUrl})`
+        : `Identity (${identityUrl}) | Live Consult (${liveConsultUrl})`;
 
   const allStdoutLines = [];
 
@@ -234,9 +387,17 @@ router.post('/start', (req, res) => {
       windowsHide: true,
     });
 
+    const modeTitle = testType === 'load_test'
+      ? `🟢 Load Test 1 Gelombang (${targetVUs} Pasien Serentak, 1x Iterasi Selesai)`
+      : `🔴 Stress Test Ketahanan (${targetVUs} VU, Durasi ${durationSec}s)`;
+
     currentTestStatus = {
       isRunning: true,
+      testType,
       flow,
+      flowTitle,
+      projectId,
+      projectName,
       targetVUs,
       durationSec,
       targetEndpoints: {
@@ -260,14 +421,15 @@ router.post('/start', (req, res) => {
       successRequests: 0,
       errorRatePercent: 0,
       healthGrade: 'HEALTHY',
-      healthVerdict: `Menguji Flow ${flow} (${activeEndpointsDesc}) dengan ${targetVUs} Pasien (Closed Workload: 1 Siklus Pasien Lengkap)...`,
+      healthVerdict: `Menjalankan ${modeTitle} pada Flow ${flow} (${activeEndpointsDesc})...`,
       recentLogs: [
-        `[k6] Memulai pengujian Grafana k6 untuk Flow ${flow} (${targetVUs} VUs, Closed Workload: 1 Siklus Pasien Penuh)...`,
+        `[k6] Memulai ${modeTitle}...`,
         `[k6 Target] ${activeEndpointsDesc}`,
       ],
       checks: [],
       k6Metrics: null,
       rawSummaryText: '',
+      failurePoint: null,
     };
 
     broadcastProgress();
@@ -447,24 +609,51 @@ router.post('/start', (req, res) => {
 
       currentTestStatus.rawSummaryText = allStdoutLines.join('\n');
 
-      if (code !== 0) {
-        if (currentTestStatus.rawSummaryText && currentTestStatus.rawSummaryText.includes('setup() execution timed out')) {
-          currentTestStatus.healthGrade = 'CRITICAL';
-          currentTestStatus.healthVerdict = 'Inisialisasi Akun Timeout: Persiapan akun melebihi batas waktu default k6 (setupTimeout). Pengujian belum sempat berjalan.';
-        } else if (currentTestStatus.errorRatePercent > 5.0 || currentTestStatus.p95LatencyMs > 2000) {
-          currentTestStatus.healthGrade = 'CRITICAL';
-          if (currentTestStatus.p95LatencyMs > 2000) {
-            currentTestStatus.healthVerdict = `SLA Terlampaui (Kritis): Latensi P95 mencapai ${currentTestStatus.p95LatencyMs}ms (Batas Kritis: 2000ms)`;
-          } else {
-            currentTestStatus.healthVerdict = `SLA Terlampaui (Kritis): Tingkat Error ${currentTestStatus.errorRatePercent}% melampaui batas toleransi 5%`;
-          }
-        } else if (currentTestStatus.errorRatePercent > 1.0 || currentTestStatus.p95LatencyMs > 1000) {
-          currentTestStatus.healthGrade = 'DEGRADED';
-          currentTestStatus.healthVerdict = `Kinerja Melambat (Peringatan): Respon server tertekan (Error: ${currentTestStatus.errorRatePercent}%, P95: ${currentTestStatus.p95LatencyMs}ms)`;
-        } else {
-          currentTestStatus.healthGrade = 'CRITICAL';
-          currentTestStatus.healthVerdict = `Uji Beban Gagal (Exit Code ${code}): Threshold SLA terlampaui`;
+      // Deteksi titik kegagalan sekuensial eksplisit dari log k6
+      let detectedFailure = null;
+      for (const line of allStdoutLines) {
+        const failMatch = line.match(/\[GAGAL TAHAP\s*(\d+)\/(\d+)\](?:\s*VU\s*\d+:)?\s*\\?"([^\\"]+)\\?"\s*->\s*(.+)/i);
+        if (failMatch) {
+          const rawReason = failMatch[4]
+            .replace(/\\?"\s*source=console.*$/i, '')
+            .replace(/\.?\s*Tahap berikutnya dibatalkan\.?$/i, '')
+            .replace(/^[->\s:]+/, '')
+            .trim();
+          detectedFailure = {
+            stepNum: parseInt(failMatch[1], 10),
+            totalSteps: parseInt(failMatch[2], 10),
+            stepName: failMatch[3].trim(),
+            reason: rawReason || 'Gagal Eksekusi',
+          };
+          break; // Ambil kegagalan pertama (root cause)
         }
+      }
+      currentTestStatus.failurePoint = detectedFailure;
+
+      // Evaluasi apakah ada check k6 yang gagal secara otentik
+      const hasFailedChecks =
+        (currentTestStatus.checks && currentTestStatus.checks.some((c) => (c.fails || 0) > 0)) ||
+        (currentTestStatus.k6Metrics && (currentTestStatus.k6Metrics.checks?.fails || 0) > 0);
+      const hasFailedRequests = currentTestStatus.failedRequests > 0 || currentTestStatus.errorRatePercent > 0;
+
+      if (detectedFailure) {
+        currentTestStatus.healthGrade = 'CRITICAL';
+        currentTestStatus.healthVerdict = `❌ Alur Terhenti di Tahap ${detectedFailure.stepNum}/${detectedFailure.totalSteps}: "${detectedFailure.stepName}" (${detectedFailure.reason}). Seluruh tahap berikutnya dibatalkan untuk mencegah cascading failure.`;
+      } else if (hasFailedChecks || hasFailedRequests || code !== 0) {
+        currentTestStatus.healthGrade = 'CRITICAL';
+        if (hasFailedChecks) {
+          const failedCheckItem = currentTestStatus.checks?.find((c) => (c.fails || 0) > 0);
+          currentTestStatus.healthVerdict = `Terdeteksi Kegagalan Transaksi: Check "${failedCheckItem ? failedCheckItem.name : 'Tahapan Transaksi'}" mengalami kegagalan (${currentTestStatus.k6Metrics?.checks?.fails || 0} kegagalan terdeteksi).`;
+        } else if (currentTestStatus.errorRatePercent > 0) {
+          currentTestStatus.healthVerdict = `SLA Terlampaui: Tingkat Error ${currentTestStatus.errorRatePercent}% melampaui batas toleransi (${currentTestStatus.failedRequests} request gagal).`;
+        } else if (currentTestStatus.rawSummaryText && currentTestStatus.rawSummaryText.includes('setup() execution timed out')) {
+          currentTestStatus.healthVerdict = 'Inisialisasi Akun Timeout: Persiapan akun melebihi batas waktu default k6 (setupTimeout). Pengujian belum sempat berjalan.';
+        } else {
+          currentTestStatus.healthVerdict = `Uji Beban Gagal (Exit Code ${code}): Threshold SLA atau koneksi terputus.`;
+        }
+      } else if (currentTestStatus.p95LatencyMs > 1000) {
+        currentTestStatus.healthGrade = 'DEGRADED';
+        currentTestStatus.healthVerdict = `Kinerja Melambat (Peringatan): Respon server tertekan (P95: ${currentTestStatus.p95LatencyMs}ms > 1000ms SLA)`;
       } else {
         currentTestStatus.healthGrade = 'HEALTHY';
         currentTestStatus.healthVerdict = `Sistem Sangat Sehat: Sebanyak ${currentTestStatus.targetVUs} pasien berhasil menyelesaikan seluruh tahapan Flow ${flow} dalam ${actualElapsedSec} detik tanpa kegagalan (Error: 0.00%, Latensi P95: ${currentTestStatus.p95LatencyMs}ms).`;
@@ -475,6 +664,42 @@ router.post('/start', (req, res) => {
         ioServer.emit('stress-test:completed', currentTestStatus);
       }
       broadcastProgress();
+
+      // Simpan hasil pengujian lengkap ke Online PostgreSQL (NeonDB)
+      stressTestRepository.saveTestRun({
+        id: `run-${Date.now()}`,
+        projectId: currentTestStatus.projectId,
+        projectName: currentTestStatus.projectName,
+        flowId: currentTestStatus.flow,
+        flowName: currentTestStatus.flowTitle,
+        testType: currentTestStatus.testType,
+        targetVUs: currentTestStatus.targetVUs,
+        durationSec: actualElapsedSec,
+        totalRequests: currentTestStatus.totalRequests,
+        successRequests: currentTestStatus.successRequests,
+        failedRequests: currentTestStatus.failedRequests,
+        errorRatePercent: currentTestStatus.errorRatePercent,
+        currentRps: currentTestStatus.currentRps,
+        p95LatencyMs: currentTestStatus.p95LatencyMs,
+        p90LatencyMs: currentTestStatus.p90LatencyMs,
+        avgLatencyMs: currentTestStatus.avgLatencyMs,
+        minLatencyMs: currentTestStatus.minLatencyMs,
+        maxLatencyMs: currentTestStatus.maxLatencyMs,
+        healthGrade: currentTestStatus.healthGrade,
+        healthVerdict: currentTestStatus.healthVerdict,
+        failurePoint: currentTestStatus.failurePoint,
+        checks: currentTestStatus.checks,
+        targetEndpoints: currentTestStatus.targetEndpoints,
+        k6Metrics: currentTestStatus.k6Metrics,
+        createdAt: new Date().toISOString(),
+      }).then((saved) => {
+        console.log(`[NeonDB] 💾 Hasil pengujian k6 berhasil disimpan ke database: ${saved?.id}`);
+        if (ioServer) {
+          ioServer.emit('stress-test:saved', saved);
+        }
+      }).catch((err) => {
+        console.error('[NeonDB] ⚠️ Gagal menyimpan riwayat uji beban ke NeonDB:', err.message);
+      });
     });
 
     return res.json({
@@ -585,6 +810,77 @@ router.post('/ai-insight', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: `Gagal menghasilkan insight: ${error.message}`,
+    });
+  }
+});
+
+/**
+ * GET /api/stress-test/runs
+ * Retrieve test runs from NeonDB (supports ?projectId=...&limit=20&offset=0)
+ */
+router.get('/runs', async (req, res) => {
+  try {
+    const { projectId, limit = 20, offset = 0 } = req.query;
+    const result = await stressTestRepository.getRuns({ projectId, limit, offset });
+    return res.json({
+      success: true,
+      ...result,
+    });
+  } catch (err) {
+    console.error('[k6 Runs Route] Error:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: `Gagal mengambil riwayat: ${err.message}`,
+    });
+  }
+});
+
+/**
+ * GET /api/stress-test/projects/:id/analytics
+ * Retrieve aggregated analytics for a specific project
+ */
+router.get('/projects/:id/analytics', async (req, res) => {
+  try {
+    const analytics = await stressTestRepository.getProjectAnalytics(req.params.id);
+    return res.json({
+      success: true,
+      data: analytics,
+    });
+  } catch (err) {
+    console.error('[k6 Analytics Route] Error:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: `Gagal mengambil analitik project: ${err.message}`,
+    });
+  }
+});
+
+/**
+ * POST /api/stress-test/projects/:id/ai-insight
+ * Generate AI Insight for a specific project based on its NeonDB test history
+ */
+router.post('/projects/:id/ai-insight', async (req, res) => {
+  try {
+    const projectId = req.params.id;
+    const project = getProjectById(projectId);
+    const { forceRefresh = false } = req.body || {};
+
+    const { runs } = await stressTestRepository.getRuns({ projectId, limit: 10 });
+    const insight = await aiInsightService.generateStressTestInsight(
+      runs,
+      Boolean(forceRefresh),
+      { projectId, projectName: project ? project.name : projectId }
+    );
+
+    return res.json({
+      success: true,
+      data: insight,
+    });
+  } catch (err) {
+    console.error('[k6 Project AI Route] Error:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: `Gagal menghasilkan insight project: ${err.message}`,
     });
   }
 });

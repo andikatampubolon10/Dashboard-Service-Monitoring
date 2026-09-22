@@ -147,6 +147,7 @@ router.get('/', (req, res) => {
       metricsUrl: `${service.url}${service.metricsPath}`,
       stack: service.stack,
       status,
+      serverId: service.serverId || (service.url?.includes('34.101.122.171') ? 'server-node-34-101-122-171' : service.url?.includes('34.101.207.115') ? 'server-node-34-101-207-115' : null),
       serverName: service.serverName || (service.isRemote ? 'Remote Server' : 'Server Host'),
       serverHost: service.serverHost || (service.isRemote ? (service.url?.split('://')[1]?.split(':')[0] || 'remote') : 'localhost'),
       isRemote: Boolean(service.isRemote),

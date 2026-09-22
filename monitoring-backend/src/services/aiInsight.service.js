@@ -172,9 +172,15 @@ function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum di
 /**
  * Main service method: Analyze stress test records using Google Gemini API
  */
+<<<<<<< Updated upstream
 async function generateStressTestInsight(records = [], forceRefresh = false, options = {}) {
   const projectName = options.projectName || '';
   const signature = createHistorySignature(records, projectName);
+=======
+async function generateStressTestInsight(records = [], forceRefresh = false, projectMeta = null) {
+  const projTag = projectMeta && (projectMeta.projectId || projectMeta.name) ? `-${projectMeta.projectId || projectMeta.name}` : '';
+  const signature = createHistorySignature(records) + projTag;
+>>>>>>> Stashed changes
   const now = Date.now();
 
   // Return cached result if still valid and not forcing refresh
@@ -198,19 +204,22 @@ async function generateStressTestInsight(records = [], forceRefresh = false, opt
   // Build concise metrics summary for Gemini prompt
   const testSummary = (records || []).slice(0, 10).map((r, idx) => ({
     testNumber: idx + 1,
-    flowId: String(r.selectedFlow || r.flow || '1'),
-    flowTitle: r.flowTitle || (r.selectedFlow === '1' ? 'Konsultasi Chat AI' : r.selectedFlow === '2' ? 'Artikel Kesehatan' : 'Pencarian Dokter'),
-    targetVUs: r.targetVUs || 0,
-    durationSec: r.durationSec || 0,
-    p95LatencyMs: r.p95LatencyMs || 0,
-    avgLatencyMs: r.avgLatencyMs || 0,
-    errorRatePercent: r.errorRatePercent || 0,
-    currentRps: r.currentRps || 0,
-    healthGrade: r.healthGrade || 'UNKNOWN',
-    healthVerdict: r.healthVerdict || '',
+    id: r.id,
+    flowId: String(r.selectedFlow || r.flow || r.flow_id || '1'),
+    flowTitle: r.flowTitle || r.flow_name || (r.selectedFlow === '1' ? 'Konsultasi Chat AI' : r.selectedFlow === '2' ? 'Artikel Kesehatan' : 'Pencarian Dokter'),
+    targetVUs: r.targetVUs || r.target_vus || 0,
+    durationSec: r.durationSec || r.duration_sec || 0,
+    p95LatencyMs: r.p95LatencyMs || r.p95_latency_ms || 0,
+    avgLatencyMs: r.avgLatencyMs || r.avg_latency_ms || 0,
+    errorRatePercent: r.errorRatePercent !== undefined ? r.errorRatePercent : r.error_rate_percent || 0,
+    currentRps: r.currentRps || r.current_rps || 0,
+    healthGrade: r.healthGrade || r.health_grade || 'UNKNOWN',
+    healthVerdict: r.healthVerdict || r.health_verdict || '',
     breachedReasons: r.breachedReasons || [],
+    createdAt: r.createdAt || r.created_at || null,
   }));
 
+<<<<<<< Updated upstream
   const projectContext = projectName ? `projek "${projectName}"` : 'sistem microservice kesehatan (Tara AI)';
 
   const prompt = `
@@ -219,8 +228,17 @@ Tugas Anda adalah menganalisis hasil uji beban (*Grafana k6 stress test*) pada $
 - Flow 1: Konsultasi Chat Dokter AI (Inference LLM, CPU intensive, latency sensitive).
 - Flow 2: Membaca Artikel Kesehatan (Read heavy, caching candidate, static data).
 - Flow 3: Pencarian Jadwal & Dokter (Database queries, indexing, filtering).
+=======
+  const targetProjectTitle = projectMeta?.projectName || projectMeta?.name || 'Sistem Microservice Telemedicine';
 
-Berikut adalah data pengujian riil yang baru saja dilakukan:
+  const prompt = `
+Anda adalah seorang Principal Site Reliability Engineer (SRE) dan Lead Performance Architect kelas dunia.
+Tugas Anda adalah menganalisis hasil uji beban (*Grafana k6 stress test*) riwayat untuk Project "${targetProjectTitle}":
+- Analisis tren performa dari waktu ke waktu (latensi P95, error rate, throughput RPS).
+- Evaluasi ketahanan layanan dan deteksi potensi regresi performa atau bottleneck arsitektural.
+>>>>>>> Stashed changes
+
+Berikut adalah data pengujian riil yang tercatat di database:
 \`\`\`json
 ${JSON.stringify(testSummary, null, 2)}
 \`\`\`

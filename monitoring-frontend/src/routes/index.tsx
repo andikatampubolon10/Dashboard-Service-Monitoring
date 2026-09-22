@@ -13,7 +13,7 @@ import { ServiceLatencyTab } from '../pages/services/ServiceLatencyTab';
 import { ServiceLogsTab } from '../pages/services/ServiceLogsTab';
 import { ServiceDependenciesTab } from '../pages/services/ServiceDependenciesTab';
 import { ServiceAlertsTab } from '../pages/services/ServiceAlertsTab';
-import StressTestPage from '../pages/StressTestPage';
+import StressTestPage from '../pages/stresstest';
 
 export const router = createBrowserRouter([
   {

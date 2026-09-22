@@ -103,3 +103,31 @@ export async function fetchStressAiInsight(
     return null;
   }
 }
+
+export async function fetchProjectAiInsight(
+  projectId: string,
+  forceRefresh = false
+): Promise<StressAiInsight | null> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/stress-test/projects/${encodeURIComponent(projectId)}/ai-insight`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        forceRefresh,
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch Project AI insight: HTTP ${res.status}`);
+    }
+
+    const json = await res.json();
+    return json.data || null;
+  } catch (err) {
+    console.warn('[AI Insight Service] Project request error:', err);
+    return null;
+  }
+}
+

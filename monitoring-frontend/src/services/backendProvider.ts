@@ -221,6 +221,7 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
             serverName?: string;
             serverHost?: string;
             isRemote?: boolean;
+            serverId?: string;
             lastScrapedAt?: string | null;
             scrapeLatencyMs?: number | null;
             error?: string | null;
@@ -280,7 +281,7 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
           lastScrapedAt: s.lastScrapedAt,
           scrapeLatencyMs: s.scrapeLatencyMs,
           error: s.error,
-          serverId: isRemote ? 'server-laptop-2' : (s.stack === 'go' ? 'go-runtime-host' : 'node-runtime-host'),
+          serverId: s.serverId || (s.url?.includes('34.101.122.171') ? 'server-node-34-101-122-171' : s.url?.includes('34.101.207.115') ? 'server-node-34-101-207-115' : (isRemote ? 'server-laptop-2' : (s.stack === 'go' ? 'go-runtime-host' : 'node-runtime-host'))),
           throughputRps,
           reqTotal,
           errorCount: (total5xx + total4xx) > 0 ? (total5xx + total4xx) : (s.summary?.errorCount ?? (s.summary?.errorRatePercent ? Math.round(s.summary.errorRatePercent * 10) : 0)),

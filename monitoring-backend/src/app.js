@@ -16,6 +16,7 @@ const { Server } = require('socket.io');
 
 const { setSocketServer, startCollector } = require('./collectors');
 const { initSocket } = require('./socket/metricsSocket');
+const { initDb } = require('./config/db');
 
 // Routes
 const healthRoute = require('./routes/health.route');
@@ -108,6 +109,11 @@ server.listen(PORT, () => {
 
   // Start the background scraping process
   startCollector();
+
+  // Initialize Online PostgreSQL (NeonDB)
+  initDb().catch((err) => {
+    console.error('[App] NeonDB init error:', err.message);
+  });
 });
 
 // Graceful shutdown
