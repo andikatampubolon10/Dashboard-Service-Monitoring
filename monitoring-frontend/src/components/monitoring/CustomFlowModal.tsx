@@ -185,22 +185,6 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
     },
     {
       method: 'POST',
-      path: '/api/v1/verification/bpjs',
-      name: 'Verifikasi Kepesertaan BPJS',
-      desc: 'Validasi nomor kepesertaan dan NIK pasien ke gateway BPJS',
-      body: { no_kartu: '0001234567890', nik: '3201234567890001' },
-      expectedStatus: 200,
-    },
-    {
-      method: 'POST',
-      path: '/api/v1/auth/password/reset',
-      name: 'Permintaan Reset Password',
-      desc: 'Kirim link instruksi reset kata sandi ke email pasien',
-      body: { email: 'patient@tara.health' },
-      expectedStatus: 200,
-    },
-    {
-      method: 'POST',
       path: '/api/v1/auth/logout',
       name: 'Logout Sesi Pasien',
       desc: 'Cabut otorisasi token sesi pasien saat ini',
@@ -210,7 +194,7 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
       method: 'GET',
       path: '/health',
       name: 'Health Check Probe',
-      desc: 'Pemeriksaan status readiness & liveness identity microservice',
+      desc: 'Pemeriksaan status liveness & readiness identity microservice',
       expectedStatus: 200,
     },
     {
@@ -224,14 +208,6 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
 
   'ai-consultation': [
     {
-      method: 'POST',
-      path: '/api/consultation/chat',
-      name: 'Kirim Pesan Chat & Inferensi AI',
-      desc: 'Kirim keluhan pasien dan picu inferensi LLM kedokteran Tara AI',
-      body: { message: 'Saya merasa demam dan pusing sejak kemarin.', step: 1 },
-      expectedStatus: 200,
-    },
-    {
       method: 'GET',
       path: '/api/consultations/active',
       name: 'Cek Sesi Konsultasi Aktif',
@@ -241,10 +217,23 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
     {
       method: 'POST',
       path: '/api/consultations',
-      name: 'Inisiasi Sesi Chat Konsultasi Baru',
+      name: 'Inisiasi Sesi Konsultasi Baru',
       desc: 'Membuka tiket sesi konsultasi dokter AI baru',
-      body: { category: 'HEALTH_CARE', mode: 'HEALTH_CARE', title: 'Konsultasi Keluhan Flu' },
+      body: { category: 'HEALTH_CARE', mode: 'HEALTH_CARE', title: 'Konsultasi Keluhan Gejala Pasien' },
       expectedStatus: 201,
+    },
+    {
+      method: 'POST',
+      path: '/api/consultation/chat',
+      name: 'Kirim Chat Gejala & Streaming AI',
+      desc: 'Kirim keluhan pasien dan picu inferensi streaming LLM dokter AI',
+      body: {
+        category: 'HEALTH_CARE',
+        mode: 'HEALTH_CARE',
+        language: 'id',
+        messages: [{ role: 'user', content: 'Halo dokter AI, saya merasa demam dan sakit kepala sejak kemarin.' }],
+      },
+      expectedStatus: 200,
     },
     {
       method: 'GET',
@@ -255,23 +244,9 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
     },
     {
       method: 'GET',
-      path: '/api/consultations/latest',
-      name: 'Detail Konsultasi Terakhir',
-      desc: 'Mengambil metadata dan status satu sesi konsultasi terkini',
-      expectedStatus: 200,
-    },
-    {
-      method: 'GET',
       path: '/health/live',
       name: 'Health Check AI Service (Liveness)',
       desc: 'Pemeriksaan status hidup runtime Fastify AI service',
-      expectedStatus: 200,
-    },
-    {
-      method: 'GET',
-      path: '/health/ready',
-      name: 'Health Check AI Service (Readiness DB & Redis)',
-      desc: 'Pemeriksaan kesiapan koneksi PostgreSQL, MongoDB, dan Redis',
       expectedStatus: 200,
     },
   ],
@@ -287,24 +262,15 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
     {
       method: 'GET',
       path: '/api/articles/8-efek-begadang-yang-buruk-untuk-kesehatan',
-      name: 'Baca Detail Artikel Medis',
+      name: 'Baca Isi Lengkap Artikel Medis',
       desc: 'Mengambil konten lengkap artikel medis spesifik',
       expectedStatus: 200,
     },
     {
-      method: 'POST',
-      path: '/api/articles',
-      name: 'Buat Artikel Edukasi Baru',
-      desc: 'Mempublikasikan artikel medis edukatif baru',
-      body: { title: 'Tips Menjaga Kebugaran di Usia Produktif', category: 'Kebugaran', content: 'Olahraga teratur...' },
-      expectedStatus: 201,
-    },
-    {
-      method: 'POST',
-      path: '/api/lifestyle/verify-pin',
-      name: 'Verifikasi PIN Keamanan Edukasi',
-      desc: 'Validasi PIN 6-digit pasien sebelum akses fitur khusus',
-      body: { pin: '123456' },
+      method: 'GET',
+      path: '/api/articles?limit=5&page=1',
+      name: 'Navigasi Paginasi Artikel',
+      desc: 'Memuat artikel kesehatan terbaru dengan limit & page',
       expectedStatus: 200,
     },
     {
@@ -317,15 +283,15 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
     {
       method: 'POST',
       path: '/api/completions',
-      name: 'Catat Penyelesaian Latihan',
+      name: 'Catat Log Latihan Selesai',
       desc: 'Mencatat sesi olahraga yang telah diselesaikan pasien',
-      body: { exerciseId: 1, durationMinutes: 20, caloriesBurned: 150 },
+      body: { exerciseId: 1, durationMinutes: 20, caloriesBurned: 120 },
       expectedStatus: 200,
     },
     {
       method: 'GET',
-      path: '/health',
-      name: 'Health Check Lifestyle Service',
+      path: '/livez',
+      name: 'Health Probe Lifestyle (Liveness)',
       desc: 'Pemeriksaan status service artikel dan latihan',
       expectedStatus: 200,
     },
@@ -334,24 +300,33 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
   'live-consult': [
     {
       method: 'GET',
-      path: '/api/live-consult/doctors',
-      name: 'Katalog Jadwal Dokter Spesialis',
-      desc: 'Ambil daftar jadwal praktik dokter spesialis dan faskes rujukan',
+      path: '/api/live-consult',
+      name: 'Cek Antrean Sesi Konsultasi Dokter',
+      desc: 'Mengambil antrean dan riwayat sesi konsultasi dokter langsung',
       expectedStatus: 200,
     },
     {
       method: 'POST',
-      path: '/api/live-consult/sessions',
-      name: 'Booking Janji Temu Dokter',
-      desc: 'Reservasi antrean konsultasi tatap muka dokter spesialis',
-      body: { doctor_id: 1, notes: 'Konsultasi keluhan lambung dan mual' },
-      expectedStatus: 201,
+      path: '/api/live-consult',
+      name: 'Reservasi Ruang Temu Dokter Spesialis',
+      desc: 'Booking dan mulai sesi konsultasi langsung dokter spesialis',
+      body: {
+        doctorId: 'doc-sp-01',
+        doctorName: 'dr. Budi Santoso, Sp.PD',
+        specialty: 'Spesialis Penyakit Dalam',
+        hospital: 'RSUP Cipto Mangunkusumo',
+        avatarColor: '#3B82F6',
+        categoryKey: 'internal-medicine',
+        price: '0',
+        paymentMethod: 'BPJS',
+      },
+      expectedStatus: 200,
     },
     {
       method: 'GET',
-      path: '/api/live-consult',
-      name: 'Daftar Antrean Konsultasi',
-      desc: 'Mengambil antrean sesi konsultasi langsung pasien',
+      path: '/api/live-consult/{{sessionId}}',
+      name: 'Ambil Status Sesi Ruangan Dokter',
+      desc: 'Cek detail status sesi ruangan temu dokter yang sedang berlangsung',
       expectedStatus: 200,
     },
     {
@@ -361,19 +336,12 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
       desc: 'Pemeriksaan status backend Golang live consult',
       expectedStatus: 200,
     },
-    {
-      method: 'GET',
-      path: '/health/ready',
-      name: 'Health Probe Live Consult (Readiness)',
-      desc: 'Pemeriksaan koneksi PostgreSQL & Redis signaling',
-      expectedStatus: 200,
-    },
   ],
 
   'health-profile': [
     {
       method: 'GET',
-      path: '/api/v1/health-profile/me',
+      path: '/api/v1/profile',
       name: 'Ambil Ringkasan Profil Pasien',
       desc: 'Mengambil profil medis, golongan darah, dan identitas pasien',
       expectedStatus: 200,
@@ -381,7 +349,7 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
     {
       method: 'GET',
       path: '/api/health/profile',
-      name: 'Profil Wellness Pasien',
+      name: 'Profil Wellness & BMI Pasien',
       desc: 'Mengambil data gaya hidup, BMI, dan riwayat kesehatan dasar',
       expectedStatus: 200,
     },
@@ -392,22 +360,6 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
       desc: 'Simpan pembaruan berat badan, tinggi, dan preferensi kesehatan',
       body: { height: 172, weight: 65, sleepQuality: 'good' },
       expectedStatus: 200,
-    },
-    {
-      method: 'POST',
-      path: '/api/v1/health-profile/sync',
-      name: 'Sinkronisasi Tanda Vital',
-      desc: 'Kirim pembaruan tanda vital tensi darah dan detak jantung',
-      body: { heart_rate: 78, systolic: 120, diastolic: 80 },
-      expectedStatus: 200,
-    },
-    {
-      method: 'POST',
-      path: '/api/v1/pin/enroll',
-      name: 'Pendaftaran PIN Rekam Medis',
-      desc: 'Mendaftarkan PIN keamanan 6 digit untuk proteksi data medis',
-      body: { pin: '123456' },
-      expectedStatus: 201,
     },
     {
       method: 'POST',
@@ -438,30 +390,20 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
       method: 'POST',
       path: '/api/records',
       name: 'Simpan Catatan Rekam Medis Baru',
-      desc: 'Mencatat diagnosis klinis baru dan resume resume medis',
-      body: { type: 'DIAGNOSIS', title: 'Pemeriksaan Gejala Flu', date: '2026-09-20', notes: 'Diberikan vitamin dan istirahat' },
+      desc: 'Mencatat diagnosis klinis baru dan resume medis pasien',
+      body: {
+        type: 'LAB_RESULT',
+        title: 'Pemeriksaan Darah Rutin Pasien',
+        date: '2026-09-23',
+        notes: 'Hasil pemeriksaan lab darah dalam batas normal',
+      },
       expectedStatus: 201,
     },
     {
-      method: 'PATCH',
-      path: '/api/records',
-      name: 'Perbarui Catatan Medis',
-      desc: 'Perbarui catatan dokter atau metadata resume klinis',
-      body: { id: 'rec-001', notes: 'Kondisi pasien membaik' },
-      expectedStatus: 200,
-    },
-    {
       method: 'GET',
-      path: '/healthz',
-      name: 'Liveness Probe Medical Record',
-      desc: 'Pemeriksaan status liveness service rekam medis',
-      expectedStatus: 200,
-    },
-    {
-      method: 'GET',
-      path: '/readyz',
-      name: 'Readiness Probe Medical Record',
-      desc: 'Pemeriksaan kesiapan koneksi database PostgreSQL rekam medis',
+      path: '/health',
+      name: 'Health Probe Medical Record',
+      desc: 'Pemeriksaan status service rekam medis',
       expectedStatus: 200,
     },
   ],
@@ -1174,109 +1116,135 @@ export const CustomFlowModal: React.FC<CustomFlowModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Step 3.1: PILIH TARGET SERVICE */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                          <ServerIcon className="w-3.5 h-3.5 text-orange-500" />
-                          <span>1. Pilih Target Microservice:</span>
-                        </label>
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          {targetSvc?.url || 'Port Host'}
-                        </span>
-                      </div>
-
-                      <select
-                        value={step.serviceKey}
-                        onChange={(e) => handleStepChange(idx, 'serviceKey', e.target.value)}
-                        className="w-full px-3.5 py-2.5 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20 cursor-pointer"
-                      >
-                        {selectableServices.map((svc) => {
-                          const isUp = isServiceUp(svc);
-                          const cleanUrl = svc.url ? svc.url.replace(/https?:\/\//, '') : 'Port Service';
-                          return (
-                            <option key={svc.id} value={svc.id}>
-                              {isUp ? '🟢 [UP]' : '⚪ [OFFLINE]'} {svc.name} — ({cleanUrl})
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-
-                    {/* Step 3.2: PILIH ENDPOINT DARI SERVICE TERPILIH (DINAMIS) */}
-                    <div className="rounded-2xl border border-orange-500/30 bg-orange-500/5 dark:bg-orange-500/10 p-3.5 sm:p-4 space-y-2.5">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-orange-500/15 pb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white text-[10px] font-black">
-                            2
-                          </span>
-                          <span className="text-xs font-black uppercase tracking-wider text-orange-800 dark:text-orange-300">
-                            Pilih Endpoint ({availableEndpoints.length} Endpoint Terdaftar):
+                    {/* ─── PEMILIHAN TARGET SERVICE & KATALOG ENDPOINT (2 KOLOM JELAS & HARMONIS) ─── */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+                      {/* KOLOM 1: TARGET MICROSERVICE (TEMA BIRU SLATE) */}
+                      <div className="rounded-2xl border border-blue-200 dark:border-blue-900/50 bg-gradient-to-br from-blue-50/70 via-slate-50/50 to-white dark:from-blue-950/25 dark:via-slate-900/40 dark:to-slate-900/60 p-4 space-y-2.5 shadow-xs transition-all">
+                        <div className="flex items-center justify-between border-b border-blue-100 dark:border-blue-900/40 pb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-lg bg-blue-600 text-white text-[10px] font-black shadow-xs">
+                              1
+                            </span>
+                            <span className="text-xs font-black uppercase tracking-wider text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
+                              <ServerIcon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                              Target Microservice
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                            {targetSvc?.url ? targetSvc.url.replace(/^https?:\/\//, '') : 'Port Host'}
                           </span>
                         </div>
-                        <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                          Layanan: <strong className="text-orange-600 dark:text-orange-400">{targetSvc?.name}</strong>
-                        </span>
+
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                            Pilih Microservice Projek:
+                          </label>
+                          <select
+                            value={step.serviceKey}
+                            onChange={(e) => handleStepChange(idx, 'serviceKey', e.target.value)}
+                            className="w-full px-3.5 py-2.5 text-xs font-bold rounded-xl border border-blue-300 dark:border-blue-800/80 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/30 cursor-pointer shadow-xs transition"
+                          >
+                            {selectableServices.map((svc) => {
+                              const isUp = isServiceUp(svc);
+                              const cleanUrl = svc.url ? svc.url.replace(/https?:\/\//, '') : 'Port Service';
+                              return (
+                                <option key={svc.id} value={svc.id}>
+                                  {isUp ? '🟢 [UP]' : '⚪ [OFFLINE]'} {svc.name} — ({cleanUrl})
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+
+                        <div className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5 pt-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                          <span className="truncate">
+                            Layanan aktif: <strong className="text-slate-800 dark:text-slate-200">{targetSvc?.name}</strong>
+                          </span>
+                        </div>
                       </div>
 
-                      {/* Dropdown Pemilihan Endpoint Terfilter */}
-                      <div>
-                        <select
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (!val) return;
-                            const found = availableEndpoints.find((ep) => `${ep.method}:${ep.path}` === val);
-                            if (found) {
-                              handleApplyPresetEndpoint(idx, found);
+                      {/* KOLOM 2: KATALOG ENDPOINT RESMI (TEMA INDIGO VIOLET) */}
+                      <div className="rounded-2xl border border-indigo-200 dark:border-indigo-900/50 bg-gradient-to-br from-indigo-50/70 via-purple-50/40 to-white dark:from-indigo-950/25 dark:via-purple-950/20 dark:to-slate-900/60 p-4 space-y-2.5 shadow-xs transition-all">
+                        <div className="flex items-center justify-between border-b border-indigo-100 dark:border-indigo-900/40 pb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-lg bg-indigo-600 text-white text-[10px] font-black shadow-xs">
+                              2
+                            </span>
+                            <span className="text-xs font-black uppercase tracking-wider text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
+                              <Globe className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                              Pilih Endpoint Katalog
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                            {availableEndpoints.length} Terdaftar
+                          </span>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                            Pilih Template Rute Resmi:
+                          </label>
+                          <select
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (!val) return;
+                              const found = availableEndpoints.find((ep) => `${ep.method}:${ep.path}` === val);
+                              if (found) {
+                                handleApplyPresetEndpoint(idx, found);
+                              }
+                            }}
+                            value={
+                              availableEndpoints.some((ep) => ep.path === step.path && ep.method === step.method)
+                                ? `${step.method}:${step.path}`
+                                : ''
                             }
-                          }}
-                          value={
-                            availableEndpoints.some((ep) => ep.path === step.path && ep.method === step.method)
-                              ? `${step.method}:${step.path}`
-                              : ''
-                          }
-                          className="w-full px-3.5 py-2.5 text-xs font-bold rounded-xl border border-orange-500/40 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/30 cursor-pointer shadow-xs"
-                        >
-                          <option value="">-- Pilih Endpoint untuk {targetSvc?.name} --</option>
-                          {availableEndpoints.map((ep) => (
-                            <option key={`${ep.method}:${ep.path}`} value={`${ep.method}:${ep.path}`}>
-                              [{ep.method}] {ep.path} — {ep.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                            className="w-full px-3.5 py-2.5 text-xs font-bold rounded-xl border border-indigo-300 dark:border-indigo-800/80 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/30 cursor-pointer shadow-xs transition"
+                          >
+                            <option value="">-- Pilih Endpoint untuk {targetSvc?.name} --</option>
+                            {availableEndpoints.map((ep) => (
+                              <option key={`${ep.method}:${ep.path}`} value={`${ep.method}:${ep.path}`}>
+                                [{ep.method}] {ep.path} — {ep.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                      {/* Info Endpoint yang Aktif Terpilih */}
-                      {availableEndpoints.find((ep) => ep.path === step.path && ep.method === step.method) && (
-                        <div className="text-[11px] text-slate-600 dark:text-slate-300 pt-0.5 flex items-center gap-1.5">
-                          <ChevronRight className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                          <span>
-                            {availableEndpoints.find((ep) => ep.path === step.path && ep.method === step.method)?.desc}
+                        {/* Deskripsi Endpoint Terpilih */}
+                        <div className="text-[11px] text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5 pt-0.5 min-h-[20px]">
+                          <ChevronRight className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                          <span className="truncate">
+                            {availableEndpoints.find((ep) => ep.path === step.path && ep.method === step.method)?.desc || 'Pilih template di atas untuk mengisi parameter otomatis.'}
                           </span>
                         </div>
-                      )}
+                      </div>
                     </div>
 
                     {/* Notifikasi Cerdas jika Terdeteksi Endpoint Login */}
                     {isLoginStep && (
-                      <div className="px-3.5 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/25 text-blue-700 dark:text-blue-300 text-[11px] flex items-center gap-2.5">
-                        <Sparkles className="w-4 h-4 shrink-0 text-blue-500" />
+                      <div className="px-3.5 py-2.5 rounded-xl bg-violet-500/10 border border-violet-500/25 text-violet-800 dark:text-violet-300 text-[11px] flex items-center gap-2.5">
+                        <Sparkles className="w-4 h-4 shrink-0 text-violet-500" />
                         <div>
                           <strong>Langkah Login Pasien:</strong> k6 akan otomatis mengekstrak token JWT dari respon endpoint ini dan menyematkannya ke semua langkah berikutnya!
                         </div>
                       </div>
                     )}
 
-                    {/* Step 3.3: PARAMETER HTTP (METHOD, PATH, EXPECTED STATUS) */}
-                    <div className="space-y-2.5 pt-1">
+                    {/* ─── PARAMETER HTTP & LIVE PREVIEW k6 ─── */}
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 p-4 space-y-3">
+                      <div className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5 border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                        <Sparkles className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Parameter Request &amp; Target Eksekusi k6</span>
+                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
                         {/* HTTP Method */}
                         <div className="sm:col-span-3">
-                          <label className="text-[10px] font-bold text-slate-500 block mb-1">Method</label>
+                          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block mb-1">Method HTTP</label>
                           <select
                             value={step.method}
                             onChange={(e) => handleStepChange(idx, 'method', e.target.value)}
-                            className="w-full px-2.5 py-2 text-xs font-black rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-orange-600 font-mono outline-none"
+                            className={`w-full px-3 py-2 text-xs font-black rounded-xl border outline-none font-mono cursor-pointer transition ${getMethodBadgeColor(step.method)}`}
                           >
                             <option value="GET">GET</option>
                             <option value="POST">POST</option>
@@ -1288,7 +1256,7 @@ export const CustomFlowModal: React.FC<CustomFlowModalProps> = ({
 
                         {/* Path Endpoint */}
                         <div className="sm:col-span-6">
-                          <label className="text-[10px] font-bold text-slate-500 block mb-1">
+                          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block mb-1">
                             Endpoint Path (Dapat Diedit Manual)
                           </label>
                           <input
@@ -1297,26 +1265,33 @@ export const CustomFlowModal: React.FC<CustomFlowModalProps> = ({
                             placeholder="/api/v1/resource"
                             value={step.path}
                             onChange={(e) => handleStepChange(idx, 'path', e.target.value)}
-                            className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-orange-500/20"
+                            className="w-full px-3.5 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                           />
                         </div>
 
                         {/* Expected Status Code */}
                         <div className="sm:col-span-3">
-                          <label className="text-[10px] font-bold text-slate-500 block mb-1">Expected Status</label>
+                          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block mb-1">Status Diharapkan</label>
                           <input
                             type="number"
                             value={step.expectedStatus || 200}
                             onChange={(e) => handleStepChange(idx, 'expectedStatus', parseInt(e.target.value, 10) || 200)}
-                            className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-orange-500/20"
+                            className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                           />
                         </div>
                       </div>
 
-                      {/* Live Target URL Preview */}
-                      <div className="text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800/60 px-3 py-2 rounded-xl flex items-center gap-2 truncate border border-slate-200/60 dark:border-slate-700/60">
-                        <span className="font-bold text-slate-500 shrink-0">Target URL k6:</span>
-                        <span className="text-orange-600 dark:text-orange-400 font-bold truncate">
+                      {/* Live Terminal URL Preview */}
+                      <div className="text-[11px] font-mono bg-slate-900 dark:bg-black text-slate-200 px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-2 overflow-x-auto border border-slate-800 shadow-inner">
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[9px] uppercase tracking-wider font-extrabold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                            URL Target k6
+                          </span>
+                          <span className={`text-[10px] font-black px-1.5 py-0.2 rounded border ${getMethodBadgeColor(step.method)}`}>
+                            {step.method}
+                          </span>
+                        </div>
+                        <span className="text-emerald-400 font-bold truncate">
                           {targetSvc?.url
                             ? `${targetSvc.url.replace(/\/$/, '')}${step.path.startsWith('/') ? step.path : `/${step.path}`}`
                             : `[Base URL]${step.path}`}
@@ -1326,21 +1301,21 @@ export const CustomFlowModal: React.FC<CustomFlowModalProps> = ({
 
                     {/* Step 3.4: BODY PAYLOAD JSON (JIKA METHOD POST / PUT / PATCH) */}
                     {(step.method === 'POST' || step.method === 'PUT' || step.method === 'PATCH') && (
-                      <div className="pt-1">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[10px] font-bold text-slate-500">
+                      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
                             Request Body JSON (Otomatis Terisi &amp; Bebas Diubah):
                           </label>
-                          <span className="text-[9px] font-mono text-slate-400">
-                            Variabel k6: <code>{"{{VU_EMAIL}}"}</code>, <code>{"{{VU_ID}}"}</code>
+                          <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400 bg-slate-200/60 dark:bg-slate-800 px-2 py-0.5 rounded">
+                            Placeholder k6: <code>{"{{VU_EMAIL}}"}</code>, <code>{"{{consultId}}"}</code>, <code>{"{{sessionId}}"}</code>
                           </span>
                         </div>
                         <textarea
-                          rows={3}
+                          rows={4}
                           value={typeof step.body === 'object' ? JSON.stringify(step.body, null, 2) : step.body || ''}
                           onChange={(e) => handleStepChange(idx, 'body', e.target.value)}
                           placeholder='{\n  "key": "value"\n}'
-                          className="w-full px-3 py-2 text-[11px] font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-orange-500/20"
+                          className="w-full px-3.5 py-2.5 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
                         />
                       </div>
                     )}

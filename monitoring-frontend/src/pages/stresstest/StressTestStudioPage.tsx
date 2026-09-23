@@ -48,7 +48,6 @@ import StressTestResultModal from "../../components/monitoring/StressTestResultM
 import { LivePatientPipeline } from "../../components/monitoring/LivePatientPipeline";
 import { CustomFlowModal } from "../../components/monitoring/CustomFlowModal";
 import { ServiceTestCreatorModal } from "../../components/monitoring/ServiceTestCreatorModal";
-import { AiStressInsightCard } from "../../components/monitoring/AiStressInsightCard";
 
 interface LatencyPoint {
   time: string;
@@ -92,7 +91,7 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
     if (urlFlow) return urlFlow as SelectedFlowType;
     const storedFlow = localStorage.getItem("stress_test_selected_flow");
     if (storedFlow) return storedFlow as SelectedFlowType;
-    return "1";
+    return "";
   });
 
   const [intensityTab, setIntensityTab] = useState<"load" | "stress">(() => {
@@ -123,7 +122,7 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
   const [endpoints, setEndpoints] = useState<ServiceEndpointState>(DEFAULT_ENDPOINTS);
   const [logs, setLogs] = useState<string[]>([]);
 
-  // Custom Flows States
+  // Custom Flows States (Loaded from MySQL per Project)
   const [customFlows, setCustomFlows] = useState<CustomFlow[]>([]);
   const [isFlowModalOpen, setIsFlowModalOpen] = useState<boolean>(false);
   const [isServiceTestModalOpen, setIsServiceTestModalOpen] = useState<boolean>(false);
@@ -151,17 +150,36 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
     return () => unsubLogs();
   }, []);
 
-  // Load Custom Flows for this Project
+  // Load Flows from MySQL for this active Project
   useEffect(() => {
     if (!activeProject?.id) {
       setCustomFlows([]);
+      setSelectedFlow("");
       return;
     }
+    let isMounted = true;
     const loadFlows = async () => {
       const list = await fetchCustomFlows(activeProject.id);
+      if (!isMounted) return;
       setCustomFlows(list);
+
+      if (list.length > 0) {
+        setSelectedFlow((prev) => {
+          const exists = list.some((f) => f.id === prev);
+          const nextId = exists ? prev : list[0].id;
+          stressTestEngine.setSelectedFlow(nextId);
+          localStorage.setItem("stress_test_selected_flow", nextId);
+          return nextId;
+        });
+      } else {
+        setSelectedFlow("");
+        stressTestEngine.setSelectedFlow("");
+      }
     };
     loadFlows();
+    return () => {
+      isMounted = false;
+    };
   }, [activeProject?.id]);
 
   // Active Custom Flow & Title
@@ -170,12 +188,9 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
   }, [customFlows, selectedFlow]);
 
   const currentFlowTitle = useMemo(() => {
-    if (activeCustomFlow) return `Custom: ${activeCustomFlow.name}`;
-    if (selectedFlow === "1") return "Konsultasi AI Healthcare";
-    if (selectedFlow === "2") return "Artikel Medis & Lifestyle";
-    if (selectedFlow === "3") return "Temu Dokter & Live Chat";
-    return `Alur Kustom (${selectedFlow})`;
-  }, [activeCustomFlow, selectedFlow]);
+    if (activeCustomFlow) return activeCustomFlow.name;
+    return "Belum ada alur pengujian terpilih";
+  }, [activeCustomFlow]);
 
   // Auto-generate stages based on Preset Pattern & Target VUs
   useEffect(() => {
@@ -220,56 +235,41 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
   }, [intensityTab, stages, targetVUs]);
 
   const activeStepsCount = useMemo(() => {
-    if (activeCustomFlow && activeCustomFlow.steps && activeCustomFlow.steps.length > 0) {
-      return activeCustomFlow.steps.length;
-    }
-    if (selectedFlow === "1") return 5;
-    if (selectedFlow === "2") return 3;
-    if (selectedFlow === "3") return 4;
-    return 1;
-  }, [activeCustomFlow, selectedFlow]);
+    return activeCustomFlow?.steps?.length || 0;
+  }, [activeCustomFlow]);
 
   const activeFlowStepDetails = useMemo(() => {
     const identityHost = endpoints.identity.replace(/^https?:\/\//, "");
-    const aiHost = endpoints.aiConsult.replace(/^https?:\/\//, "");
-    const lifeHost = endpoints.lifestyle.replace(/^https?:\/\//, "");
-    const liveHost = endpoints.liveConsult.replace(/^https?:\/\//, "");
 
     if (activeCustomFlow && activeCustomFlow.steps && activeCustomFlow.steps.length > 0) {
-      return activeCustomFlow.steps.map((st, i) => ({
-        id: i + 1,
-        name: st.name,
-        method: st.method || "GET",
-        path: st.path || "/",
-        service: st.serviceKey || "Custom Service",
-        server: identityHost,
-        serverName: "Node GCP 1",
-        desc: `Panggilan API ${st.method} ke ${st.path} pada ${st.serviceKey}`,
-      }));
+      return activeCustomFlow.steps.map((st, i) => {
+        let serverHost = identityHost;
+        let serviceName = st.serviceKey || "Custom Service";
+        let serverName = "Node Server";
+
+        const matchedService = projectServices.find(
+          (s) => s.id === st.serviceKey || s.name.toLowerCase() === (st.serviceKey || "").toLowerCase()
+        );
+        if (matchedService) {
+          serviceName = matchedService.name;
+          serverHost = matchedService.serverHost || (matchedService.url ? matchedService.url.replace(/^https?:\/\//, "").split(":")[0] : identityHost);
+          serverName = matchedService.serverId || "Node Server";
+        }
+
+        return {
+          id: i + 1,
+          name: st.name,
+          method: st.method || "GET",
+          path: st.path || (st.url ? new URL(st.url, "http://localhost").pathname : "/"),
+          service: serviceName,
+          server: serverHost,
+          serverName: serverName,
+          desc: `Panggilan API ${st.method} ke ${st.path || st.url || '/'} pada ${serviceName}`,
+        };
+      });
     }
-    if (selectedFlow === "1") {
-      return [
-        { id: 1, name: "Akses Akun & Login Pasien", method: "POST", path: "/api/v1/auth/login", service: "Identity Service", server: identityHost, serverName: "Node GCP 1", desc: "Otentikasi kredensial 50 akun pasien unik & token JWT" },
-        { id: 2, name: "Buka Sesi Konsultasi", method: "POST", path: "/api/consultations", service: "AI Consult (PostgreSQL)", server: aiHost, serverName: "Node GCP 2 (AI Engine)", desc: "Inisiasi sesi konsultasi baru & simpan rekam keluhan" },
-        { id: 3, name: "Tanya Jawab AI Dokter", method: "POST", path: "/api/consultation/chat", service: "AI Consult (Fastify)", server: aiHost, serverName: "Node GCP 2 (AI Engine)", desc: "Pengiriman pesan keluhan pasien & inferensi model LLM" },
-        { id: 4, name: "Riwayat Transkrip Percakapan", method: "GET", path: "/api/consultations/:id", service: "AI Consult (Storage)", server: aiHost, serverName: "Node GCP 2 (AI Engine)", desc: "Pengambilan transkrip lengkap percakapan dan ringkasan diagnosa" },
-        { id: 5, name: "Beri Rating Feedback & Selesai", method: "PATCH", path: "/api/consultations/:id", service: "AI Consult & Event Kafka", server: aiHost, serverName: "Node GCP 2 (AI Engine)", desc: "Penutupan sesi, kirim rating kepuasan & audit event broker Kafka" },
-      ];
-    }
-    if (selectedFlow === "2") {
-      return [
-        { id: 1, name: "Verifikasi Identitas Akun", method: "POST", path: "/api/v1/auth/login", service: "Identity Service", server: identityHost, serverName: "Node GCP 1", desc: "Otentikasi akun pasien untuk verifikasi hak akses konten kesehatan" },
-        { id: 2, name: "Buka Katalog Artikel Medis", method: "GET", path: "/api/articles", service: "Lifestyle Service (MongoDB)", server: lifeHost, serverName: "Node GCP 1", desc: "Akses katalog artikel kesehatan, tips nutrisi & daftar topik edukasi" },
-        { id: 3, name: "Baca Isi Artikel Lengkap", method: "GET", path: "/api/articles/:slug", service: "Lifestyle Service (Konten)", server: lifeHost, serverName: "Node GCP 1", desc: "Pengambilan isi artikel edukasi lengkap (dipilih secara dinamis)" },
-      ];
-    }
-    return [
-      { id: 1, name: "Akses Akun Pasien", method: "POST", path: "/api/v1/auth/login", service: "Identity Service", server: identityHost, serverName: "Node GCP 1", desc: "Otentikasi kredensial pasien & penerbitan token sesi" },
-      { id: 2, name: "Cari Jadwal Dokter Spesialis", method: "GET", path: "/api/live-consult", service: "Live Consult (Golang)", server: liveHost, serverName: "Node GCP 1", desc: "Pencarian direktori spesialisasi dokter & cek jadwal praktik yang buka" },
-      { id: 3, name: "Pilih Profil & Booking Antrean", method: "GET", path: "/api/live-consult/:id", service: "Live Consult (Session)", server: liveHost, serverName: "Node GCP 1", desc: "Akses detail profil dokter & registrasi ruang temu telekonsultasi" },
-      { id: 4, name: "Kirim Chat via WebSocket", method: "WS", path: "/ws/live-consult/:id", service: "Golang WebSocket Engine", server: liveHost, serverName: "Node GCP 1", desc: "Handshake HTTP 101 & pertukaran pesan langsung dengan dokter asli" },
-    ];
-  }, [activeCustomFlow, selectedFlow, endpoints]);
+    return [];
+  }, [activeCustomFlow, endpoints, projectServices]);
 
   // Otomatis sinkronkan endpoint terpilih: prioritaskan yang statusnya UP (Online)
   useEffect(() => {
@@ -384,12 +384,8 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
     if (prevIsRunningRef.current && !progress.isRunning && progress.totalRequests > 0) {
       const activeCustom = customFlows.find((f) => f.id === progress.selectedFlow);
       const flowTitle = activeCustom
-        ? `Custom: ${activeCustom.name}`
-        : progress.selectedFlow === "1"
-        ? "Konsultasi AI Healthcare"
-        : progress.selectedFlow === "2"
-        ? "Artikel Medis & Lifestyle"
-        : "Temu Dokter & Live Chat";
+        ? activeCustom.name
+        : ((progress as any).flowTitle || (progress.selectedFlow ? `Alur ${progress.selectedFlow}` : "Alur Pengujian"));
 
       const recs = generateRecommendations(
         progress.healthGrade,
@@ -494,25 +490,40 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
   };
 
   const handleSaveFlow = async (newFlow: CustomFlow) => {
-    const saved = await saveCustomFlow(newFlow);
+    const flowToSave: CustomFlow = {
+      ...newFlow,
+      projectId: activeProject?.id || 'project-tara-ai-q3f6',
+    };
+    const saved = await saveCustomFlow(flowToSave);
     if (saved) {
       setCustomFlows((prev) => [saved, ...prev.filter((f) => f.id !== saved.id)]);
       setSelectedFlow(saved.id);
       stressTestEngine.setSelectedFlow(saved.id);
+      localStorage.setItem("stress_test_selected_flow", saved.id);
+      setIsFlowModalOpen(false);
+      setIsServiceTestModalOpen(false);
+      setEditingFlow(null);
     }
   };
 
   const handleDeleteFlow = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!window.confirm("Apakah Anda yakin ingin menghapus alur pengujian transaksi ini dari database?")) return;
     const ok = await deleteCustomFlow(id);
     if (ok) {
-      setCustomFlows((prev) => prev.filter((f) => f.id !== id));
-      if (selectedFlow === id) {
-        setSelectedFlow("1");
-        stressTestEngine.setSelectedFlow("1");
-      }
+      setCustomFlows((prev) => {
+        const next = prev.filter((f) => f.id !== id);
+        if (selectedFlow === id) {
+          const nextSelected = next.length > 0 ? next[0].id : "";
+          setSelectedFlow(nextSelected);
+          stressTestEngine.setSelectedFlow(nextSelected);
+          localStorage.setItem("stress_test_selected_flow", nextSelected);
+        }
+        return next;
+      });
     }
   };
+
 
   // Filtered History
   const filteredHistory = useMemo(() => {
@@ -575,14 +586,14 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
             <span
               className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 border transition-colors ${
                 intensityTab === "load"
-                  ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
-                  : "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                  ? "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20"
+                  : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
               }`}
             >
               {intensityTab === "load" ? (
-                <Zap className="w-3.5 h-3.5 text-indigo-500" />
+                <Zap className="w-3.5 h-3.5 text-orange-500" />
               ) : (
-                <Activity className="w-3.5 h-3.5 text-purple-500" />
+                <Activity className="w-3.5 h-3.5 text-rose-500" />
               )}
               <span>{intensityTab === "load" ? "Load Test (1x Serentak)" : "Stress Test (Ketahanan)"}</span>
             </span>
@@ -627,79 +638,85 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
               </div>
             </div>
 
-            {/* Selector Skenario */}
+            {/* Selector Skenario Dinamis dari Database */}
             <div className="space-y-1.5">
-              <select
-                disabled={progress.isRunning}
-                value={selectedFlow}
-                onChange={(e) => {
-                  stressTestEngine.resetToIdle();
-                  setSelectedFlow(e.target.value);
-                  stressTestEngine.setSelectedFlow(e.target.value);
-                  setChartData([]);
-                }}
-                className="w-full text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20 cursor-pointer"
-              >
-                <optgroup label="Skenario Alur Terpadu (Presets)">
-                  <option value="1">1. Konsultasi AI Healthcare (Identity + AI Consult)</option>
-                  <option value="2">2. Artikel Medis & Lifestyle (Identity + Lifestyle)</option>
-                  <option value="3">3. Temu Dokter & Live Chat (Identity + Live Consult WebSocket)</option>
-                </optgroup>
-                {customFlows.length > 0 && (
-                  <optgroup label="Skenario Service Projek (Kustom)">
-                    {customFlows.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        ⚡ {f.name} ({f.steps?.length || 0} Langkah)
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-
-              {/* Rincian Singkat Skenario Terpilih */}
-              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-[11px]">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-600 border border-orange-500/20 shrink-0">
-                    {activeStepsCount} Tahap
-                  </span>
-                  <span className="text-slate-600 dark:text-slate-300 font-medium truncate">
-                    {currentFlowTitle}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+              {customFlows.length > 0 ? (
+                <select
+                  disabled={progress.isRunning}
+                  value={selectedFlow}
+                  onChange={(e) => {
+                    stressTestEngine.resetToIdle();
+                    setSelectedFlow(e.target.value);
+                    stressTestEngine.setSelectedFlow(e.target.value);
+                    localStorage.setItem("stress_test_selected_flow", e.target.value);
+                    setChartData([]);
+                  }}
+                  className="w-full text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/20 cursor-pointer"
+                >
+                  {customFlows.map((f, idx) => (
+                    <option key={f.id} value={f.id}>
+                      {idx + 1}. {f.name} ({f.steps?.length || 0} Langkah)
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="p-3 rounded-xl border border-dashed border-amber-300 dark:border-amber-700/60 bg-amber-50/50 dark:bg-amber-950/20 text-xs text-amber-700 dark:text-amber-300 flex items-center justify-between">
+                  <span className="text-[11px] font-medium">Belum ada skenario alur untuk projek ini.</span>
                   <button
                     type="button"
-                    onClick={() => setIsFlowStepsModalOpen(true)}
-                    className="text-orange-500 hover:text-orange-600 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                    onClick={() => {
+                      setEditingFlow(null);
+                      setIsFlowModalOpen(true);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-bold text-[11px] transition shadow-xs cursor-pointer"
                   >
-                    <Eye className="w-3 h-3" />
-                    <span>Detail</span>
+                    + Rancang Alur
                   </button>
-                  {activeCustomFlow && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingFlow(activeCustomFlow);
-                          setIsFlowModalOpen(true);
-                        }}
-                        className="p-1 rounded text-slate-400 hover:text-orange-500 transition cursor-pointer"
-                        title="Edit Skenario Kustom"
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteFlow(activeCustomFlow.id, e)}
-                        className="p-1 rounded text-slate-400 hover:text-rose-500 transition cursor-pointer"
-                        title="Hapus Skenario Kustom"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </>
-                  )}
                 </div>
-              </div>
+              )}
+
+              {/* Rincian Singkat Skenario Terpilih */}
+              {activeCustomFlow && (
+                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-600 border border-orange-500/20 shrink-0">
+                      {activeStepsCount} Tahap
+                    </span>
+                    <span className="text-slate-600 dark:text-slate-300 font-medium truncate" title={currentFlowTitle}>
+                      {currentFlowTitle}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsFlowStepsModalOpen(true)}
+                      className="text-orange-500 hover:text-orange-600 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Eye className="w-3 h-3" />
+                      <span>Detail</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingFlow(activeCustomFlow);
+                        setIsFlowModalOpen(true);
+                      }}
+                      className="p-1 rounded text-slate-400 hover:text-orange-500 transition cursor-pointer"
+                      title="Edit Skenario Alur Ini"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteFlow(activeCustomFlow.id, e)}
+                      className="p-1 rounded text-slate-400 hover:text-rose-500 transition cursor-pointer"
+                      title="Hapus Skenario Alur Ini"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Mode Pengujian: Load Test (1x Serentak) | Stress Test (Ketahanan) */}
@@ -711,8 +728,8 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
                 <span
                   className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-colors ${
                     intensityTab === "load"
-                      ? "text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 border-indigo-500/20"
-                      : "text-purple-600 dark:text-purple-400 bg-purple-500/10 border-purple-500/20"
+                      ? "text-orange-600 dark:text-orange-400 bg-orange-500/10 border-orange-500/20"
+                      : "text-rose-600 dark:text-rose-400 bg-rose-500/10 border-rose-500/20"
                   }`}
                 >
                   {intensityTab === "load" ? "1x Gelombang" : "Sustained Looping"}
@@ -728,7 +745,7 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
                   }}
                   className={`py-2 px-2 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold transition cursor-pointer ${
                     intensityTab === "load"
-                      ? "bg-indigo-600 text-white shadow-xs font-black"
+                      ? "bg-orange-500 text-white shadow-xs font-black"
                       : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
                 >
@@ -745,7 +762,7 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
                   }}
                   className={`py-2 px-2 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold transition cursor-pointer ${
                     intensityTab === "stress"
-                      ? "bg-purple-600 text-white shadow-xs font-black"
+                      ? "bg-rose-600 text-white shadow-xs font-black"
                       : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
                 >
@@ -779,8 +796,8 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
                   className={`py-1.5 rounded-lg text-xs font-mono font-bold transition cursor-pointer text-center ${
                     targetVUs === vu
                       ? intensityTab === "load"
-                        ? "bg-indigo-600 text-white shadow-xs font-black"
-                        : "bg-purple-600 text-white shadow-xs font-black"
+                        ? "bg-orange-500 text-white shadow-xs font-black"
+                        : "bg-rose-600 text-white shadow-xs font-black"
                       : "bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800"
                   }`}
                 >
@@ -803,7 +820,7 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
                         onClick={() => setDurationSec(sec)}
                         className={`px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer transition ${
                           durationSec === sec
-                            ? "bg-purple-600 text-white shadow-xs"
+                            ? "bg-rose-600 text-white shadow-xs"
                             : "bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700"
                         }`}
                       >
@@ -828,7 +845,7 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
                         onClick={() => setSelectedPresetPattern(p.id as any)}
                         className={`px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer transition ${
                           selectedPresetPattern === p.id
-                            ? "bg-purple-600 text-white shadow-xs"
+                            ? "bg-rose-600 text-white shadow-xs"
                             : "bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700"
                         }`}
                       >
@@ -844,20 +861,20 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
             <div
               className={`p-2.5 rounded-xl text-[11px] leading-relaxed flex items-center gap-2 border transition-colors ${
                 intensityTab === "load"
-                  ? "bg-indigo-500/10 text-indigo-950 dark:text-indigo-200 border-indigo-500/20"
-                  : "bg-purple-500/10 text-purple-950 dark:text-purple-200 border-purple-500/20"
+                  ? "bg-orange-500/10 text-orange-950 dark:text-orange-200 border-orange-500/20"
+                  : "bg-rose-500/10 text-rose-950 dark:text-rose-200 border-rose-500/20"
               }`}
             >
               {intensityTab === "load" ? (
                 <>
-                  <Zap className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  <Zap className="w-3.5 h-3.5 text-orange-500 shrink-0" />
                   <span>
                     <strong>1x Gelombang Serentak:</strong> {targetVUs} pasien mengakses sekaligus 1 iterasi penuh.
                   </span>
                 </>
               ) : (
                 <>
-                  <Activity className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                  <Activity className="w-3.5 h-3.5 text-rose-500 shrink-0" />
                   <span>
                     <strong>Uji Ketahanan Bertahap:</strong> Tekanan looping {totalCalculatedDuration} detik untuk deteksi breakpoint.
                   </span>
@@ -871,16 +888,21 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
             {!progress.isRunning ? (
               <button
                 type="button"
+                disabled={customFlows.length === 0 || !selectedFlow}
                 onClick={handleStart}
-                className={`w-full py-3 px-4 rounded-xl text-white text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition shadow-md cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0 ${
+                className={`w-full py-3 px-4 rounded-xl text-white text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition shadow-md cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none ${
                   intensityTab === "load"
-                    ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/25 active:bg-indigo-800"
-                    : "bg-purple-600 hover:bg-purple-700 shadow-purple-600/25 active:bg-purple-800"
+                    ? "bg-orange-500 hover:bg-orange-600 shadow-orange-500/25 active:bg-orange-700"
+                    : "bg-rose-600 hover:bg-rose-700 shadow-rose-600/25 active:bg-rose-800"
                 }`}
               >
                 <Play className="w-4 h-4 fill-white" />
                 <span>
-                  {intensityTab === "load" ? "Mulai Load Test Serentak" : "Mulai Stress Test Ketahanan"}
+                  {customFlows.length === 0
+                    ? "Buat Alur Pengujian Dulu"
+                    : intensityTab === "load"
+                    ? "Mulai Load Test Serentak"
+                    : "Mulai Stress Test Ketahanan"}
                 </span>
               </button>
             ) : (
@@ -927,7 +949,7 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
             <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111622] shadow-xs">
               <div className="text-[10px] uppercase font-bold text-slate-400 flex items-center justify-between">
                 <span>Throughput</span>
-                <TrendingUp className="w-3 h-3 text-indigo-500" />
+                <TrendingUp className="w-3 h-3 text-blue-500" />
               </div>
               <div className="text-xl font-mono font-black text-slate-900 dark:text-white mt-1">
                 {Math.round(progress.currentRps)}
@@ -1096,17 +1118,6 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
         </div>
       </div>
 
-      {/* ─── AI CAPACITY & RELIABILITY INSIGHT CARD ─── */}
-      <AiStressInsightCard
-        records={historyRecords}
-        projectName={activeProject?.name}
-        projectId={activeProject?.id}
-        onOpenRecordModal={(rec) => {
-          setActiveModalRecord(rec);
-          setIsModalOpen(true);
-        }}
-      />
-
       {/* ─── RIWAYAT PENGUJIAN: FIXED HEIGHT MAX-H-72 DENGAN INTERNAL SCROLL ─── */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111622] p-4 shadow-sm space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 pb-3">
@@ -1138,8 +1149,8 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
               onClick={() => setHistoryFilter("load")}
               className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1.5 border ${
                 historyFilter === "load"
-                  ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
-                  : "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/20"
+                  ? "bg-orange-500 text-white border-orange-500 shadow-xs"
+                  : "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20 hover:bg-orange-500/20"
               }`}
             >
               <Zap className="w-3 h-3" />
@@ -1151,8 +1162,8 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
               onClick={() => setHistoryFilter("stress")}
               className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer flex items-center gap-1.5 border ${
                 historyFilter === "stress"
-                  ? "bg-purple-600 text-white border-purple-600 shadow-xs"
-                  : "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 hover:bg-purple-500/20"
+                  ? "bg-rose-600 text-white border-rose-600 shadow-xs"
+                  : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20"
               }`}
             >
               <Activity className="w-3 h-3" />
@@ -1223,8 +1234,8 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
                         <span
                           className={`inline-block text-[9px] font-black uppercase px-2 py-0.5 rounded mt-0.5 border ${
                             isLoad
-                              ? "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
-                              : "bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                              ? "bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/20"
+                              : "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/20"
                           }`}
                         >
                           {isLoad ? "⚡ Load Test (Serentak)" : "🔥 Stress Test (Ketahanan)"}

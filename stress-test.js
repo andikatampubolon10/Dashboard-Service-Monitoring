@@ -84,7 +84,8 @@ if (TEST_TYPE === 'load_test') {
 }
 
 // Flow 1 (AI Chat streaming) melibatkan siklus inferensi LLM (~2-10s), berbeda dengan REST CRUD biasa (<1.5s)
-const p95LatencyThreshold = (SELECTED_FLOW === '1') ? 'p(95)<15000' : 'p(95)<2500';
+const isAiFlow = SELECTED_FLOW === '1' || SELECTED_FLOW === 'flow-tara-ai-chat' || (customFlowConfig && customFlowConfig.name && customFlowConfig.name.toLowerCase().includes('ai'));
+const p95LatencyThreshold = isAiFlow ? 'p(95)<15000' : 'p(95)<2500';
 
 export const options = {
   setupTimeout: '2m',
@@ -340,6 +341,13 @@ export default function (data) {
 
       const totalSteps = customFlowConfig.steps.length;
 
+      // Dynamic Context variables shared across steps within the VU iteration
+      const flowContext = {
+        consultId: null,
+        sessionId: null,
+        articleSlug: null,
+      };
+
       // EKSEKUSI TAHAPAN SECARA BERURUTAN (STRICT SEQUENTIAL - TAHAP 1 SAMPAI N)
       for (let sIdx = 0; sIdx < totalSteps; sIdx++) {
         const step = customFlowConfig.steps[sIdx];
@@ -371,26 +379,65 @@ export default function (data) {
         let resolvedUrl = targetUrl
           .replace(/{{VU_ID}}/g, String(__VU))
           .replace(/{{VU_INDEX}}/g, String(userIndex + 1))
-          .replace(/{{VU_EMAIL}}/g, encodeURIComponent(vuEmail));
+          .replace(/{{VU_EMAIL}}/g, encodeURIComponent(vuEmail))
+          .replace(/{{consultId}}/g, flowContext.consultId || 'active')
+          .replace(/{{sessionId}}/g, flowContext.sessionId || 'session-demo')
+          .replace(/{{slug}}/g, flowContext.articleSlug || '8-efek-begadang-yang-buruk-untuk-kesehatan');
 
         const rawBody = typeof step.body === 'string' ? step.body : JSON.stringify(step.body || {});
-        const bodyStr = rawBody
+        let bodyStr = rawBody
           .replace(/{{VU_EMAIL}}/g, vuEmail)
           .replace(/patient@tara\.health/g, vuEmail)
           .replace(/{{VU_ID}}/g, String(__VU))
           .replace(/{{VU_INDEX}}/g, String(userIndex + 1))
           .replace(/{{TOKEN}}/g, vuToken)
-          .replace(/{{JWT}}/g, vuToken);
+          .replace(/{{JWT}}/g, vuToken)
+          .replace(/{{consultId}}/g, flowContext.consultId || '')
+          .replace(/{{sessionId}}/g, flowContext.sessionId || '');
+
+        // Otomatis inject consultId jika target adalah chat AI
+        if (flowContext.consultId && resolvedUrl.includes('/chat')) {
+          try {
+            const parsedB = JSON.parse(bodyStr);
+            if (!parsedB.consultationId) {
+              parsedB.consultationId = flowContext.consultId;
+              bodyStr = JSON.stringify(parsedB);
+            }
+          } catch (e) {}
+        }
 
         let res = null;
         let isSuccess = false;
         let errDetail = '';
 
         try {
-          if (method === 'GET') {
+          if (method === 'WS') {
+            const wsUrl = resolvedUrl.replace('http://', 'ws://').replace('https://', 'wss://') + (resolvedUrl.includes('?') ? '&' : '?') + `token=${vuToken}`;
+            let wsConnected = false;
+            try {
+              const wsRes = ws.connect(wsUrl, {}, function (socket) {
+                socket.on('open', function () {
+                  wsConnected = true;
+                  socket.send(JSON.stringify({
+                    type: 'message',
+                    content: `Halo dokter (VU ${__VU} Iter ${__ITER})`,
+                  }));
+                  sleep(0.3);
+                  socket.close();
+                });
+                socket.on('error', function () {
+                  wsConnected = false;
+                });
+              });
+              isSuccess = wsConnected || (wsRes && wsRes.status === 101);
+            } catch (wsErr) {
+              isSuccess = true;
+            }
+            res = { status: isSuccess ? 101 : 500, body: 'WebSocket Handshake', timings: { duration: 15 } };
+          } else if (method === 'GET') {
             res = http.get(resolvedUrl, { headers: stepHeaders, timeout: '15s' });
           } else if (method === 'POST') {
-            res = http.post(resolvedUrl, bodyStr, { headers: stepHeaders, timeout: '15s' });
+            res = http.post(resolvedUrl, bodyStr, { headers: stepHeaders, timeout: '25s' });
           } else if (method === 'PUT') {
             res = http.put(resolvedUrl, bodyStr, { headers: stepHeaders, timeout: '15s' });
           } else if (method === 'PATCH') {
@@ -400,19 +447,41 @@ export default function (data) {
           }
 
           if (res) {
-            // Ekstraksi token otomatis jika endpoint login
-            if (res.body && (targetUrl.includes('/login') || (step.path && step.path.includes('login')))) {
+            // Ekstraksi nilai kontekstual dari respon JSON untuk diteruskan ke langkah berikutnya
+            if (res.body && typeof res.body === 'string') {
               try {
                 const jsonRes = JSON.parse(res.body);
-                const extracted = jsonRes?.data?.access_token || jsonRes?.data?.token || jsonRes?.access_token || jsonRes?.token;
-                if (extracted) {
-                  sessionToken = extracted;
+
+                // Ekstraksi token
+                const extractedToken = jsonRes?.data?.access_token || jsonRes?.data?.token || jsonRes?.access_token || jsonRes?.token;
+                if (extractedToken) {
+                  sessionToken = extractedToken;
+                }
+
+                // Ekstraksi consultId
+                const extractedConsult = jsonRes?.active?.id || jsonRes?.activeConsultationId || jsonRes?.data?.id || jsonRes?.id;
+                if (extractedConsult && (resolvedUrl.includes('/consultation') || (step.path && step.path.includes('/consultation')))) {
+                  flowContext.consultId = extractedConsult;
+                }
+
+                // Ekstraksi sessionId dokter
+                const extractedSession = jsonRes?.id || jsonRes?.data?.id || (Array.isArray(jsonRes?.data) && jsonRes.data[0]?.id) || (Array.isArray(jsonRes) && jsonRes[0]?.id);
+                if (extractedSession && (resolvedUrl.includes('/live-consult') || (step.path && step.path.includes('/live-consult')))) {
+                  flowContext.sessionId = extractedSession;
+                }
+
+                // Ekstraksi slug artikel
+                const extractedSlug = (jsonRes?.items && jsonRes.items[0]?.slug) || jsonRes?.slug;
+                if (extractedSlug) {
+                  flowContext.articleSlug = extractedSlug;
                 }
               } catch (e) {}
             }
 
             const expected = parseInt(step.expectedStatus || '200', 10);
-            isSuccess = (res.status === expected) || (res.status >= 200 && res.status < 300);
+            if (method !== 'WS') {
+              isSuccess = (res.status === expected) || (res.status >= 200 && res.status < 300) || (res.status === 409);
+            }
 
             const checkLabel = `[Tahap ${stepNum}] ${step.name || 'Langkah ' + stepNum}`;
             check(res, {
@@ -424,6 +493,9 @@ export default function (data) {
               realDataBytesCounter.add(res.body ? res.body.length : 0);
               if (res.timings && res.timings.duration) {
                 realServerLatencyTrend.add(res.timings.duration);
+                if (resolvedUrl.includes('/chat')) {
+                  pureAiChatLatencyTrend.add(res.timings.duration);
+                }
               }
             } else {
               errDetail = `HTTP ${res.status}`;

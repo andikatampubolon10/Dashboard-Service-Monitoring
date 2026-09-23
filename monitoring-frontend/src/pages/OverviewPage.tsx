@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Server,
@@ -18,8 +18,6 @@ import { useServers } from '../hooks/useServers';
 import { useServices } from '../hooks/useServices';
 import { ProjectService } from '../services/projectService';
 import { Project, Server as ServerType } from '../types';
-import { getStressTestHistory, fetchDbStressTestHistory, StressTestRecord } from '../services/stressTestEngine';
-import StressTestResultModal from '../components/monitoring/StressTestResultModal';
 import { CardSkeleton } from '../components/common/LoadingSkeleton';
 import { QuickAddServerModal } from '../components/common/QuickAddServerModal';
 import { QuickAddServiceModal } from '../components/common/QuickAddServiceModal';
@@ -62,27 +60,6 @@ export const OverviewPage: React.FC = () => {
       .catch(() => setProjects([]))
       .finally(() => setIsLoadingProjects(false));
   };
-
-  // Load Stress History from MySQL database (with localStorage fallback)
-  useEffect(() => {
-    let isMounted = true;
-    fetchDbStressTestHistory().then((dbRuns) => {
-      if (isMounted) {
-        if (dbRuns && dbRuns.length > 0) {
-          setStressHistory(dbRuns);
-        } else {
-          setStressHistory(getStressTestHistory());
-        }
-      }
-    }).catch(() => {
-      if (isMounted) {
-        setStressHistory(getStressTestHistory());
-      }
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   const handleSelectProject = (projectId: string) => {
     setSelectedProjectId(projectId);

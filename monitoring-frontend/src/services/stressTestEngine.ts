@@ -17,7 +17,7 @@ export interface CustomFlowStep {
   id: string;
   name: string;
   serviceKey: string;
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'WS';
   path: string;
   url?: string;
   body?: any;

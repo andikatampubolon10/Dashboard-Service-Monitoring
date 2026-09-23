@@ -566,13 +566,13 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
 
               {/* Banner Pembeda Kategori: Load Test vs Stress Test */}
               {record.testType === "load_test" ? (
-                <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-indigo-950 dark:text-indigo-200 shadow-2xs">
+                <div className="p-3.5 rounded-2xl bg-orange-500/10 border border-orange-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-orange-950 dark:text-orange-200 shadow-2xs">
                   <div className="flex items-center gap-2.5 font-bold">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-xs">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-orange-500 text-white shadow-xs">
                       <Zap className="w-4 h-4" />
                     </span>
                     <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 block">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-orange-600 dark:text-orange-400 block">
                         Kategori Pengujian:
                       </span>
                       <span className="text-xs font-black text-slate-900 dark:text-white">
@@ -580,18 +580,18 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                       </span>
                     </div>
                   </div>
-                  <div className="text-[11px] text-indigo-700 dark:text-indigo-300 font-medium sm:text-right">
+                  <div className="text-[11px] text-orange-700 dark:text-orange-300 font-medium sm:text-right">
                     Kapasitas Konkurensi: <strong>{record.targetVUs} Pasien Masuk Sekaligus</strong> (Selesai dalam {record.durationSec || 1}s)
                   </div>
                 </div>
               ) : (
-                <div className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-purple-950 dark:text-purple-200 shadow-2xs">
+                <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-rose-950 dark:text-rose-200 shadow-2xs">
                   <div className="flex items-center gap-2.5 font-bold">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-purple-600 text-white shadow-xs">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-rose-600 text-white shadow-xs">
                       <Activity className="w-4 h-4" />
                     </span>
                     <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider text-purple-600 dark:text-purple-400 block">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 block">
                         Kategori Pengujian:
                       </span>
                       <span className="text-xs font-black text-slate-900 dark:text-white">
@@ -599,7 +599,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
                       </span>
                     </div>
                   </div>
-                  <div className="text-[11px] text-purple-700 dark:text-purple-300 font-medium sm:text-right">
+                  <div className="text-[11px] text-rose-700 dark:text-rose-300 font-medium sm:text-right">
                     Uji Ketahanan: <strong>Puncak {record.targetVUs} VU</strong> selama <strong>{record.durationSec || 1} Detik</strong> (Looping Terus-menerus)
                   </div>
                 </div>

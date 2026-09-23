@@ -164,48 +164,25 @@ function parseK6Output(text) {
   broadcastProgress();
 }
 
-const CUSTOM_FLOWS_FILE = path.join(__dirname, '../../data/custom_flows.json');
-
-function loadCustomFlows() {
-  try {
-    if (fs.existsSync(CUSTOM_FLOWS_FILE)) {
-      const raw = fs.readFileSync(CUSTOM_FLOWS_FILE, 'utf-8');
-      const data = JSON.parse(raw);
-      return Array.isArray(data) ? data : [];
-    }
-  } catch (err) {
-    console.error('[k6 flows] Failed to load custom flows:', err.message);
-  }
-  return [];
-}
-
-function saveCustomFlows(flows) {
-  try {
-    fs.writeFileSync(CUSTOM_FLOWS_FILE, JSON.stringify(flows, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[k6 flows] Failed to save custom flows:', err.message);
-  }
-}
-
 /**
  * GET /api/stress-test/flows
- * List custom test flows (optionally filtered by projectId)
+ * List test flows from database (optionally filtered by projectId)
  */
-router.get('/flows', (req, res) => {
-  const { projectId } = req.query;
-  const flows = loadCustomFlows();
-  if (projectId) {
-    const filtered = flows.filter((f) => f.projectId === projectId);
-    return res.json({ success: true, flows: filtered });
+router.get('/flows', async (req, res) => {
+  try {
+    const { projectId } = req.query;
+    const flows = await stressTestRepository.getFlows({ projectId });
+    return res.json({ success: true, flows });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: `Gagal mengambil alur pengujian: ${err.message}` });
   }
-  return res.json({ success: true, flows });
 });
 
 /**
  * POST /api/stress-test/flows
- * Create or update a custom test flow
+ * Create or update a test flow in database
  */
-router.post('/flows', (req, res) => {
+router.post('/flows', async (req, res) => {
   try {
     const { id, name, description, projectId, authConfig, steps } = req.body;
     if (!name || !name.trim()) {
@@ -215,13 +192,11 @@ router.post('/flows', (req, res) => {
       return res.status(400).json({ success: false, message: 'Flow harus memiliki minimal 1 langkah transaksi (step).' });
     }
 
-    const flows = loadCustomFlows();
-    const flowId = id || `flow-custom-${Date.now()}`;
-    const newFlow = {
-      id: flowId,
+    const flowData = {
+      id: id || `flow-${Date.now()}`,
       name: name.trim(),
       description: description || '',
-      projectId: projectId || null,
+      projectId: projectId || 'project-tara-ai-q3f6',
       authConfig: authConfig || { type: 'identity' },
       steps: steps.map((s, idx) => ({
         id: s.id || `step-${idx + 1}`,
@@ -234,19 +209,10 @@ router.post('/flows', (req, res) => {
         headers: s.headers || {},
         expectedStatus: parseInt(s.expectedStatus || '200', 10),
       })),
-      updatedAt: new Date().toISOString(),
-      createdAt: req.body.createdAt || new Date().toISOString(),
     };
 
-    const existingIdx = flows.findIndex((f) => f.id === flowId);
-    if (existingIdx >= 0) {
-      flows[existingIdx] = newFlow;
-    } else {
-      flows.push(newFlow);
-    }
-
-    saveCustomFlows(flows);
-    return res.json({ success: true, flow: newFlow });
+    const saved = await stressTestRepository.saveFlow(flowData);
+    return res.json({ success: true, flow: saved });
   } catch (err) {
     return res.status(500).json({ success: false, message: `Gagal menyimpan flow: ${err.message}` });
   }
@@ -254,14 +220,12 @@ router.post('/flows', (req, res) => {
 
 /**
  * DELETE /api/stress-test/flows/:id
- * Delete a custom test flow
+ * Delete a test flow from database
  */
-router.delete('/flows/:id', (req, res) => {
+router.delete('/flows/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const flows = loadCustomFlows();
-    const filtered = flows.filter((f) => f.id !== id);
-    saveCustomFlows(filtered);
+    await stressTestRepository.deleteFlow(id);
     return res.json({ success: true, message: `Flow ${id} berhasil dihapus.` });
   } catch (err) {
     return res.status(500).json({ success: false, message: `Gagal menghapus flow: ${err.message}` });
@@ -282,7 +246,7 @@ router.get('/status', (req, res) => {
  * POST /api/stress-test/start
  * Body: { flow: '1'|'2'|'3'|customId, targetVUs: 50, durationSec: 30, stages?: [], customFlow?: object, serviceEndpoints?: object }
  */
-router.post('/start', (req, res) => {
+router.post('/start', async (req, res) => {
   if (activeK6Process) {
     return res.status(409).json({
       success: false,
@@ -293,16 +257,36 @@ router.post('/start', (req, res) => {
 
   const flow = String(req.body.flow || '1');
   let customFlow = req.body.customFlow || null;
-  if (!customFlow && flow.startsWith('flow-custom-')) {
-    const flows = loadCustomFlows();
-    customFlow = flows.find((f) => f.id === flow) || null;
+
+  // Jika customFlow belum terlampir, cari dari database MySQL
+  if (!customFlow) {
+    try {
+      customFlow = await stressTestRepository.getFlowById(flow);
+    } catch (e) {
+      console.warn('[k6] Error looking up flow in DB:', e.message);
+    }
   }
+
+  // Fallback pemetaan preset lama (1, 2, 3) ke ID flow di database
+  if (!customFlow) {
+    const presetIdMap = {
+      '1': 'flow-tara-ai-chat',
+      '2': 'flow-tara-lifestyle',
+      '3': 'flow-tara-live-consult',
+    };
+    if (presetIdMap[flow]) {
+      try {
+        customFlow = await stressTestRepository.getFlowById(presetIdMap[flow]);
+      } catch (e) {}
+    }
+  }
+
   const stages = req.body.stages || null;
   const testType = req.body.testType || (req.body.iterations === 1 ? 'load_test' : (Array.isArray(stages) && stages.length > 0 ? 'stress_test' : 'load_test'));
   const projectId = req.body.projectId || (customFlow ? customFlow.projectId : null) || null;
   const projectObj = projectId ? getProjectById(projectId) : null;
   const projectName = req.body.projectName || (projectObj ? projectObj.name : null) || (projectId ? `Projek ${projectId}` : null);
-  const flowTitle = customFlow ? customFlow.name : (flow === '1' ? 'Konsultasi Chat AI' : flow === '2' ? 'Artikel Kesehatan' : flow === '3' ? 'Pencarian Dokter' : `Alur Kustom ${flow}`);
+  const flowTitle = customFlow ? customFlow.name : (flow === '1' ? 'Konsultasi Chat AI' : flow === '2' ? 'Artikel Kesehatan' : flow === '3' ? 'Pencarian Dokter' : `Alur ${flow}`);
   let targetVUs = Math.max(1, parseInt(req.body.targetVUs || '50', 10));
   let durationSec = Math.max(5, parseInt(req.body.durationSec || '30', 10));
 

@@ -237,8 +237,122 @@ async function getProjectAnalytics(projectId) {
   };
 }
 
+/**
+ * Format row dari tabel stress_test_flows menjadi object flow terstandarisasi
+ */
+function formatFlowRow(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    project_id: r.project_id,
+    name: r.name,
+    description: r.description || '',
+    authConfig: parseJsonField(r.auth_config, { type: 'identity' }),
+    auth_config: parseJsonField(r.auth_config, { type: 'identity' }),
+    steps: parseJsonField(r.steps, []),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+/**
+ * Ambil daftar flow pengujian dari database (filter opsional projectId)
+ */
+async function getFlows({ projectId } = {}) {
+  const isMysql = dbType === 'mysql';
+  let sql = 'SELECT id, project_id, name, description, auth_config, steps, created_at, updated_at FROM stress_test_flows';
+  const params = [];
+  if (projectId) {
+    sql += isMysql ? ' WHERE project_id = ?' : ' WHERE project_id = $1';
+    params.push(projectId);
+  }
+  sql += ' ORDER BY created_at ASC';
+
+  const res = await query(sql, params);
+  return (res.rows || []).map(formatFlowRow);
+}
+
+/**
+ * Ambil satu flow berdasarkan ID
+ */
+async function getFlowById(id) {
+  if (!id) return null;
+  const isMysql = dbType === 'mysql';
+  const sql = `SELECT id, project_id, name, description, auth_config, steps, created_at, updated_at FROM stress_test_flows WHERE id = ${isMysql ? '?' : '$1'}`;
+  const res = await query(sql, [id]);
+  return res.rows[0] ? formatFlowRow(res.rows[0]) : null;
+}
+
+/**
+ * Simpan atau perbarui flow ke dalam database
+ */
+async function saveFlow(flowData) {
+  const isMysql = dbType === 'mysql';
+  const flowId = flowData.id || `flow-${Date.now()}`;
+  const projectId = flowData.projectId || flowData.project_id || 'project-tara-ai-q3f6';
+  const name = (flowData.name || '').trim();
+  const description = flowData.description || '';
+  const authConfig = flowData.authConfig || flowData.auth_config || { type: 'identity' };
+  const steps = Array.isArray(flowData.steps) ? flowData.steps : [];
+
+  const insertSql = isMysql
+    ? `
+      INSERT INTO stress_test_flows (
+        id, project_id, name, description, auth_config, steps, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+      ON DUPLICATE KEY UPDATE
+        project_id = VALUES(project_id),
+        name = VALUES(name),
+        description = VALUES(description),
+        auth_config = VALUES(auth_config),
+        steps = VALUES(steps),
+        updated_at = NOW();
+    `
+    : `
+      INSERT INTO stress_test_flows (
+        id, project_id, name, description, auth_config, steps, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        project_id = EXCLUDED.project_id,
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        auth_config = EXCLUDED.auth_config,
+        steps = EXCLUDED.steps,
+        updated_at = NOW();
+    `;
+
+  const values = [
+    flowId,
+    projectId,
+    name,
+    description,
+    JSON.stringify(authConfig),
+    JSON.stringify(steps),
+  ];
+
+  await query(insertSql, values);
+  return getFlowById(flowId);
+}
+
+/**
+ * Hapus flow dari database berdasarkan ID
+ */
+async function deleteFlow(id) {
+  if (!id) return false;
+  const isMysql = dbType === 'mysql';
+  const sql = `DELETE FROM stress_test_flows WHERE id = ${isMysql ? '?' : '$1'}`;
+  await query(sql, [id]);
+  return true;
+}
+
 module.exports = {
   saveTestRun,
   getRuns,
   getProjectAnalytics,
+  getFlows,
+  getFlowById,
+  saveFlow,
+  deleteFlow,
 };
+
