@@ -25,6 +25,7 @@ import { Project, ProjectPayload, Server as ServerType } from '../../types';
 import { ProjectService } from '../../services/projectService';
 import { monitoringApi } from '../../services/monitoringApi';
 import { AiStressInsightCard } from '../../components/monitoring/AiStressInsightCard';
+import { QuickAddServerModal } from '../../components/common/QuickAddServerModal';
 
 export const ProjectDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -38,6 +39,7 @@ export const ProjectDetailPage: React.FC = () => {
   // Modals
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [isAddServerModalOpen, setIsAddServerModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -338,7 +340,7 @@ export const ProjectDetailPage: React.FC = () => {
           </div>
 
           <button
-            onClick={() => setIsAssignModalOpen(true)}
+            onClick={() => setIsAddServerModalOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold transition"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -385,7 +387,7 @@ export const ProjectDetailPage: React.FC = () => {
                 Tambahkan server host (misal Server 1 atau Server 2) agar microservice di dalamnya otomatis terkelola.
               </p>
               <button
-                onClick={() => setIsAssignModalOpen(true)}
+                onClick={() => setIsAddServerModalOpen(true)}
                 className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-orange-600 hover:bg-orange-700 text-white transition"
               >
                 <Plus className="w-4 h-4" />
@@ -767,6 +769,17 @@ export const ProjectDetailPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+      {/* Modal: Tambah Server (Zero-Config Probe / SSH Remote & Hubungkan Server Ada) */}
+      {project && (
+        <QuickAddServerModal
+          isOpen={isAddServerModalOpen}
+          onClose={() => setIsAddServerModalOpen(false)}
+          onSuccess={fetchProjectDetail}
+          projects={[project]}
+          servers={allServers}
+          defaultProjectId={project.id}
+        />
       )}
     </div>
   );

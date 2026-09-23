@@ -20,7 +20,6 @@ import { ProjectService } from '../services/projectService';
 import { Project, Server as ServerType } from '../types';
 import { CardSkeleton } from '../components/common/LoadingSkeleton';
 import { QuickAddServerModal } from '../components/common/QuickAddServerModal';
-import { QuickAddServiceModal } from '../components/common/QuickAddServiceModal';
 import { QuickCreateProjectModal } from '../components/common/QuickCreateProjectModal';
 import { AttentionCenter } from '../components/dashboard/AttentionCenter';
 
@@ -46,9 +45,6 @@ export const OverviewPage: React.FC = () => {
   // Quick Action Modal States
   const [isAddServerOpen, setIsAddServerOpen] = useState(false);
   const [selectedProjectForServer, setSelectedProjectForServer] = useState<string | undefined>(undefined);
-
-  const [isAddServiceOpen, setIsAddServiceOpen] = useState(false);
-  const [selectedServerForService, setSelectedServerForService] = useState<string | undefined>(undefined);
 
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
 
@@ -230,19 +226,7 @@ export const OverviewPage: React.FC = () => {
               <span>Server ke Projek</span>
             </button>
 
-            {/* Quick Button: + Service ke Server */}
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedServerForService(filteredServers[0]?.id);
-                setIsAddServiceOpen(true);
-              }}
-              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-xs font-bold font-mono transition shadow-sm"
-              title="Daftarkan microservice baru ke server"
-            >
-              <Plus className="w-4 h-4 text-emerald-400" />
-              <span>Service ke Server</span>
-            </button>
+
 
             {/* Quick Button: + Projek Baru */}
             <button
@@ -582,19 +566,7 @@ export const OverviewPage: React.FC = () => {
                 </div>
 
                 {/* Footer Contextual Actions */}
-                <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedServerForService(srv.id);
-                      setIsAddServiceOpen(true);
-                    }}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 text-xs font-bold font-mono transition"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Tambah Service</span>
-                  </button>
-
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-end">
                   <Link
                     to={`/servers/${srv.id}`}
                     className="inline-flex items-center gap-1 text-xs font-bold font-mono text-cyan-500 hover:text-cyan-400 hover:underline"
@@ -732,13 +704,7 @@ export const OverviewPage: React.FC = () => {
         defaultProjectId={selectedProjectForServer}
       />
 
-      <QuickAddServiceModal
-        isOpen={isAddServiceOpen}
-        onClose={() => setIsAddServiceOpen(false)}
-        onSuccess={handleManualRefresh}
-        servers={servers}
-        defaultServerId={selectedServerForService}
-      />
+
 
       <QuickCreateProjectModal
         isOpen={isCreateProjectOpen}
