@@ -19,6 +19,7 @@ import {
   ServiceEndpoint,
   ServiceChartData,
   RegisterServerPayload,
+  RegisterServicePayload,
   DiscoverServerPayload,
   DiscoverServerResponse,
   UpdateServerPayload,
@@ -895,6 +896,19 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
       throw new Error(data.error || 'Failed to auto-discover server');
     }
     return data;
+  }
+
+  async createService(payload: RegisterServicePayload): Promise<any> {
+    const res = await fetch(`${this.baseUrl}/api/services`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to create service');
+    }
+    return data.service;
   }
 
   async registerServer(payload: RegisterServerPayload): Promise<Server> {

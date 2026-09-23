@@ -20,10 +20,13 @@ import {
   ServiceEndpoint,
   ServiceChartData,
   RegisterServerPayload,
+  RegisterServicePayload,
   DiscoverServerPayload,
   DiscoverServerResponse,
   UpdateServerPayload,
   ServerUptimePoint,
+  AiIncidentTipsPayload,
+  AiIncidentTipsData,
 } from '../types';
 
 /**
@@ -90,6 +93,13 @@ class MonitoringApiService {
 
   public async registerServer(payload: RegisterServerPayload): Promise<Server> {
     return this.provider.registerServer(payload);
+  }
+
+  public async createService(payload: RegisterServicePayload): Promise<any> {
+    if (this.provider.createService) {
+      return this.provider.createService(payload);
+    }
+    throw new Error('createService is not supported by current provider');
   }
 
   public async updateServer(id: string, payload: UpdateServerPayload): Promise<Server> {
@@ -178,7 +188,28 @@ class MonitoringApiService {
     }
     return { success: true, databases: [], upDatabases: 0, totalDatabases: 0 };
   }
+
+  public async getIncidentAiTips(payload: AiIncidentTipsPayload): Promise<AiIncidentTipsData> {
+    const baseUrl =
+      import.meta.env.VITE_MONITORING_API_URL !== undefined
+        ? import.meta.env.VITE_MONITORING_API_URL.replace(/\/$/, '')
+        : (import.meta.env.DEV ? 'http://localhost:5000' : '');
+
+    const res = await fetch(`${baseUrl}/api/ai/incident-tips`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Gagal memuat tips AI: ${res.statusText}`);
+    }
+
+    const json = await res.json();
+    return json.data;
+  }
 }
 
 export const monitoringApi = new MonitoringApiService();
 export { MockMonitoringProvider, BackendMonitoringProvider };
+

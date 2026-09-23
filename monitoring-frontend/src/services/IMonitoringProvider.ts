@@ -17,6 +17,7 @@ import {
   ServiceEndpoint,
   ServiceChartData,
   RegisterServerPayload,
+  RegisterServicePayload,
   DiscoverServerPayload,
   DiscoverServerResponse,
   UpdateServerPayload,
@@ -37,6 +38,7 @@ export interface IMonitoringProvider {
   getServerMetricsHistory?(serverId: string, range?: string): Promise<import('../types').ServerMetricsHistoryPoint[]>;
   discoverServer(payload: DiscoverServerPayload): Promise<DiscoverServerResponse>;
   registerServer(payload: RegisterServerPayload): Promise<Server>;
+  createService?(payload: RegisterServicePayload): Promise<any>;
   updateServer(id: string, payload: UpdateServerPayload): Promise<Server>;
   deleteServer(id: string): Promise<boolean>;
   getServices(filter: GlobalFilterState): Promise<Service[]>;

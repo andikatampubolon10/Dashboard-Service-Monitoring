@@ -334,6 +334,16 @@ export interface UpdateServerPayload {
   region?: string;
 }
 
+export interface RegisterServicePayload {
+  name: string;
+  serverId?: string;
+  port?: number;
+  url?: string;
+  metricsPath?: string;
+  stack?: 'nodejs' | 'go' | 'python' | 'java' | string;
+  description?: string;
+}
+
 
 export type RuleSeverity = 'error' | 'warning' | 'info';
 
@@ -726,5 +736,38 @@ export interface MetricsSummaryResponse {
     unknown?: number;
   };
   services: MetricsSummaryService[];
+}
+
+// 13. AI Incident Troubleshooting Tips (/api/ai/incident-tips)
+export interface AiIncidentResolutionStep {
+  step: number;
+  title: string;
+  description: string;
+  command?: string;
+}
+
+export interface AiIncidentTipsData {
+  isAiGenerated: boolean;
+  source: string;
+  issueTitle: string;
+  targetName: string;
+  severity: 'CRITICAL' | 'WARNING' | 'INFO';
+  metricBadge: string;
+  rootCause: string;
+  steps: AiIncidentResolutionStep[];
+  preventive: string;
+  estimatedFixTimeMinutes: number;
+  analyzedAt: string;
+}
+
+export interface AiIncidentTipsPayload {
+  issueType: string;
+  severity: string;
+  title: string;
+  targetName: string;
+  targetId: string;
+  metricBadge: string;
+  description: string;
+  staticRecommendation?: string;
 }
 

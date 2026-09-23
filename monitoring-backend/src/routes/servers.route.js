@@ -271,6 +271,7 @@ async function buildServerResponse(server, includeColocation = false) {
 
   const result = {
     id: server.id,
+    projectId: server.projectId || null,
     name: server.name,
     displayName: server.displayName || server.name,
     description: server.description || '',
@@ -278,6 +279,7 @@ async function buildServerResponse(server, includeColocation = false) {
     port: server.port || null,
     env: server.env || 'PRODUCTION',
     region: server.region || 'jakarta-idc',
+    serviceIds: allServiceIds,
     status,
     os: server.spec?.os || (server.isCustom ? 'Custom Host Node' : 'Ubuntu 22.04 LTS (Docker Host)'),
     isLocal: !server.agentUrl,
@@ -484,13 +486,13 @@ router.post('/', async (req, res) => {
       },
     };
 
-    registerServer(newServer);
+    await registerServer(newServer);
 
     // If projectId is provided in the request body, automatically link server to project
     const targetProjectId = req.body.projectId;
     if (targetProjectId) {
       try {
-        addServerToProject(targetProjectId, newServer.id);
+        await addServerToProject(targetProjectId, newServer.id);
       } catch (projErr) {
         console.warn(`[servers] Failed to automatically link server to project "${targetProjectId}":`, projErr.message);
       }
@@ -594,7 +596,7 @@ router.put('/:id', async (req, res) => {
 
   const oldHost = existing.host;
 
-  const updated = updateServer(id, {
+  const updated = await updateServer(id, {
     name,
     displayName,
     host,
@@ -630,8 +632,8 @@ router.delete('/:id', async (req, res) => {
 
   // Remove associated dynamic services and teardown SSH tunnels
   teardownServerTunnel(id);
-  removeServicesByServer(id);
-  const removed = removeServer(id);
+  await removeServicesByServer(id);
+  const removed = await removeServer(id);
 
   return res.json({
     success: removed,

@@ -24,6 +24,7 @@ const metricsRoute = require('./routes/metrics.route');
 const serversRoute = require('./routes/servers.route');
 const projectsRoute = require('./routes/projects.route');
 const { router: stressTestRoute, setSocketServer: setStressTestSocketServer } = require('./routes/stressTest.route');
+const aiRoute = require('./routes/ai.route');
 
 // Middleware
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
@@ -75,6 +76,7 @@ app.use('/api/metrics', metricsRoute);
 app.use('/api/servers', serversRoute);
 app.use('/api/projects', projectsRoute);
 app.use('/api/stress-test', stressTestRoute);
+app.use('/api/ai', aiRoute);
 
 // Centralized error handling
 app.use(notFoundHandler);

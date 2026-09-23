@@ -2,18 +2,20 @@
 
 /**
  * Service Registry
- * Semua 7 microservice yang dimonitor, dibaca dari environment variables.
- * Default port sudah sesuai dengan konfigurasi masing-masing service.
+ * All microservices monitored by the system.
+ * Backed by online MySQL database (sotardoc_server_monitoring) on hosting,
+ * with synchronized in-memory caching and local JSON backup for maximum resilience.
  *
- * Port conflicts:
- *  - audit-service dan lifestyle-service keduanya default ke 4005.
- *    Lifestyle-service dikonfigurasi ke 4007 di .env (override via env).
+ * Hierarchy: Project (id) -> Server (id, project_id) -> Service (id, server_id)
  */
 
 require('dotenv').config();
 
-const METRICS_PATH = process.env.METRICS_PATH || '/metrics';
+const fs = require('fs');
+const path = require('path');
+const { query } = require('../database/db');
 
+const METRICS_PATH = process.env.METRICS_PATH || '/metrics';
 const REMOTE_HOST = process.env.REMOTE_HOST || '10.148.218.66';
 
 /**
@@ -30,35 +32,74 @@ function resolveServerMeta(url) {
 }
 
 /** @type {ServiceConfig[]} */
-const SERVICES = [
-  
-];
-
-const fs = require('fs');
-const path = require('path');
+const SERVICES = [];
 
 const DYNAMIC_SERVICES_FILE = path.join(__dirname, '../../data/dynamic_services.json');
-const REGISTERED_SERVERS_FILE = path.join(__dirname, '../../data/registered_servers.json');
 
 /** @type {Map<string, ServiceConfig>} */
 const DYNAMIC_SERVICES = new Map();
+let isDbLoaded = false;
 
-/**
- * Persist dynamic services to disk.
- */
-function saveDynamicServices() {
+function safeParseJson(val, fallback = []) {
+  if (val == null) return fallback;
+  if (typeof val === 'object') return val;
   try {
-    const list = Array.from(DYNAMIC_SERVICES.values());
-    fs.writeFileSync(DYNAMIC_SERVICES_FILE, JSON.stringify(list, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[services.config] Failed to save dynamic services:', err.message);
+    return JSON.parse(val);
+  } catch {
+    return fallback;
   }
 }
 
+function mapServiceRow(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    name: r.name,
+    url: r.url,
+    metricsPath: r.metrics_path || METRICS_PATH,
+    stack: r.stack || 'nodejs',
+    description: r.description || '',
+    serverId: r.server_id || null,
+    port: r.port || null,
+    databases: safeParseJson(r.databases_json, []),
+    isDynamic: r.is_dynamic !== 0 && r.is_dynamic !== false,
+    createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+    updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+  };
+}
+
 /**
- * Load dynamic services from disk or self-heal from registered_servers.json.
+ * Load services from MySQL database
  */
-function loadDynamicServices() {
+async function loadDynamicServicesFromDb() {
+  try {
+    const res = await query('SELECT * FROM registered_services ORDER BY created_at ASC');
+    if (Array.isArray(res.rows) && res.rows.length > 0) {
+      DYNAMIC_SERVICES.clear();
+      for (const row of res.rows) {
+        const mapped = mapServiceRow(row);
+        if (mapped && mapped.id) {
+          DYNAMIC_SERVICES.set(mapped.id, mapped);
+        }
+      }
+      isDbLoaded = true;
+      syncToLocalJsonBackup();
+      return Array.from(DYNAMIC_SERVICES.values());
+    }
+  } catch (err) {
+    console.warn('[services.config] Failed to fetch services from MySQL, using local cache:', err.message);
+  }
+
+  if (!isDbLoaded) {
+    loadDynamicServicesFromFile();
+  }
+  return Array.from(DYNAMIC_SERVICES.values());
+}
+
+/**
+ * Load dynamic services from disk backup
+ */
+function loadDynamicServicesFromFile() {
   DYNAMIC_SERVICES.clear();
   try {
     if (fs.existsSync(DYNAMIC_SERVICES_FILE)) {
@@ -73,80 +114,38 @@ function loadDynamicServices() {
       }
     }
   } catch (err) {
-    console.error('[services.config] Failed to load dynamic services:', err.message);
-  }
-
-  // Self-heal / restore from registered_servers.json if dynamic services file is missing any
-  try {
-    if (fs.existsSync(REGISTERED_SERVERS_FILE)) {
-      const raw = fs.readFileSync(REGISTERED_SERVERS_FILE, 'utf-8');
-      const servers = JSON.parse(raw);
-      if (Array.isArray(servers)) {
-        let changed = false;
-        for (const s of servers) {
-          if (Array.isArray(s.serviceIds)) {
-            for (const sid of s.serviceIds) {
-              if (!DYNAMIC_SERVICES.has(sid)) {
-                let port = 8080;
-                let stack = 'nodejs';
-                let svcName = sid;
-                if (sid.startsWith('ai-consultation')) {
-                  port = 4006;
-                  stack = 'nodejs';
-                  svcName = `AI Consultation (${s.name || s.host})`;
-                } else if (sid.startsWith('health-profile')) {
-                  port = 3001;
-                  stack = 'nodejs';
-                  svcName = `Health Profile (${s.name || s.host})`;
-                } else if (sid.startsWith('node-exporter')) {
-                  port = 9100;
-                  stack = 'go';
-                  svcName = `Node Exporter (${s.name || s.host})`;
-                } else if (sid.startsWith('audit')) {
-                  port = 4005;
-                  stack = 'go';
-                  svcName = `Audit Service (${s.name || s.host})`;
-                } else if (sid.startsWith('lifestyle')) {
-                  port = 4007;
-                  stack = 'nodejs';
-                  svcName = `Lifestyle Service (${s.name || s.host})`;
-                } else if (sid.startsWith('live-consult')) {
-                  port = 4004;
-                  stack = 'go';
-                  svcName = `Live Consult (${s.name || s.host})`;
-                } else if (sid.startsWith('medical-record')) {
-                  port = 3002;
-                  stack = 'nodejs';
-                  svcName = `Medical Record (${s.name || s.host})`;
-                }
-
-                DYNAMIC_SERVICES.set(sid, {
-                  id: sid,
-                  name: svcName,
-                  url: `http://${s.host}:${port}`,
-                  metricsPath: '/metrics',
-                  stack,
-                  description: `Discovered service on ${s.name || s.host} (${s.host}:${port})`,
-                  serverId: s.id,
-                  isDynamic: true,
-                });
-                changed = true;
-              }
-            }
-          }
-        }
-        if (changed) {
-          saveDynamicServices();
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[services.config] Self-heal check error:', err.message);
+    console.warn('[services.config] Failed to load dynamic services from file:', err.message);
   }
 }
 
-// Immediately load on startup
-loadDynamicServices();
+/**
+ * Keep local JSON backup file in sync
+ */
+function syncToLocalJsonBackup() {
+  try {
+    const list = Array.from(DYNAMIC_SERVICES.values());
+    const dir = path.dirname(DYNAMIC_SERVICES_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(DYNAMIC_SERVICES_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[services.config] Failed to sync local dynamic_services.json:', err.message);
+  }
+}
+
+// Initial eager load
+loadDynamicServicesFromFile();
+loadDynamicServicesFromDb().catch(() => {});
+
+/**
+ * Load dynamic services (compatible sync export)
+ */
+function loadDynamicServices() {
+  if (!isDbLoaded) {
+    loadDynamicServicesFromDb().catch(() => {});
+  }
+}
 
 /**
  * Get all active services (both built-in and dynamically discovered).
@@ -171,34 +170,84 @@ function getAllActiveServices() {
 }
 
 /**
- * Register or update a service dynamically (e.g. from remote laptop discovery).
+ * Register or update a service in MySQL and local cache
  * @param {ServiceConfig & { serverId?: string }} service
+ * @returns {Promise<ServiceConfig>}
  */
-function registerService(service) {
-  DYNAMIC_SERVICES.set(service.id, {
+async function registerService(service) {
+  const serviceObj = {
     id: service.id,
     name: service.name || service.id,
     url: service.url,
     metricsPath: service.metricsPath || '/metrics',
     stack: service.stack || 'nodejs',
-    description: service.description || `Discovered service at ${service.url}`,
-    serverId: service.serverId,
-    databases: Array.isArray(service.databases) ? service.databases : undefined,
+    description: service.description || `Service at ${service.url}`,
+    serverId: service.serverId || null,
+    port: service.port || null,
+    databases: Array.isArray(service.databases) ? service.databases : [],
     isDynamic: true,
-  });
-  saveDynamicServices();
+  };
+
+  DYNAMIC_SERVICES.set(service.id, serviceObj);
+
+  try {
+    await query(
+      `INSERT INTO registered_services (
+        id, server_id, name, url, metrics_path, stack, description, port, databases_json, is_dynamic, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
+      ON DUPLICATE KEY UPDATE
+        server_id = VALUES(server_id),
+        name = VALUES(name),
+        url = VALUES(url),
+        metrics_path = VALUES(metrics_path),
+        stack = VALUES(stack),
+        description = VALUES(description),
+        port = VALUES(port),
+        databases_json = VALUES(databases_json),
+        updated_at = NOW()`,
+      [
+        serviceObj.id,
+        serviceObj.serverId,
+        serviceObj.name,
+        serviceObj.url,
+        serviceObj.metricsPath,
+        serviceObj.stack,
+        serviceObj.description,
+        serviceObj.port,
+        JSON.stringify(serviceObj.databases),
+      ]
+    );
+
+    // If serverId is present, ensure server's service_ids array in MySQL has this service
+    if (serviceObj.serverId) {
+      const serverRes = await query('SELECT service_ids FROM registered_servers WHERE id = ?', [serviceObj.serverId]);
+      if (serverRes.rows && serverRes.rows[0]) {
+        let sids = safeParseJson(serverRes.rows[0].service_ids, []);
+        if (!sids.includes(serviceObj.id)) {
+          sids.push(serviceObj.id);
+          await query('UPDATE registered_servers SET service_ids = ?, updated_at = NOW() WHERE id = ?', [
+            JSON.stringify(sids),
+            serviceObj.serverId,
+          ]);
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[services.config] Failed to persist service ${service.id} to MySQL:`, err.message);
+  }
+
+  syncToLocalJsonBackup();
   return DYNAMIC_SERVICES.get(service.id);
 }
 
 /**
- * Set or update database references for a specific service.
+ * Set or update database references for a specific service in MySQL
  * @param {string} serviceId
  * @param {Array<{ id: string, name: string, host: string, port: number }>} databases
  */
-function setServiceDatabases(serviceId, databases) {
+async function setServiceDatabases(serviceId, databases) {
   let svc = DYNAMIC_SERVICES.get(serviceId);
   if (!svc) {
-    // If it's a built-in service, promote it to DYNAMIC_SERVICES with overridden databases
     const builtIn = SERVICES.find((s) => s.id === serviceId);
     if (builtIn) {
       svc = { ...builtIn, isDynamic: true };
@@ -208,31 +257,46 @@ function setServiceDatabases(serviceId, databases) {
 
   if (svc) {
     svc.databases = Array.isArray(databases) ? databases : [];
-    saveDynamicServices();
+    try {
+      await query(
+        `UPDATE registered_services SET databases_json = ?, updated_at = NOW() WHERE id = ?`,
+        [JSON.stringify(svc.databases), serviceId]
+      );
+    } catch (err) {
+      console.error(`[services.config] Failed to update databases for service ${serviceId} in MySQL:`, err.message);
+    }
+
+    syncToLocalJsonBackup();
     return svc;
   }
   return null;
 }
 
 /**
- * Remove all dynamic services associated with a specific serverId.
+ * Remove all dynamic services associated with a specific serverId in MySQL and cache
  * @param {string} serverId
  */
-function removeServicesByServer(serverId) {
+async function removeServicesByServer(serverId) {
+  try {
+    await query('DELETE FROM registered_services WHERE server_id = ?', [serverId]);
+  } catch (err) {
+    console.error(`[services.config] Failed to delete services for server ${serverId} from MySQL:`, err.message);
+  }
+
   for (const [id, svc] of DYNAMIC_SERVICES.entries()) {
     if (svc.serverId === serverId) {
       DYNAMIC_SERVICES.delete(id);
     }
   }
-  saveDynamicServices();
+  syncToLocalJsonBackup();
 }
 
 /**
- * Update URLs of dynamic services when the parent server host changes.
+ * Update URLs of dynamic services when the parent server host changes
  * @param {string} serverId
  * @param {string} newHost
  */
-function updateServicesByServer(serverId, newHost) {
+async function updateServicesByServer(serverId, newHost) {
   if (!newHost) return;
   for (const [, svc] of DYNAMIC_SERVICES.entries()) {
     if (svc.serverId === serverId) {
@@ -240,12 +304,14 @@ function updateServicesByServer(serverId, newHost) {
         const u = new URL(svc.url);
         u.hostname = newHost;
         svc.url = u.toString().replace(/\/$/, '');
+
+        await query('UPDATE registered_services SET url = ?, updated_at = NOW() WHERE id = ?', [svc.url, svc.id]);
       } catch {
         // ignore malformed URLs
       }
     }
   }
-  saveDynamicServices();
+  syncToLocalJsonBackup();
 }
 
 /**
@@ -265,17 +331,6 @@ module.exports = {
   updateServicesByServer,
   getServiceById,
   setServiceDatabases,
+  loadDynamicServices,
+  loadDynamicServicesFromDb,
 };
-
-/**
- * @typedef {Object} ServiceConfig
- * @property {string} id - Unique service identifier (slug)
- * @property {string} name - Human-readable display name
- * @property {string} url - Base URL (e.g. http://localhost:4006)
- * @property {string} metricsPath - Path to Prometheus metrics endpoint
- * @property {'nodejs'|'go'} stack - Runtime stack
- * @property {string} description - Short service description
- * @property {string} [serverId] - Server ID hosting this service
- * @property {boolean} [isDynamic] - True if discovered at runtime
- */
-

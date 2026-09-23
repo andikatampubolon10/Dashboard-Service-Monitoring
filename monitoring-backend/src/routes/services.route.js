@@ -13,8 +13,8 @@
  */
 
 const { Router } = require('express');
-const { SERVICES, getAllActiveServices, getServiceById, setServiceDatabases } = require('../config/services.config');
-const { getAllServers } = require('../config/servers.config');
+const { SERVICES, getAllActiveServices, getServiceById, setServiceDatabases, registerService } = require('../config/services.config');
+const { getAllServers, getServerById, updateServer } = require('../config/servers.config');
 const { probeDatabases } = require('../utils/databaseProber');
 const {
   getLatest,
@@ -235,7 +235,7 @@ router.put('/:id/databases', async (req, res) => {
   }
 
   const databases = Array.isArray(req.body.databases) ? req.body.databases : [];
-  const updated = setServiceDatabases(service.id, databases);
+  const updated = await setServiceDatabases(service.id, databases);
 
   const dbInfo = await resolveAndProbeServiceDatabases(updated || service);
   res.json({
@@ -421,6 +421,59 @@ router.get('/:id/status', (req, res) => {
     lastCheckedAt: latest?.timestamp || null,
     error: latest?.error || null,
   });
+});
+
+// ─── POST /api/services (Register / Add New Service) ───────────────────────
+router.post('/', async (req, res) => {
+  try {
+    const { name, serverId, port, url, metricsPath, stack, description, databases } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Nama service wajib diisi.' });
+    }
+
+    let targetServer = null;
+    if (serverId) {
+      targetServer = getServerById(serverId);
+    }
+
+    const host = targetServer?.host || 'localhost';
+    const portNum = parseInt(port, 10) || 8080;
+    const finalUrl = url && url.trim() ? url.trim() : `http://${host}:${portNum}`;
+
+    const cleanSlug = name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const serviceId = `${cleanSlug}-${Date.now().toString(36)}`;
+
+    const newService = await registerService({
+      id: serviceId,
+      name: name.trim(),
+      url: finalUrl,
+      metricsPath: metricsPath || '/metrics',
+      stack: stack || 'nodejs',
+      description: description || `Microservice on ${targetServer?.name || host} (${portNum})`,
+      serverId: serverId || undefined,
+      databases: Array.isArray(databases) ? databases : [],
+    });
+
+    // If serverId provided, attach serviceId to server.serviceIds
+    if (targetServer) {
+      const currentServiceIds = new Set(targetServer.serviceIds || []);
+      currentServiceIds.add(serviceId);
+      await updateServer(targetServer.id, { serviceIds: Array.from(currentServiceIds) });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `Service "${newService.name}" berhasil ditambahkan ke server ${targetServer?.name || host}.`,
+      service: newService,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 module.exports = router;

@@ -211,7 +211,7 @@ export const ServerDetailPage: React.FC = () => {
   }, [server, hostedServicesForCompliance]);
 
   // Real Timeline History Data from PostgreSQL
-  const chartHistory = useMemo(() => {
+  const chartHistory: Array<{ timestamp: string; value: number; secondaryValue?: number }> = useMemo(() => {
     if (dbMetricsHistory && dbMetricsHistory.length > 0) {
       return dbMetricsHistory.map((pt) => {
         const d = new Date(pt.timestamp);
@@ -275,6 +275,7 @@ export const ServerDetailPage: React.FC = () => {
   // ─── Uptime Timeline State & Calculations ─────────────────────────────────
   const [uptimeRange, setUptimeRange] = useState<'1h' | '6h' | '24h' | '7d'>('1h');
   const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null);
+  const [hoveredResourceIndex, setHoveredResourceIndex] = useState<number | null>(null);
 
   const uptimeRangeConfig = useMemo(() => {
     switch (uptimeRange) {
@@ -1002,14 +1003,20 @@ export const ServerDetailPage: React.FC = () => {
             <svg className="w-full h-full overflow-visible" viewBox="0 0 760 170" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="uptimeGreenGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                  <stop offset="0%" stopColor="#10b981" stopOpacity="0.32" />
+                  <stop offset="60%" stopColor="#10b981" stopOpacity="0.18" />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity="0.06" />
                 </linearGradient>
                 <linearGradient id="uptimeRedGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#f43f5e" stopOpacity="0.0" />
+                  <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.32" />
+                  <stop offset="60%" stopColor="#f43f5e" stopOpacity="0.18" />
+                  <stop offset="100%" stopColor="#f43f5e" stopOpacity="0.06" />
                 </linearGradient>
               </defs>
+
+              {/* Reference Grid Lines */}
+              <line x1="90" y1="68" x2="745" y2="68" stroke="#64748b" strokeWidth="0.5" strokeDasharray="3 3" opacity="0.25" />
+              <line x1="90" y1="96" x2="745" y2="96" stroke="#64748b" strokeWidth="0.5" strokeDasharray="3 3" opacity="0.25" />
 
               {/* Reference Level Lines */}
               {/* Level 1: UP / MENYALA */}
@@ -1048,7 +1055,7 @@ export const ServerDetailPage: React.FC = () => {
                 </text>
               </g>
 
-              {/* Area & Step Line */}
+              {/* Area & Clean Line (No Static Dots) */}
               {uptimePoints.length > 0 && (() => {
                 const startX = 95;
                 const chartW = 650;
@@ -1077,62 +1084,81 @@ export const ServerDetailPage: React.FC = () => {
 
                 return (
                   <g>
-                    {/* Area Fill */}
+                    {/* Area Fill Underneath Line */}
                     <path d={areaPath} fill="url(#uptimeGreenGradient)" />
 
-                    {/* Step Line */}
+                    {/* Smooth Clean Line (Without Dots) */}
                     <path
                       d={linePath}
                       fill="none"
                       stroke="#10b981"
-                      strokeWidth="3"
+                      strokeWidth="1.75"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
 
-                    {/* Vertical guideline on hover */}
-                    {hoveredPointIndex !== null && (
-                      <line
-                        x1={startX + (n > 1 ? (hoveredPointIndex / (n - 1)) * chartW : chartW / 2)}
-                        y1="25"
-                        x2={startX + (n > 1 ? (hoveredPointIndex / (n - 1)) * chartW : chartW / 2)}
-                        y2="140"
-                        stroke="#94a3b8"
-                        strokeWidth="1.5"
-                        strokeDasharray="2 2"
-                        opacity="0.75"
-                      />
-                    )}
-
-                    {/* Interactive dots */}
-                    {uptimePoints.map((pt, i) => {
+                    {/* Active Hover Guideline & Single Glowing Dot */}
+                    {hoveredPointIndex !== null && (() => {
+                      const i = hoveredPointIndex;
+                      const pt = uptimePoints[i];
+                      if (!pt) return null;
                       const cx = startX + (n > 1 ? (i / (n - 1)) * chartW : chartW / 2);
                       const isPtUp = pt.value === 1 || pt.status === 'UP';
                       const cy = isPtUp ? yUp : yDown;
-                      const isHovered = hoveredPointIndex === i;
 
                       return (
-                        <g
-                          key={i}
-                          className="cursor-pointer"
-                          onMouseEnter={() => setHoveredPointIndex(i)}
-                          onMouseLeave={() => setHoveredPointIndex(null)}
-                        >
-                          {/* Invisible larger hover trigger area */}
-                          <circle cx={cx} cy={cy} r="10" fill="transparent" />
-
-                          {/* Rendered Dot */}
+                        <g pointerEvents="none">
+                          {/* Vertical guideline */}
+                          <line
+                            x1={cx}
+                            y1="25"
+                            x2={cx}
+                            y2="140"
+                            stroke="#94a3b8"
+                            strokeWidth="1.5"
+                            strokeDasharray="2 2"
+                            opacity="0.8"
+                          />
+                          {/* Outer glowing halo */}
                           <circle
                             cx={cx}
                             cy={cy}
-                            r={isHovered ? 6 : 3.5}
-                            className={`transition-all duration-150 ${
+                            r="9"
+                            fill={isPtUp ? '#10b981' : '#f43f5e'}
+                            fillOpacity="0.25"
+                          />
+                          {/* Center dot */}
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r="4.5"
+                            className={
                               isPtUp
-                                ? 'fill-emerald-400 stroke-slate-900 dark:stroke-[#0e1424] stroke-2'
-                                : 'fill-rose-500 stroke-slate-900 dark:stroke-[#0e1424] stroke-2'
-                            }`}
+                                ? 'fill-emerald-400 stroke-white dark:stroke-slate-900 stroke-2'
+                                : 'fill-rose-500 stroke-white dark:stroke-slate-900 stroke-2'
+                            }
                           />
                         </g>
+                      );
+                    })()}
+
+                    {/* Interactive Hover Columns (No visible dots when unhovered) */}
+                    {uptimePoints.map((_, i) => {
+                      const colW = n > 1 ? chartW / (n - 1) : chartW;
+                      const cx = startX + (n > 1 ? (i / (n - 1)) * chartW : chartW / 2);
+
+                      return (
+                        <rect
+                          key={i}
+                          x={cx - colW / 2}
+                          y="25"
+                          width={colW}
+                          height="115"
+                          fill="transparent"
+                          className="cursor-pointer"
+                          onMouseEnter={() => setHoveredPointIndex(i)}
+                          onMouseLeave={() => setHoveredPointIndex(null)}
+                        />
                       );
                     })}
                   </g>
@@ -1151,8 +1177,12 @@ export const ServerDetailPage: React.FC = () => {
                 for (let i = 0; i < n; i += stepIdx) {
                   indices.push(i);
                 }
-                if (indices[indices.length - 1] !== n - 1) {
-                  indices.push(n - 1);
+                if (indices.length > 0 && indices[indices.length - 1] !== n - 1) {
+                  if (n - 1 - indices[indices.length - 1] < stepIdx * 0.6) {
+                    indices[indices.length - 1] = n - 1;
+                  } else {
+                    indices.push(n - 1);
+                  }
                 }
 
                 return (
@@ -1285,71 +1315,192 @@ export const ServerDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {/* SVG Area / Line Chart */}
-        <div className="h-56 w-full pt-4">
-          <svg className="w-full h-full overflow-visible" viewBox="0 0 700 180" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="resourceGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.35" />
-                <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
-              </linearGradient>
-            </defs>
+        {/* SVG Area / Line Chart with Tooltip */}
+        <div className="relative pt-2">
+          {/* Active Hover Tooltip Popover for Resource Timeline */}
+          {hoveredResourceIndex !== null && chartHistory[hoveredResourceIndex] && (
+            <div
+              className="absolute z-20 pointer-events-none transform -translate-x-1/2 -translate-y-full bg-slate-900/95 text-white backdrop-blur-md border border-slate-700/80 rounded-xl px-3 py-2 text-xs shadow-xl font-mono"
+              style={{
+                left: `${Math.min(92, Math.max(8, (hoveredResourceIndex / Math.max(1, chartHistory.length - 1)) * 100))}%`,
+                top: '15px',
+              }}
+            >
+              <div className="flex items-center gap-1.5 font-bold text-cyan-400">
+                <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                <span>
+                  {chartMetric === 'cpu' ? 'CPU: ' : chartMetric === 'memory' ? 'Memory: ' : chartMetric === 'load' ? 'Load 1m: ' : chartMetric === 'network' ? 'Net RX: ' : 'Disk W: '}
+                  {chartHistory[hoveredResourceIndex].value.toFixed(1)}
+                  {chartMetric === 'network' ? ' KB/s' : chartMetric === 'disk' ? ' MB/s' : chartMetric === 'load' ? '' : '%'}
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                Waktu: <span className="text-slate-200">{chartHistory[hoveredResourceIndex].timestamp}</span>
+              </div>
+              {chartHistory[hoveredResourceIndex].secondaryValue != null && (
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  {chartMetric === 'load' ? 'Load 5m: ' : chartMetric === 'network' ? 'Net TX: ' : 'Disk R: '}
+                  <span className="text-cyan-300 font-semibold">{chartHistory[hoveredResourceIndex].secondaryValue}</span>
+                </div>
+              )}
+            </div>
+          )}
 
-            {/* Dynamic Grid lines */}
-            {(() => {
-              const yMax = Math.max(1, chartMetric === 'cpu' || chartMetric === 'memory' ? 100 : Math.ceil(maxVal * 1.25) || 10);
-              const steps = [0, 0.25, 0.5, 0.75, 1];
-              const unit = chartMetric === 'network' ? ' KB/s' : chartMetric === 'disk' ? ' MB/s' : chartMetric === 'load' ? '' : '%';
+          <div className="h-56 w-full">
+            <svg className="w-full h-full overflow-visible" viewBox="0 0 700 180" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="resourceGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.32" />
+                  <stop offset="60%" stopColor="#06b6d4" stopOpacity="0.18" />
+                  <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.06" />
+                </linearGradient>
+              </defs>
 
-              return steps.map((frac) => {
-                const val = Math.round(frac * yMax);
-                const y = 160 - frac * 140;
+              {/* Dynamic Grid lines */}
+              {(() => {
+                const yMax = Math.max(1, chartMetric === 'cpu' || chartMetric === 'memory' ? 100 : Math.ceil(maxVal * 1.25) || 10);
+                const steps = [0, 0.25, 0.5, 0.75, 1];
+                const unit = chartMetric === 'network' ? ' KB/s' : chartMetric === 'disk' ? ' MB/s' : chartMetric === 'load' ? '' : '%';
+
+                return steps.map((frac) => {
+                  const val = Math.round(frac * yMax);
+                  const y = 150 - frac * 125;
+                  return (
+                    <g key={frac}>
+                      <line x1="0" y1={y} x2="700" y2={y} stroke="#334155" strokeWidth="0.75" strokeDasharray="3 3" opacity="0.35" />
+                      <text x="695" y={y - 3} textAnchor="end" fontSize="10" fill="#94a3b8" fontFamily="monospace">
+                        {val}{unit}
+                      </text>
+                    </g>
+                  );
+                });
+              })()}
+
+              {/* Area & Clean Line (Without Static Dots) */}
+              {chartHistory.length > 1 && (() => {
+                const yMax = Math.max(1, chartMetric === 'cpu' || chartMetric === 'memory' ? 100 : Math.ceil(maxVal * 1.25) || 10);
+                const step = 700 / (chartHistory.length - 1);
+                const points = chartHistory.map((pt, i) => {
+                  const x = i * step;
+                  const ratio = Math.min(pt.value / yMax, 1);
+                  const y = 150 - ratio * 125;
+                  return `${x},${y}`;
+                });
+
                 return (
-                  <g key={frac}>
-                    <line x1="0" y1={y} x2="700" y2={y} stroke="#334155" strokeWidth="0.75" strokeDasharray="3 3" opacity="0.4" />
-                    <text x="695" y={y - 3} textAnchor="end" fontSize="10" fill="#94a3b8" fontFamily="monospace">
-                      {val}{unit}
-                    </text>
+                  <g>
+                    {/* Area Fill Underneath Line */}
+                    <path d={`M ${points.join(' L ')} L 700,150 L 0,150 Z`} fill="url(#resourceGradient)" />
+
+                    {/* Smooth Clean Line */}
+                    <path
+                      d={`M ${points.join(' L ')}`}
+                      fill="none"
+                      stroke="#06b6d4"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+
+                    {/* Active Hover Guideline & Single Glowing Dot */}
+                    {hoveredResourceIndex !== null && (() => {
+                      const i = hoveredResourceIndex;
+                      const pt = chartHistory[i];
+                      if (!pt) return null;
+                      const x = i * step;
+                      const ratio = Math.min(pt.value / yMax, 1);
+                      const y = 150 - ratio * 125;
+
+                      return (
+                        <g pointerEvents="none">
+                          <line
+                            x1={x}
+                            y1="20"
+                            x2={x}
+                            y2="150"
+                            stroke="#94a3b8"
+                            strokeWidth="1.5"
+                            strokeDasharray="2 2"
+                            opacity="0.8"
+                          />
+                          <circle cx={x} cy={y} r="9" fill="#06b6d4" fillOpacity="0.25" />
+                          <circle
+                            cx={x}
+                            cy={y}
+                            r="4.5"
+                            className="fill-cyan-400 stroke-white dark:stroke-slate-900 stroke-2"
+                          />
+                        </g>
+                      );
+                    })()}
+
+                    {/* Interactive Hover Columns (No visible dots when unhovered) */}
+                    {chartHistory.map((_, i) => {
+                      const colW = step;
+                      const x = i * step;
+                      return (
+                        <rect
+                          key={i}
+                          x={Math.max(0, x - colW / 2)}
+                          y="15"
+                          width={colW}
+                          height="140"
+                          fill="transparent"
+                          className="cursor-pointer"
+                          onMouseEnter={() => setHoveredResourceIndex(i)}
+                          onMouseLeave={() => setHoveredResourceIndex(null)}
+                        />
+                      );
+                    })}
                   </g>
                 );
-              });
-            })()}
+              })()}
 
-            {/* Area Path */}
-            {chartHistory.length > 1 && (() => {
-              const yMax = Math.max(1, chartMetric === 'cpu' || chartMetric === 'memory' ? 100 : Math.ceil(maxVal * 1.25) || 10);
-              const step = 700 / (chartHistory.length - 1);
-              const points = chartHistory.map((pt, i) => {
-                const x = i * step;
-                const ratio = Math.min(pt.value / yMax, 1);
-                const y = 160 - ratio * 140;
-                return `${x},${y}`;
-              });
+              {/* X-Axis Timestamps */}
+              {chartHistory.length > 1 && (() => {
+                const n = chartHistory.length;
+                const labelCount = Math.min(6, n);
+                const stepIdx = Math.max(1, Math.floor((n - 1) / (labelCount - 1)));
+                const indices: number[] = [];
+                for (let i = 0; i < n; i += stepIdx) {
+                  indices.push(i);
+                }
+                if (indices.length > 0 && indices[indices.length - 1] !== n - 1) {
+                  if (n - 1 - indices[indices.length - 1] < stepIdx * 0.6) {
+                    indices[indices.length - 1] = n - 1;
+                  } else {
+                    indices.push(n - 1);
+                  }
+                }
 
-              return (
-                <>
-                  <path d={`M ${points.join(' L ')} L 700,160 L 0,160 Z`} fill="url(#resourceGradient)" />
-                  <path d={`M ${points.join(' L ')}`} fill="none" stroke="#06b6d4" strokeWidth="2.5" strokeLinecap="round" />
-                  {chartHistory.map((pt, i) => {
-                    const x = i * step;
-                    const ratio = Math.min(pt.value / yMax, 1);
-                    const y = 160 - ratio * 140;
-                    return (
-                      <circle
-                        key={i}
-                        cx={x}
-                        cy={y}
-                        r="3.5"
-                        className="fill-cyan-400 stroke-slate-900 dark:stroke-[#0e1424] stroke-2 hover:r-5 transition-all cursor-pointer"
-                      >
-                        <title>{`${pt.timestamp}: ${pt.value} ${chartMetric === 'network' ? 'KB/s' : chartMetric === 'disk' ? 'MB/s' : '%'}`}</title>
-                      </circle>
-                    );
-                  })}
-                </>
-              );
-            })()}
-          </svg>
+                const step = 700 / (n - 1);
+                return (
+                  <g>
+                    {indices.map((idx) => {
+                      const pt = chartHistory[idx];
+                      if (!pt) return null;
+                      const x = idx * step;
+                      return (
+                        <g key={idx}>
+                          <line x1={x} y1="150" x2={x} y2="155" stroke="#64748b" strokeWidth="1" opacity="0.6" />
+                          <text
+                            x={x}
+                            y="168"
+                            textAnchor={idx === 0 ? 'start' : idx === n - 1 ? 'end' : 'middle'}
+                            fontSize="10"
+                            fill="#94a3b8"
+                            fontFamily="monospace"
+                          >
+                            {pt.timestamp}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </g>
+                );
+              })()}
+            </svg>
+          </div>
         </div>
       </div>
 

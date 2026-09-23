@@ -18,6 +18,7 @@ import {
   ServiceEndpoint,
   ServiceChartData,
   RegisterServerPayload,
+  RegisterServicePayload,
   DiscoverServerPayload,
   DiscoverServerResponse,
   UpdateServerPayload,
@@ -152,6 +153,17 @@ export class MockMonitoringProvider implements IMonitoringProvider {
         },
       ],
       dockerContainers: ['live-consult-app', 'ai-inference-worker', 'medical-record-api', 'lifestyle-api'],
+    };
+  }
+
+  async createService(payload: RegisterServicePayload): Promise<any> {
+    await delay(150);
+    return {
+      id: `service-${payload.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      name: payload.name,
+      url: payload.url || `http://localhost:${payload.port || 8080}`,
+      stack: payload.stack || 'nodejs',
+      status: 'healthy',
     };
   }
 

@@ -18,7 +18,9 @@
 const { Router } = require('express');
 const {
   getAllProjects,
+  getAllProjectsAsync,
   getProjectById,
+  getProjectByIdAsync,
   createProject,
   updateProject,
   deleteProject,
@@ -130,7 +132,7 @@ async function enrichProject(project, fullDetails = false) {
 // ─── GET /api/projects ───────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
-    const rawProjects = getAllProjects();
+    const rawProjects = await getAllProjectsAsync();
     const enriched = await Promise.all(rawProjects.map((p) => enrichProject(p, false)));
 
     res.json({
@@ -146,7 +148,7 @@ router.get('/', async (req, res) => {
 // ─── GET /api/projects/:id ───────────────────────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
-    const project = getProjectById(req.params.id);
+    const project = await getProjectByIdAsync(req.params.id);
     if (!project) {
       return res.status(404).json({ success: false, error: 'Projek tidak ditemukan.' });
     }
@@ -165,7 +167,7 @@ router.get('/:id', async (req, res) => {
 // Generate or retrieve cached AI infrastructure insight for a specific project
 router.post('/:id/ai-insight', async (req, res) => {
   try {
-    const project = getProjectById(req.params.id);
+    const project = await getProjectByIdAsync(req.params.id);
     if (!project) {
       return res.status(404).json({ success: false, error: 'Projek tidak ditemukan.' });
     }
@@ -200,7 +202,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Nama projek wajib diisi.' });
     }
 
-    const created = createProject({ name, description, env, serverIds });
+    const created = await createProject({ name, description, env, serverIds });
     const enriched = await enrichProject(created, true);
 
     res.status(201).json({
@@ -217,7 +219,7 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { name, description, env, serverIds } = req.body;
-    const updated = updateProject(req.params.id, { name, description, env, serverIds });
+    const updated = await updateProject(req.params.id, { name, description, env, serverIds });
 
     if (!updated) {
       return res.status(404).json({ success: false, error: 'Projek tidak ditemukan untuk diperbarui.' });
@@ -235,9 +237,9 @@ router.put('/:id', async (req, res) => {
 });
 
 // ─── DELETE /api/projects/:id ────────────────────────────────────────────────
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    const deleted = deleteProject(req.params.id);
+    const deleted = await deleteProject(req.params.id);
     if (!deleted) {
       return res.status(404).json({ success: false, error: 'Projek tidak ditemukan untuk dihapus.' });
     }
@@ -259,7 +261,7 @@ router.post('/:id/servers', async (req, res) => {
       return res.status(400).json({ success: false, error: 'serverId wajib dikirim.' });
     }
 
-    const updated = addServerToProject(req.params.id, serverId);
+    const updated = await addServerToProject(req.params.id, serverId);
     if (!updated) {
       return res.status(404).json({ success: false, error: 'Projek tidak ditemukan.' });
     }
@@ -278,7 +280,7 @@ router.post('/:id/servers', async (req, res) => {
 // ─── DELETE /api/projects/:id/servers/:serverId ──────────────────────────────
 router.delete('/:id/servers/:serverId', async (req, res) => {
   try {
-    const updated = removeServerFromProject(req.params.id, req.params.serverId);
+    const updated = await removeServerFromProject(req.params.id, req.params.serverId);
     if (!updated) {
       return res.status(404).json({ success: false, error: 'Projek tidak ditemukan.' });
     }
@@ -286,7 +288,7 @@ router.delete('/:id/servers/:serverId', async (req, res) => {
     const enriched = await enrichProject(updated, true);
     res.json({
       success: true,
-      message: 'Server berhasil dikeluarkan dari projek.',
+      message: 'Server berhasil dilepas dari projek.',
       project: enriched,
     });
   } catch (err) {
@@ -295,3 +297,4 @@ router.delete('/:id/servers/:serverId', async (req, res) => {
 });
 
 module.exports = router;
+
