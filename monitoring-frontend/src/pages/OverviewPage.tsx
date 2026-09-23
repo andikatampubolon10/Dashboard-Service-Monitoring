@@ -20,7 +20,7 @@ import { useServers } from '../hooks/useServers';
 import { useServices } from '../hooks/useServices';
 import { ProjectService } from '../services/projectService';
 import { Project, Server as ServerType } from '../types';
-import { getStressTestHistory, StressTestRecord } from '../services/stressTestEngine';
+import { getStressTestHistory, fetchDbStressTestHistory, StressTestRecord } from '../services/stressTestEngine';
 import StressTestResultModal from '../components/monitoring/StressTestResultModal';
 import { CardSkeleton } from '../components/common/LoadingSkeleton';
 
@@ -57,9 +57,25 @@ export const OverviewPage: React.FC = () => {
       .finally(() => setIsLoadingProjects(false));
   }, []);
 
-  // Load Stress History
+  // Load Stress History from MySQL database (with localStorage fallback)
   useEffect(() => {
-    setStressHistory(getStressTestHistory());
+    let isMounted = true;
+    fetchDbStressTestHistory().then((dbRuns) => {
+      if (isMounted) {
+        if (dbRuns && dbRuns.length > 0) {
+          setStressHistory(dbRuns);
+        } else {
+          setStressHistory(getStressTestHistory());
+        }
+      }
+    }).catch(() => {
+      if (isMounted) {
+        setStressHistory(getStressTestHistory());
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleSelectProject = (projectId: string) => {

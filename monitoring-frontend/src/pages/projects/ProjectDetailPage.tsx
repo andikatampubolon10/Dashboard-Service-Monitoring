@@ -24,6 +24,7 @@ import {
 import { Project, ProjectPayload, Server as ServerType } from '../../types';
 import { ProjectService } from '../../services/projectService';
 import { monitoringApi } from '../../services/monitoringApi';
+import { AiStressInsightCard } from '../../components/monitoring/AiStressInsightCard';
 
 export const ProjectDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -67,12 +68,16 @@ export const ProjectDetailPage: React.FC = () => {
       setProject(projData);
       setAllServers(serverList);
 
-      // Auto-expand all servers initially
-      const expandMap: Record<string, boolean> = {};
-      (projData.servers || []).forEach((s: ServerType) => {
-        expandMap[s.id] = true;
+      // Preserve manual expand/collapse state across background polling intervals (default: collapsed/standar)
+      setExpandedServers((prev) => {
+        const next = { ...prev };
+        (projData.servers || []).forEach((s: ServerType) => {
+          if (next[s.id] === undefined) {
+            next[s.id] = false; // Standar awal: collapsed / tidak langsung expand
+          }
+        });
+        return next;
       });
-      setExpandedServers(expandMap);
 
       setFormData({
         name: projData.name,
@@ -310,6 +315,15 @@ export const ProjectDetailPage: React.FC = () => {
         </div>
       </div>
 
+      {/* AI Capacity & Reliability Insight Card */}
+      {project && (
+        <AiStressInsightCard
+          records={[]}
+          projectName={project.name}
+          projectId={project.id}
+        />
+      )}
+
       {/* Main Hierarchy Section: Project -> Server -> Service */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -381,7 +395,7 @@ export const ProjectDetailPage: React.FC = () => {
           ) : (
             <div className="space-y-4 pl-4 sm:pl-6 border-l-2 border-orange-500/30 dark:border-orange-500/20 ml-5">
               {project.servers.map((server: ServerType, serverIdx: number) => {
-                const isExpanded = expandedServers[server.id] ?? true;
+                const isExpanded = expandedServers[server.id] ?? false;
                 const serverServices = (server.services || server.servicesData || []) as any[];
                 const serverDbs = (server.databases || []) as any[];
                 const upSrvCount = server.upServices ?? serverServices.filter((x: any) => x.status === 'UP').length;
@@ -392,11 +406,18 @@ export const ProjectDetailPage: React.FC = () => {
                     className="rounded-xl border border-slate-200 dark:border-slate-800/90 bg-slate-50/60 dark:bg-slate-900/40 overflow-hidden transition-all shadow-sm"
                   >
                     {/* Level 2: Server Header Bar */}
-                    <div className="p-4 bg-white dark:bg-[#131926] border-b border-slate-200 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div
+                      onClick={() => toggleServerExpand(server.id)}
+                      className="p-4 bg-white dark:bg-[#131926] border-b border-slate-200 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none"
+                    >
                       <div className="flex items-center gap-3">
                         <button
-                          onClick={() => toggleServerExpand(server.id)}
-                          className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleServerExpand(server.id);
+                          }}
+                          className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                         >
                           {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                         </button>

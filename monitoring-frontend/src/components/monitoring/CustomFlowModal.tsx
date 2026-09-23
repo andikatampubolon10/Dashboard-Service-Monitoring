@@ -386,11 +386,11 @@ export const SERVICE_ENDPOINTS_CATALOG: Record<string, EndpointItem[]> = {
       expectedStatus: 200,
     },
     {
-      method: 'POST',
+      method: 'PUT',
       path: '/api/health/profile',
       name: 'Perbarui Profil Wellness',
       desc: 'Simpan pembaruan berat badan, tinggi, dan preferensi kesehatan',
-      body: { weightKg: 65, heightCm: 172, bloodType: 'O' },
+      body: { height: 172, weight: 65, sleepQuality: 'good' },
       expectedStatus: 200,
     },
     {

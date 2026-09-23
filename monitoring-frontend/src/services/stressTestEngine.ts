@@ -132,6 +132,7 @@ export interface StressTestProgress {
     flow1: number;
     flow2: number;
     flow3: number;
+    [flowKey: string]: number;
   };
 }
 
@@ -172,6 +173,7 @@ class StressTestEngine {
 
   private listeners: Set<StressTestListener> = new Set();
   private logListeners: Set<StressTestLogListener> = new Set();
+  private savedListeners: Set<(record: any) => void> = new Set();
   private baseUrl =
     import.meta.env.VITE_MONITORING_API_URL !== undefined
       ? import.meta.env.VITE_MONITORING_API_URL.replace(/\/$/, '')
@@ -203,6 +205,11 @@ class StressTestEngine {
           if (this.logs.length > 250) this.logs.shift();
           this.notifyLogListeners();
         }
+      });
+
+      this.socket.on('stress-test:saved', (data: any) => {
+        console.log('[k6 Socket] Result saved to MySQL database:', data?.id);
+        this.notifySavedListeners(data);
       });
 
       this.socket.on('stress-test:completed', (data: any) => {
@@ -327,12 +334,21 @@ class StressTestEngine {
     return () => this.logListeners.delete(listener);
   }
 
+  public subscribeSaved(listener: (data: any) => void): () => void {
+    this.savedListeners.add(listener);
+    return () => this.savedListeners.delete(listener);
+  }
+
   private notify(progress: StressTestProgress) {
     this.listeners.forEach((fn) => fn(progress));
   }
 
   private notifyLogListeners() {
     this.logListeners.forEach((fn) => fn(this.logs));
+  }
+
+  private notifySavedListeners(data: any) {
+    this.savedListeners.forEach((fn) => fn(data));
   }
 
   public setSelectedFlow(flow: SelectedFlowType) {
@@ -385,6 +401,7 @@ class StressTestEngine {
       rawSummaryText: this.rawSummaryText,
       failurePoint: this.failurePoint,
       flowStats: {
+        [String(this.selectedFlow)]: this.totalRequests,
         flow1: this.selectedFlow === '1' ? this.totalRequests : 0,
         flow2: this.selectedFlow === '2' ? this.totalRequests : 0,
         flow3: this.selectedFlow === '3' ? this.totalRequests : 0,
@@ -560,9 +577,13 @@ export function generateRecommendations(
       recommendations.push(
         '💡 Pasang Salinan Berita Cepat (Cache CDN): Artikel kesehatan dapat disimpan di salinan cadangan cepat agar server tidak lelah saat banyak pembaca membuka artikel bersamaan.'
       );
-    } else {
+    } else if (selectedFlow === '3') {
       recommendations.push(
         '💡 Buat Daftar Isi Pencarian Cepat (Index Database): Beri penanda khusus pada nama dan jadwal dokter seperti daftar isi buku agar pencarian dokter langsung ditemukan seketika.'
+      );
+    } else {
+      recommendations.push(
+        '💡 Optimasi Alur Transaksi Kustom: Periksa performa endpoint dan query database pada alur ini, serta terapkan caching pada operasi baca untuk menjaga latensi tetap rendah.'
       );
     }
     recommendations.push(

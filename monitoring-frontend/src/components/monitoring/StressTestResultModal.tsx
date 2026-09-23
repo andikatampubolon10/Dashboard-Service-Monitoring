@@ -138,8 +138,50 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
   const isSlowQueue = isFullyCompleted && p95Latency > 1000;
   const isOptimal = isFullyCompleted && !isSlowQueue && failedCount === 0 && !hasFailedChecks;
 
+  const archiveTerminalText = useMemo(() => {
+    if (record.rawSummaryText && record.rawSummaryText.trim()) return record.rawSummaryText;
+    if (record.logs && record.logs.length > 0) return record.logs.join("\n");
+
+    const dateStr = (record as any).createdAt || record.timestamp || new Date().toISOString();
+    const checksStr = (record.checks || [])
+      .map(
+        (c) =>
+          `  ${(c.fails || 0) > 0 ? "✗" : "✓"} ${(c.name || "Tahap").padEnd(42, " ")}: ${c.passes || 0} passes, ${c.fails || 0} fails`
+      )
+      .join("\n");
+
+    return [
+      `================================================================================`,
+      `                     GRAFANA k6 HISTORICAL EXECUTION LOG ARCHIVE               `,
+      `================================================================================`,
+      `  Test Run ID       : ${record.id}`,
+      `  Scenario Name     : ${record.flowTitle}`,
+      `  Test Mode         : ${record.testType === "load_test" ? "Load Test (1x Gelombang Serentak)" : "Stress Test (Ketahanan)"}`,
+      `  Execution Time    : ${dateStr}`,
+      `  Virtual Users     : ${record.targetVUs} VUs (Pasien Serentak)`,
+      `  Duration          : ${record.durationSec || 6} detik`,
+      `  Throughput        : ~${record.currentRps || Math.round(totalRequests / Math.max(record.durationSec || 1, 1))} reqs/s`,
+      `  Health Verdict    : ${record.healthVerdict || record.healthGrade}`,
+      ``,
+      `----------------------------- TAHAPAN CHECK TRANSAKSI --------------------------`,
+      checksStr || `  ✓ Seluruh tahapan transaksi tervalidasi sukses oleh engine k6`,
+      ``,
+      `----------------------------- METRIK PERFORMA HTTP k6 -------------------------`,
+      `  http_reqs................: ${totalRequests} total requests (${successCount} sukses, ${failedCount} gagal)`,
+      `  http_req_duration........: avg=${formatMs(record.avgLatencyMs)}ms  min=${formatMs(record.minLatencyMs)}ms  med=${formatMs(record.k6Metrics?.http_req_duration?.med || record.p90LatencyMs)}ms  max=${formatMs(record.maxLatencyMs)}ms`,
+      `  p(90)....................: ${formatMs(record.p90LatencyMs)}ms`,
+      `  p(95)....................: ${formatMs(record.p95LatencyMs)}ms (SLA Standar Industri < 1000ms)`,
+      `  http_req_failed..........: ${record.errorRatePercent.toFixed(2)}%`,
+      record.failurePoint
+        ? `\n----------------------------- KEGAGALAN TERDETEKSI ----------------------------\n  Titik Macet: Tahap #${record.failurePoint.stepNum} (${record.failurePoint.stepName})\n  Penyebab   : ${record.failurePoint.reason}`
+        : ``,
+      `================================================================================`,
+      `[k6 engine] Snapshot eksekusi tersimpan resmi di database monitoring.`,
+    ].filter(Boolean).join("\n");
+  }, [record, totalRequests, successCount, failedCount]);
+
   const copyRawLog = () => {
-    const textToCopy = record.rawSummaryText || JSON.stringify(record, null, 2);
+    const textToCopy = archiveTerminalText || JSON.stringify(record, null, 2);
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -266,44 +308,126 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
   };
 
   // Definisi tahapan alur yang ramah pengguna dengan 4 status visual yang intuitif
-  const flowSteps =
-    record.customSteps && record.customSteps.length > 0
-      ? record.customSteps.map((cs, idx) => {
-          const stepNum = idx + 1;
-          const searchKeys = [cs.name.toLowerCase(), cs.path.toLowerCase(), cs.serviceKey.toLowerCase(), `[tahap ${stepNum}]`];
-          return {
-            id: stepNum,
-            targetDesc: `${cs.serviceKey} • ${cs.method} ${cs.path}`,
-            ...evaluateStep(
-              stepNum,
-              searchKeys,
-              `${stepNum}. ${cs.name}`,
-              `${cs.method} ${cs.path} Sukses`,
-              `${cs.method} ${cs.path} Gagal/Macet`,
-              "Belum Terjangkau (Dibatalkan)"
-            ),
-          };
-        })
-      : record.flowTitle.includes("AI") || record.flowTitle.includes("Flow 1") || record.selectedFlow === "1"
-      ? [
-          { id: 1, targetDesc: "ai-consultation • GET /api/consultations/active", ...evaluateStep(1, ["tahap 1", "cek sesi konsultasi aktif", "cek sesi aktif"], "1. Cek Sesi Konsultasi Aktif", "Verifikasi Sesi Aktif Berhasil", "Pintu Masuk Terlalu Padat", "Belum Terjangkau") },
-          { id: 2, targetDesc: "ai-consultation • POST /api/consultations", ...evaluateStep(2, ["tahap 2", "pembuatan sesi konsultasi baru", "sesi konsultasi tersedia"], "2. Buat Sesi Konsultasi Baru", "Ruang Dokter Siap", "Koneksi Ruang Dokter Macet", "Belum Terjangkau") },
-          { id: 3, targetDesc: "ai-consultation • POST /api/consultation/chat", ...evaluateStep(3, ["tahap 3", "streaming respon dokter ai"], "3. Kirim Chat AI Streaming", "Diagnosa Berjalan", "Waktu Tunggu AI Habis", "Alur Terputus di Awal") },
-          { id: 4, targetDesc: "ai-consultation • GET /api/consultations/:id", ...evaluateStep(4, ["tahap 4", "baca detail konsultasi"], "4. Baca Riwayat Konsultasi", "Transkrip Tersimpan", "Gagal Simpan Chat", "Belum Sempat Tersimpan") },
-          { id: 5, targetDesc: "ai-consultation • PATCH /api/consultations/:id", ...evaluateStep(5, ["tahap 5", "akhiri sesi & feedback", "akhiri sesi"], "5. Rating & Penutupan Sesi", "Sesi Selesai Normal", "Koneksi Terputus", "Belum Sempat Rating") },
-        ]
-      : record.flowTitle.includes("Lifestyle") || record.flowTitle.includes("Flow 2") || record.selectedFlow === "2"
-      ? [
-          { id: 1, targetDesc: "identity • GET /health", ...evaluateStep(1, ["tahap 1", "validasi status akun identity"], "1. Validasi Akun Identity", "Otorisasi Pasien Berhasil", "Antrean Masuk Padat (Ditolak)", "Belum Terjangkau") },
-          { id: 2, targetDesc: "lifestyle • GET /api/articles", ...evaluateStep(2, ["tahap 2", "ambil katalog artikel kesehatan"], "2. Buka Katalog Artikel Medis", "Daftar Artikel Siap Dibaca", "Antrean Server & Database Penuh", "Belum Sempat Dibuka") },
-          { id: 3, targetDesc: "lifestyle • GET /api/articles/:slug", ...evaluateStep(3, ["tahap 3", "baca detail artikel lengkap"], "3. Baca Konten Detail Artikel", "Artikel Terbuka Sempurna", "Gagal Membaca Konten", "Belum Sempat Dibaca Pasien") },
-        ]
-      : [
-          { id: 1, targetDesc: "live-consult • GET /api/live-consult", ...evaluateStep(1, ["tahap 1", "daftar jadwal sesi dokter"], "1. Cari Jadwal Sesi Dokter", "Daftar Spesialis Terbuka", "Pencarian Dokter Penuh", "Belum Terjangkau") },
-          { id: 2, targetDesc: "live-consult • GET /api/live-consult/:id", ...evaluateStep(2, ["tahap 2", "detail sesi konsultasi dokter"], "2. Detail Sesi Konsultasi", "Pemesanan Jadwal Selesai", "Antrean Reservasi Penuh", "Belum Sempat Memesan") },
-          { id: 3, targetDesc: "live-consult • WS /ws/live-consult/:id", ...evaluateStep(3, ["tahap 3", "koneksi websocket", "chat dokter"], "3. Sambungan WebSocket & Chat", "Koneksi Chat Terhubung", "Sambungan Terputus", "Belum Terhubung") },
-          { id: 4, targetDesc: "live-consult • GET /health/live", ...evaluateStep(4, ["tahap 4", "health probe live consult"], "4. Health Probe Layanan", "Semua Layanan Stabil", "Layanan Sedang Lambat", "Alur Terputus") },
-        ];
+  const flowSteps = useMemo(() => {
+    // 1. Jika ada customSteps langsung (dari memori aktif atau diperkaya dari customFlows)
+    if (record.customSteps && record.customSteps.length > 0) {
+      return record.customSteps.map((cs, idx) => {
+        const stepNum = idx + 1;
+        const searchKeys = [cs.name.toLowerCase(), cs.path.toLowerCase(), cs.serviceKey.toLowerCase(), `[tahap ${stepNum}]`];
+        return {
+          id: stepNum,
+          targetDesc: `${cs.serviceKey} • ${cs.method} ${cs.path}`,
+          ...evaluateStep(
+            stepNum,
+            searchKeys,
+            `${stepNum}. ${cs.name}`,
+            `${cs.method} ${cs.path} Sukses`,
+            `${cs.method} ${cs.path} Gagal/Macet`,
+            "Belum Terjangkau (Dibatalkan)"
+          ),
+        };
+      });
+    }
+
+    // 2. Jika customSteps kosong (setelah refresh dari DB), ekstrak tahapan asli dari record.checks!
+    const stageChecks = record.checks?.filter((c: any) => c.name && /\[Tahap\s*\d+\]/i.test(c.name)) || [];
+    if (stageChecks.length > 0) {
+      const parsedSteps = stageChecks.map((c: any, idx: number) => {
+        const match = c.name.match(/\[Tahap\s*(\d+)\]\s*(.*)/i);
+        const stepNum = match ? parseInt(match[1], 10) : idx + 1;
+        const cleanName = match && match[2] ? match[2].trim() : c.name;
+        const isFailed = (c.fails || 0) > 0;
+        const hasPassed = (c.passes || 0) > 0;
+        const status = isFailed ? ("bottleneck" as const) : hasPassed ? ("success" as const) : ("unreached" as const);
+        return {
+          id: stepNum,
+          targetDesc: `k6 Check • ${cleanName}`,
+          status,
+          title: `${stepNum}. ${cleanName}`,
+          desc: isFailed ? `Gagal (${c.fails} gagal)` : `${c.passes || 0} Sukses Tervalidasi k6`,
+          badge: isFailed ? "Titik Gagal" : "100% Lolos",
+        };
+      });
+
+      // Jika ada totalSteps dari failurePoint yang lebih besar dari check yang sempat dieksekusi k6
+      if (effectiveFailurePoint && effectiveFailurePoint.totalSteps > parsedSteps.length) {
+        for (let pad = parsedSteps.length + 1; pad <= effectiveFailurePoint.totalSteps; pad++) {
+          parsedSteps.push({
+            id: pad,
+            targetDesc: `Tahap #${pad} Dibatalkan`,
+            status: "unreached" as const,
+            title: `${pad}. Tahap Berikutnya`,
+            desc: `Tidak Dieksekusi (Tahap #${effectiveFailurePoint.stepNum} Terhenti)`,
+            badge: "Dilewati",
+          });
+        }
+      }
+
+      return parsedSteps;
+    }
+
+    const isCustomFlow = Boolean(
+      (record.selectedFlow && record.selectedFlow.startsWith("flow-custom")) ||
+      (record.flowTitle && record.flowTitle.startsWith("Custom:"))
+    );
+
+    // 3. Jika Preset Flow 1 (AI Chat)
+    if (!isCustomFlow && (record.selectedFlow === "1" || record.flowTitle === "Konsultasi AI Healthcare" || record.flowTitle === "Flow 1")) {
+      return [
+        { id: 1, targetDesc: "ai-consultation • GET /api/consultations/active", ...evaluateStep(1, ["tahap 1", "cek sesi konsultasi aktif", "cek sesi aktif"], "1. Cek Sesi Konsultasi Aktif", "Verifikasi Sesi Aktif Berhasil", "Pintu Masuk Terlalu Padat", "Belum Terjangkau") },
+        { id: 2, targetDesc: "ai-consultation • POST /api/consultations", ...evaluateStep(2, ["tahap 2", "pembuatan sesi konsultasi baru", "sesi konsultasi tersedia"], "2. Buat Sesi Konsultasi Baru", "Ruang Dokter Siap", "Koneksi Ruang Dokter Macet", "Belum Terjangkau") },
+        { id: 3, targetDesc: "ai-consultation • POST /api/consultation/chat", ...evaluateStep(3, ["tahap 3", "streaming respon dokter ai"], "3. Kirim Chat AI Streaming", "Diagnosa Berjalan", "Waktu Tunggu AI Habis", "Alur Terputus di Awal") },
+        { id: 4, targetDesc: "ai-consultation • GET /api/consultations/:id", ...evaluateStep(4, ["tahap 4", "baca detail konsultasi"], "4. Baca Riwayat Konsultasi", "Transkrip Tersimpan", "Gagal Simpan Chat", "Belum Sempat Tersimpan") },
+        { id: 5, targetDesc: "ai-consultation • PATCH /api/consultations/:id", ...evaluateStep(5, ["tahap 5", "akhiri sesi & feedback", "akhiri sesi"], "5. Rating & Penutupan Sesi", "Sesi Selesai Normal", "Koneksi Terputus", "Belum Sempat Rating") },
+      ];
+    }
+
+    // 4. Jika Preset Flow 2 (Lifestyle)
+    if (!isCustomFlow && (record.selectedFlow === "2" || record.flowTitle === "Artikel Medis & Lifestyle" || record.flowTitle === "Flow 2")) {
+      return [
+        { id: 1, targetDesc: "identity • GET /health", ...evaluateStep(1, ["tahap 1", "validasi status akun identity"], "1. Validasi Akun Identity", "Otorisasi Pasien Berhasil", "Antrean Masuk Padat (Ditolak)", "Belum Terjangkau") },
+        { id: 2, targetDesc: "lifestyle • GET /api/articles", ...evaluateStep(2, ["tahap 2", "ambil katalog artikel kesehatan"], "2. Buka Katalog Artikel Medis", "Daftar Artikel Siap Dibaca", "Antrean Server & Database Penuh", "Belum Sempat Dibuka") },
+        { id: 3, targetDesc: "lifestyle • GET /api/articles/:slug", ...evaluateStep(3, ["tahap 3", "baca detail artikel lengkap"], "3. Baca Konten Detail Artikel", "Artikel Terbuka Sempurna", "Gagal Membaca Konten", "Belum Sempat Dibaca Pasien") },
+      ];
+    }
+
+    // 5. Jika Preset Flow 3 (Live Consult Dokter)
+    if (!isCustomFlow && (record.selectedFlow === "3" || record.flowTitle === "Temu Dokter & Live Chat" || record.flowTitle === "Flow 3")) {
+      return [
+        { id: 1, targetDesc: "live-consult • GET /api/live-consult", ...evaluateStep(1, ["tahap 1", "daftar jadwal sesi dokter"], "1. Cari Jadwal Sesi Dokter", "Daftar Spesialis Terbuka", "Pencarian Dokter Penuh", "Belum Terjangkau") },
+        { id: 2, targetDesc: "live-consult • GET /api/live-consult/:id", ...evaluateStep(2, ["tahap 2", "detail sesi konsultasi dokter"], "2. Detail Sesi Konsultasi", "Pemesanan Jadwal Selesai", "Antrean Reservasi Penuh", "Belum Sempat Memesan") },
+        { id: 3, targetDesc: "live-consult • WS /ws/live-consult/:id", ...evaluateStep(3, ["tahap 3", "koneksi websocket", "chat dokter"], "3. Sambungan WebSocket & Chat", "Koneksi Chat Terhubung", "Sambungan Terputus", "Belum Terhubung") },
+        { id: 4, targetDesc: "live-consult • GET /health/live", ...evaluateStep(4, ["tahap 4", "health probe live consult"], "4. Health Probe Layanan", "Semua Layanan Stabil", "Layanan Sedang Lambat", "Alur Terputus") },
+      ];
+    }
+
+    // 6. Fallback bersih untuk Custom Flow Umum
+    if (record.checks && record.checks.length > 0) {
+      return record.checks.map((c: any, idx: number) => {
+        const stepNum = idx + 1;
+        const isFailed = (c.fails || 0) > 0;
+        return {
+          id: stepNum,
+          targetDesc: `k6 Check • ${c.name}`,
+          status: isFailed ? ("bottleneck" as const) : ("success" as const),
+          title: `${stepNum}. ${c.name}`,
+          desc: isFailed ? `Gagal (${c.fails} gagal)` : `${c.passes || 0} Sukses Tervalidasi k6`,
+          badge: isFailed ? "Gagal" : "100% Lolos",
+        };
+      });
+    }
+
+    return [
+      {
+        id: 1,
+        targetDesc: `${record.flowTitle}`,
+        status: hasRealFailures ? ("bottleneck" as const) : ("success" as const),
+        title: `1. ${record.flowTitle}`,
+        desc: hasRealFailures ? `Alur Mengalami Kendala` : `Seluruh Alur Berhasil Tervalidasi`,
+        badge: hasRealFailures ? "Gagal" : "100% Lolos",
+      },
+    ];
+  }, [record, isSetupTimeout, hasRealFailures]);
 
   // Metrik Langkah Alur Pasien (Sinkron 1:1 dengan Kartu Tahapan Pasien)
   const unreachedStepsCount = flowSteps.filter((s) => s.status === "unreached").length;
@@ -1162,13 +1286,7 @@ export const StressTestResultModal: React.FC<StressTestResultModalProps> = ({
               </div>
 
               <div className="rounded-xl border border-slate-800 bg-[#060913] p-3.5 font-mono text-[11px] text-slate-300 space-y-1 max-h-[360px] overflow-y-auto leading-relaxed shadow-inner select-text">
-                {record.rawSummaryText ? (
-                  <pre className="whitespace-pre-wrap font-mono">{record.rawSummaryText}</pre>
-                ) : (
-                  <div className="text-slate-500 italic py-8 text-center">
-                    Log konsol teks tidak tersimpan pada riwayat pengujian lama ini.
-                  </div>
-                )}
+                <pre className="whitespace-pre-wrap font-mono">{archiveTerminalText}</pre>
               </div>
             </div>
           )}

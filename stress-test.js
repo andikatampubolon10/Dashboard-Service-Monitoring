@@ -101,6 +101,7 @@ const BASE_AI_CONSULT = __ENV.AI_CONSULT_URL || 'http://localhost:4006';
 const BASE_LIFESTYLE = __ENV.LIFESTYLE_URL || 'http://localhost:4007';
 const BASE_LIVE_CONSULT = __ENV.LIVE_CONSULT_URL || 'http://localhost:4004';
 const BASE_HEALTH_PROFILE = __ENV.HEALTH_PROFILE_URL || 'http://localhost:3001';
+const BASE_MEDICAL = __ENV.MEDICAL_URL || 'http://localhost:3002';
 
 const MOCK_TOKEN = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.sample_token';
 
@@ -324,8 +325,10 @@ export default function (data) {
         healthProfile: BASE_HEALTH_PROFILE,
         'health-profile': BASE_HEALTH_PROFILE,
         'health-profile-service': BASE_HEALTH_PROFILE,
-        'medical-record': BASE_HEALTH_PROFILE,
-        medicalRecord: BASE_HEALTH_PROFILE,
+        'medical-record': BASE_MEDICAL,
+        medicalRecord: BASE_MEDICAL,
+        medical: BASE_MEDICAL,
+        'medical-record-service': BASE_MEDICAL,
         audit: BASE_IDENTITY,
       };
 

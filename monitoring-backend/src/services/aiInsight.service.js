@@ -38,9 +38,7 @@ function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum di
   const warningVU = queueRuns.length > 0 ? Math.min(...queueRuns.map((r) => r.targetVUs || 0)) : (maxSafeVU > 0 ? maxSafeVU + 25 : 50);
   const breakingPointVU = criticalRuns.length > 0 ? Math.min(...criticalRuns.map((r) => r.targetVUs || 0)) : null;
 
-  const flow1 = records.find((r) => String(r.selectedFlow || r.flow) === '1');
-  const flow2 = records.find((r) => String(r.selectedFlow || r.flow) === '2');
-  const flow3 = records.find((r) => String(r.selectedFlow || r.flow) === '3');
+  const flow1 = records.find((r) => String(r.selectedFlow || r.flow || r.flow_id) === '1');
 
   let verdict = 'STABLE';
   let healthScore = 95;
@@ -52,44 +50,86 @@ function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum di
     healthScore = 72;
   }
 
-  const flowComparison = [
-    {
-      flowId: '1',
-      flowName: 'Konsultasi Chat Dokter AI',
-      status: flow1 ? flow1.healthGrade : 'UNTESTED',
-      p95LatencyMs: flow1 ? flow1.p95LatencyMs : 0,
-      targetVUs: flow1 ? flow1.targetVUs : 0,
-      performanceCategory: 'Komputasi Berat (LLM & Inference)',
-      comparisonNote: flow1
-        ? `Menghabiskan waktu tunggu tertinggi (${flow1.p95LatencyMs}ms) karena membutuhkan inferensi LLM di setiap pesan.`
-        : 'Belum diuji coba. Beban LLM diperkirakan menjadi titik latensi tertinggi sistem.',
-      riskLevel: flow1 && flow1.p95LatencyMs > 1000 ? 'TINGGI' : 'SEDANG',
-    },
-    {
-      flowId: '2',
-      flowName: 'Membaca Artikel Kesehatan',
-      status: flow2 ? flow2.healthGrade : 'UNTESTED',
-      p95LatencyMs: flow2 ? flow2.p95LatencyMs : 0,
-      targetVUs: flow2 ? flow2.targetVUs : 0,
-      performanceCategory: 'Operasi Ringan (Read-Heavy Cacheable)',
-      comparisonNote: flow2
-        ? `Layanan paling cepat dan efisien (${flow2.p95LatencyMs}ms). Sangat tangguh saat terjadi lonjakan pembaca.`
-        : 'Belum diuji coba. Fitur ini umumnya memiliki throughput tertinggi.',
-      riskLevel: 'RENDAH',
-    },
-    {
-      flowId: '3',
-      flowName: 'Pencarian Jadwal & Dokter',
-      status: flow3 ? flow3.healthGrade : 'UNTESTED',
-      p95LatencyMs: flow3 ? flow3.p95LatencyMs : 0,
-      targetVUs: flow3 ? flow3.targetVUs : 0,
-      performanceCategory: 'Database-Bound (Query & Filter Index)',
-      comparisonNote: flow3
-        ? `Kecepatan ${flow3.p95LatencyMs}ms. Performa sangat bergantung pada optimasi indeks tabel dokter dan jadwal.`
-        : 'Belum diuji coba. Direkomendasikan uji konkurensi untuk memastikan koneksi database tidak bottleneck.',
-      riskLevel: flow3 && flow3.p95LatencyMs > 800 ? 'SEDANG' : 'RENDAH',
-    },
+  // Kumpulkan seluruh jenis flow unik yang pernah diuji di database (Preset maupun Custom Flows)
+  const testedFlowsMap = new Map();
+  records.forEach((r) => {
+    const fId = String(r.selectedFlow || r.flow || r.flow_id || '1');
+    if (!testedFlowsMap.has(fId)) {
+      testedFlowsMap.set(fId, []);
+    }
+    testedFlowsMap.get(fId).push(r);
+  });
+
+  const flowComparison = [];
+
+  testedFlowsMap.forEach((runs, fId) => {
+    const latest = runs[0] || {};
+    const p95 = latest.p95LatencyMs || latest.p95_latency_ms || 0;
+    const vus = latest.targetVUs || latest.target_vus || 0;
+    const grade = latest.healthGrade || latest.health_grade || 'HEALTHY';
+    const rawTitle = latest.flowTitle || latest.flow_name;
+
+    let defaultName = 'Alur Kustom Terpadu';
+    let category = 'Layanan Kustom (Multi-Service)';
+    let note = `Tuntas dieksekusi dengan latensi P95 ${p95}ms pada ${vus} pasien serentak.`;
+    let risk = grade === 'CRITICAL' || p95 > 1500 ? 'TINGGI' : p95 > 800 ? 'SEDANG' : 'RENDAH';
+
+    if (fId === '1') {
+      defaultName = 'Konsultasi Chat Dokter AI';
+      category = 'Komputasi Berat (LLM & Inference)';
+      note = `Menghabiskan waktu tunggu (${p95}ms) karena membutuhkan inferensi LLM di setiap pesan.`;
+      risk = p95 > 1000 ? 'TINGGI' : 'SEDANG';
+    } else if (fId === '2') {
+      defaultName = 'Membaca Artikel Kesehatan';
+      category = 'Operasi Ringan (Read-Heavy Cacheable)';
+      note = `Layanan paling cepat dan efisien (${p95}ms). Sangat tangguh saat lonjakan pembaca.`;
+      risk = 'RENDAH';
+    } else if (fId === '3') {
+      defaultName = 'Pencarian Jadwal & Dokter';
+      category = 'Database-Bound (Query & Filter Index)';
+      note = `Kecepatan ${p95}ms. Performa sangat bergantung pada optimasi indeks tabel dokter dan jadwal.`;
+      risk = p95 > 800 ? 'SEDANG' : 'RENDAH';
+    } else {
+      defaultName = rawTitle || `Alur Kustom (${fId})`;
+      const isLoadTest = latest.test_type === 'load_test' || latest.testType === 'load_test';
+      note = isLoadTest
+        ? `Uji beban 1x gelombang serentak: ${vus} pasien tuntas dalam ${latest.duration_sec || latest.durationSec || 1}s (P95: ${p95}ms).`
+        : `Uji ketahanan bertubi-tubi: ${vus} VU bertahan ${latest.duration_sec || latest.durationSec || 1}s (P95: ${p95}ms).`;
+    }
+
+    flowComparison.push({
+      flowId: fId,
+      flowName: rawTitle || defaultName,
+      status: grade,
+      p95LatencyMs: p95,
+      targetVUs: vus,
+      performanceCategory: category,
+      comparisonNote: note,
+      riskLevel: risk,
+    });
+  });
+
+  // Jika preset flows belum pernah diuji dan perbandingan masih di bawah 3, lengkapi sebagai UNTESTED
+  const standardPresets = [
+    { flowId: '1', flowName: 'Konsultasi Chat Dokter AI', category: 'Komputasi Berat (LLM & Inference)', note: 'Belum diuji coba. Beban LLM diperkirakan menjadi titik latensi tertinggi sistem.', risk: 'SEDANG' },
+    { flowId: '2', flowName: 'Membaca Artikel Kesehatan', category: 'Operasi Ringan (Read-Heavy Cacheable)', note: 'Belum diuji coba. Fitur ini umumnya memiliki throughput tertinggi.', risk: 'RENDAH' },
+    { flowId: '3', flowName: 'Pencarian Jadwal & Dokter', category: 'Database-Bound (Query & Filter Index)', note: 'Belum diuji coba. Direkomendasikan uji konkurensi untuk memastikan koneksi database tidak bottleneck.', risk: 'RENDAH' },
   ];
+
+  standardPresets.forEach((preset) => {
+    if (!testedFlowsMap.has(preset.flowId) && flowComparison.length < 4) {
+      flowComparison.push({
+        flowId: preset.flowId,
+        flowName: preset.flowName,
+        status: 'UNTESTED',
+        p95LatencyMs: 0,
+        targetVUs: 0,
+        performanceCategory: preset.category,
+        comparisonNote: preset.note,
+        riskLevel: preset.risk,
+      });
+    }
+  });
 
   const recommendations = [];
   if (verdict === 'CRITICAL') {
@@ -173,7 +213,8 @@ function generateFallbackInsight(records = [], reason = 'GEMINI_API_KEY belum di
  * Main service method: Analyze stress test records using Google Gemini API
  */
 async function generateStressTestInsight(records = [], forceRefresh = false, options = {}) {
-  const projectName = options.projectName || '';
+  const projectMeta = typeof options === 'string' ? { projectName: options } : (options || {});
+  const projectName = projectMeta.projectName || projectMeta.name || '';
   const signature = createHistorySignature(records, projectName);
   const now = Date.now();
 
@@ -196,11 +237,12 @@ async function generateStressTestInsight(records = [], forceRefresh = false, opt
   }
 
   // Build concise metrics summary for Gemini prompt
-  const testSummary = (records || []).slice(0, 10).map((r, idx) => ({
+  const testSummary = (records || []).slice(0, 15).map((r, idx) => ({
     testNumber: idx + 1,
     id: r.id,
     flowId: String(r.selectedFlow || r.flow || r.flow_id || '1'),
-    flowTitle: r.flowTitle || r.flow_name || (r.selectedFlow === '1' ? 'Konsultasi Chat AI' : r.selectedFlow === '2' ? 'Artikel Kesehatan' : 'Pencarian Dokter'),
+    flowTitle: r.flowTitle || r.flow_name || (r.selectedFlow === '1' ? 'Konsultasi Chat AI' : r.selectedFlow === '2' ? 'Artikel Kesehatan' : r.selectedFlow === '3' ? 'Pencarian Dokter' : `Alur Kustom ${r.flow_id}`),
+    testType: r.testType || r.test_type || 'load_test',
     targetVUs: r.targetVUs || r.target_vus || 0,
     durationSec: r.durationSec || r.duration_sec || 0,
     p95LatencyMs: r.p95LatencyMs || r.p95_latency_ms || 0,
@@ -209,7 +251,8 @@ async function generateStressTestInsight(records = [], forceRefresh = false, opt
     currentRps: r.currentRps || r.current_rps || 0,
     healthGrade: r.healthGrade || r.health_grade || 'UNKNOWN',
     healthVerdict: r.healthVerdict || r.health_verdict || '',
-    breachedReasons: r.breachedReasons || [],
+    checks: (r.checks || []).map((c) => ({ name: c.name, passes: c.passes, fails: c.fails, passRate: c.passRate })),
+    failurePoint: r.failurePoint || r.failure_point || null,
     createdAt: r.createdAt || r.created_at || null,
   }));
 
@@ -220,6 +263,7 @@ Anda adalah seorang Principal Site Reliability Engineer (SRE) dan Lead Performan
 Tugas Anda adalah menganalisis hasil uji beban (*Grafana k6 stress test*) riwayat untuk Project "${targetProjectTitle}":
 - Analisis tren performa dari waktu ke waktu (latensi P95, error rate, throughput RPS).
 - Evaluasi ketahanan layanan dan deteksi potensi regresi performa atau bottleneck arsitektural.
+- Skenario pengujian mencakup Preset Telemedicine (Flow 1, 2, 3) dan Alur Kustom Multi-Service buatan pengembang.
 
 Berikut adalah data pengujian riil yang tercatat di database:
 \`\`\`json
@@ -234,12 +278,12 @@ Berikan evaluasi mendalam, tajam, profesional, dan actionable dalam format JSON 
   "summary": "Ringkasan eksekutif performa sistem dan kesiapan menampung traffic nyata (2-3 kalimat)",
   "flowComparison": [
     {
-      "flowId": "1" | "2" | "3",
-      "flowName": "Nama Fitur",
+      "flowId": "string (ID alur, misal: '1', '2', '3', atau ID flow kustom)",
+      "flowName": "Nama Fitur / Skenario Alur",
       "status": "HEALTHY" | "DEGRADED" | "CRITICAL" | "UNTESTED",
       "p95LatencyMs": number,
       "targetVUs": number,
-      "performanceCategory": "misal: Compute-Heavy / Read-Heavy / DB-Bound",
+      "performanceCategory": "misal: Compute-Heavy / Read-Heavy / DB-Bound / Multi-Service",
       "comparisonNote": "Analisis perbandingan komparatif dengan flow lain (mengapa lebih cepat/lambat)",
       "riskLevel": "RENDAH" | "SEDANG" | "TINGGI"
     }

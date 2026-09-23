@@ -48,6 +48,7 @@ import StressTestResultModal from "../../components/monitoring/StressTestResultM
 import { LivePatientPipeline } from "../../components/monitoring/LivePatientPipeline";
 import { CustomFlowModal } from "../../components/monitoring/CustomFlowModal";
 import { ServiceTestCreatorModal } from "../../components/monitoring/ServiceTestCreatorModal";
+import { AiStressInsightCard } from "../../components/monitoring/AiStressInsightCard";
 
 interface LatencyPoint {
   time: string;
@@ -172,7 +173,8 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
     if (activeCustomFlow) return `Custom: ${activeCustomFlow.name}`;
     if (selectedFlow === "1") return "Konsultasi AI Healthcare";
     if (selectedFlow === "2") return "Artikel Medis & Lifestyle";
-    return "Temu Dokter & Live Chat";
+    if (selectedFlow === "3") return "Temu Dokter & Live Chat";
+    return `Alur Kustom (${selectedFlow})`;
   }, [activeCustomFlow, selectedFlow]);
 
   // Auto-generate stages based on Preset Pattern & Target VUs
@@ -223,7 +225,8 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
     }
     if (selectedFlow === "1") return 5;
     if (selectedFlow === "2") return 3;
-    return 4;
+    if (selectedFlow === "3") return 4;
+    return 1;
   }, [activeCustomFlow, selectedFlow]);
 
   const activeFlowStepDetails = useMemo(() => {
@@ -326,18 +329,29 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const prevIsRunningRef = useRef<boolean>(false);
 
-  // Ambil riwayat pengujian dari Online PostgreSQL (NeonDB) berdasarkan Project aktif
+  // Ambil riwayat pengujian dari MySQL database berdasarkan Project aktif
   useEffect(() => {
     let isMounted = true;
-    if (activeProject?.id) {
-      fetchDbStressTestHistory(activeProject.id).then((runs) => {
-        if (isMounted && runs.length > 0) {
-          setHistoryRecords(runs);
-        }
-      });
-    }
+    const loadDbHistory = () => {
+      if (activeProject?.id) {
+        fetchDbStressTestHistory(activeProject.id).then((runs) => {
+          if (isMounted && runs.length > 0) {
+            setHistoryRecords(runs);
+          }
+        });
+      }
+    };
+
+    loadDbHistory();
+
+    // Otomatis refresh riwayat begitu hasil k6 selesai tersimpan ke database MySQL
+    const unsubSaved = stressTestEngine.subscribeSaved(() => {
+      loadDbHistory();
+    });
+
     return () => {
       isMounted = false;
+      unsubSaved();
     };
   }, [activeProject?.id]);
 
@@ -588,14 +602,29 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
                 <span>Skenario / Service yang Diuji:</span>
               </span>
 
-              <button
-                type="button"
-                onClick={() => setIsServiceTestModalOpen(true)}
-                className="inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 dark:text-orange-400 bg-orange-500/10 hover:bg-orange-500 hover:text-white border border-orange-500/20 px-2.5 py-1 rounded-lg transition cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-                <span>+ Buat Uji Service</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingFlow(null);
+                    setIsFlowModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500 hover:text-white border border-blue-500/20 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                  title="Rancang alur bertingkat multi-service (misal: Login -> Service Lain)"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>+ Rancang Alur</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsServiceTestModalOpen(true)}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 dark:text-orange-400 bg-orange-500/10 hover:bg-orange-500 hover:text-white border border-orange-500/20 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                  title="Uji cepat satu service spesifik"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>+ Uji Service</span>
+                </button>
+              </div>
             </div>
 
             {/* Selector Skenario */}
@@ -1067,6 +1096,17 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
         </div>
       </div>
 
+      {/* ─── AI CAPACITY & RELIABILITY INSIGHT CARD ─── */}
+      <AiStressInsightCard
+        records={historyRecords}
+        projectName={activeProject?.name}
+        projectId={activeProject?.id}
+        onOpenRecordModal={(rec) => {
+          setActiveModalRecord(rec);
+          setIsModalOpen(true);
+        }}
+      />
+
       {/* ─── RIWAYAT PENGUJIAN: FIXED HEIGHT MAX-H-72 DENGAN INTERNAL SCROLL ─── */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111622] p-4 shadow-sm space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 pb-3">
@@ -1165,7 +1205,14 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
                       key={rec.id}
                       className="hover:bg-slate-50/70 dark:hover:bg-slate-900/40 transition cursor-pointer"
                       onClick={() => {
-                        setActiveModalRecord(rec);
+                        const matchedCustom = customFlows.find(
+                          (f) => f.id === rec.selectedFlow || f.name === rec.flowTitle || (rec.flowTitle && f.name && rec.flowTitle.includes(f.name))
+                        );
+                        const enrichedRecord = {
+                          ...rec,
+                          customSteps: rec.customSteps || matchedCustom?.steps,
+                        };
+                        setActiveModalRecord(enrichedRecord);
                         setIsModalOpen(true);
                       }}
                     >
@@ -1219,7 +1266,14 @@ export const StressTestStudioPage: React.FC<StressTestStudioPageProps> = ({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setActiveModalRecord(rec);
+                            const matchedCustom = customFlows.find(
+                              (f) => f.id === rec.selectedFlow || f.name === rec.flowTitle || (rec.flowTitle && f.name && rec.flowTitle.includes(f.name))
+                            );
+                            const enrichedRecord = {
+                              ...rec,
+                              customSteps: rec.customSteps || matchedCustom?.steps,
+                            };
+                            setActiveModalRecord(enrichedRecord);
                             setIsModalOpen(true);
                           }}
                           className="px-2 py-1 rounded bg-orange-500/10 hover:bg-orange-500 hover:text-white text-orange-600 dark:text-orange-400 text-[11px] font-bold transition cursor-pointer"

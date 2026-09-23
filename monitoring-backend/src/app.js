@@ -16,7 +16,6 @@ const { Server } = require('socket.io');
 
 const { setSocketServer, startCollector } = require('./collectors');
 const { initSocket } = require('./socket/metricsSocket');
-const { initDb } = require('./config/db');
 
 // Routes
 const healthRoute = require('./routes/health.route');
@@ -107,19 +106,14 @@ server.listen(PORT, () => {
   console.log(`📈 Metrics API: http://localhost:${PORT}/api/metrics/summary`);
   console.log(`====================================================`);
 
-  // Initialize PostgreSQL database and tables
+  // Initialize Database tables (MySQL)
   const { initDatabase } = require('./database/initDb');
   initDatabase().catch((err) => {
-    console.warn('[App] ⚠️ PostgreSQL initialization warning:', err.message);
+    console.warn('[App] ⚠️ Database initialization warning:', err.message);
   });
 
   // Start the background scraping process
   startCollector();
-
-  // Initialize Online PostgreSQL (NeonDB)
-  initDb().catch((err) => {
-    console.error('[App] NeonDB init error:', err.message);
-  });
 });
 
 // Graceful shutdown

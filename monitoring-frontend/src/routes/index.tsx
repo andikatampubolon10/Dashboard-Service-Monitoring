@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { DashboardLayout } from '../layouts/DashboardLayout';
 import { OverviewPage } from '../pages/OverviewPage';
 import { ProjectListPage } from '../pages/projects/ProjectListPage';
+import { ProjectDetailPage } from '../pages/projects/ProjectDetailPage';
 import { ServerListPage } from '../pages/servers/ServerListPage';
 import { ServerDetailPage } from '../pages/servers/ServerDetailPage';
 import { ServiceListPage } from '../pages/services/ServiceListPage';
@@ -30,7 +31,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'projects/:id',
-        element: <ServerListPage />,
+        element: <ProjectDetailPage />,
       },
       {
         path: 'stress-test',

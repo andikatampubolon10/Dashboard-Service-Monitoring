@@ -76,8 +76,15 @@ export const AiStressInsightCard: React.FC<AiStressInsightCardProps> = ({
       case '3':
         return <Stethoscope className="w-4 h-4 text-purple-500" />;
       default:
-        return <Layers className="w-4 h-4 text-slate-400" />;
+        return <Layers className="w-4 h-4 text-orange-500" />;
     }
+  };
+
+  const getFlowDisplayTitle = (flow: { flowId: string; flowName: string }) => {
+    if (['1', '2', '3'].includes(String(flow.flowId))) {
+      return `Flow ${flow.flowId}: ${flow.flowName}`;
+    }
+    return flow.flowName || `Alur Kustom ${flow.flowId}`;
   };
 
   return (
@@ -232,11 +239,14 @@ export const AiStressInsightCard: React.FC<AiStressInsightCardProps> = ({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {insight?.flowComparison && insight.flowComparison.length > 0 ? (
             insight.flowComparison.map((flow) => {
               const matchedRecord = records.find(
-                (r) => String(r.selectedFlow || (r as unknown as { flow?: string }).flow) === String(flow.flowId)
+                (r) =>
+                  String(r.selectedFlow || (r as unknown as { flow?: string }).flow) === String(flow.flowId) ||
+                  (r as any).flow_id === flow.flowId ||
+                  r.flowTitle === flow.flowName
               );
 
               return (
@@ -248,8 +258,8 @@ export const AiStressInsightCard: React.FC<AiStressInsightCardProps> = ({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         {getFlowIcon(flow.flowId)}
-                        <span className="font-bold text-xs text-slate-900 dark:text-white">
-                          Flow {flow.flowId}: {flow.flowName}
+                        <span className="font-bold text-xs text-slate-900 dark:text-white" title={getFlowDisplayTitle(flow)}>
+                          {getFlowDisplayTitle(flow)}
                         </span>
                       </div>
                       <span

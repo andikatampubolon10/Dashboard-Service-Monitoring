@@ -51,6 +51,39 @@ async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Table 3: stress_test_runs (k6 Stress & Load Testing History)
+    await query(`
+      CREATE TABLE IF NOT EXISTS stress_test_runs (
+        id VARCHAR(64) PRIMARY KEY,
+        project_id VARCHAR(64),
+        project_name VARCHAR(255),
+        flow_id VARCHAR(64),
+        flow_name VARCHAR(255),
+        test_type VARCHAR(32) DEFAULT 'load_test',
+        target_vus INT NOT NULL DEFAULT 1,
+        duration_sec INT NOT NULL DEFAULT 30,
+        total_requests INT DEFAULT 0,
+        success_requests INT DEFAULT 0,
+        failed_requests INT DEFAULT 0,
+        error_rate_percent DECIMAL(5,2) DEFAULT 0.00,
+        current_rps INT DEFAULT 0,
+        p95_latency_ms INT DEFAULT 0,
+        p90_latency_ms INT DEFAULT 0,
+        avg_latency_ms INT DEFAULT 0,
+        min_latency_ms INT DEFAULT 0,
+        max_latency_ms INT DEFAULT 0,
+        health_grade VARCHAR(16) DEFAULT 'HEALTHY',
+        health_verdict TEXT,
+        failure_point JSON,
+        checks JSON,
+        target_endpoints JSON,
+        k6_metrics JSON,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_stress_runs_project (project_id, created_at),
+        INDEX idx_stress_runs_created (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     console.log(`[DB Init] ✅ MySQL tables created/verified successfully in "${targetDb}"!`);
     return;
   }

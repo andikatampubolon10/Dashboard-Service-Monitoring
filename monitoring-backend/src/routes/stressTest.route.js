@@ -292,13 +292,17 @@ router.post('/start', (req, res) => {
   }
 
   const flow = String(req.body.flow || '1');
-  const customFlow = req.body.customFlow || null;
+  let customFlow = req.body.customFlow || null;
+  if (!customFlow && flow.startsWith('flow-custom-')) {
+    const flows = loadCustomFlows();
+    customFlow = flows.find((f) => f.id === flow) || null;
+  }
   const stages = req.body.stages || null;
   const testType = req.body.testType || (req.body.iterations === 1 ? 'load_test' : (Array.isArray(stages) && stages.length > 0 ? 'stress_test' : 'load_test'));
   const projectId = req.body.projectId || (customFlow ? customFlow.projectId : null) || null;
   const projectObj = projectId ? getProjectById(projectId) : null;
   const projectName = req.body.projectName || (projectObj ? projectObj.name : null) || (projectId ? `Projek ${projectId}` : null);
-  const flowTitle = customFlow ? customFlow.name : (flow === '1' ? 'Konsultasi Chat AI' : flow === '2' ? 'Artikel Kesehatan' : 'Pencarian Dokter');
+  const flowTitle = customFlow ? customFlow.name : (flow === '1' ? 'Konsultasi Chat AI' : flow === '2' ? 'Artikel Kesehatan' : flow === '3' ? 'Pencarian Dokter' : `Alur Kustom ${flow}`);
   let targetVUs = Math.max(1, parseInt(req.body.targetVUs || '50', 10));
   let durationSec = Math.max(5, parseInt(req.body.durationSec || '30', 10));
 
@@ -656,7 +660,8 @@ router.post('/start', (req, res) => {
         currentTestStatus.healthVerdict = `Kinerja Melambat (Peringatan): Respon server tertekan (P95: ${currentTestStatus.p95LatencyMs}ms > 1000ms SLA)`;
       } else {
         currentTestStatus.healthGrade = 'HEALTHY';
-        currentTestStatus.healthVerdict = `Sistem Sangat Sehat: Sebanyak ${currentTestStatus.targetVUs} pasien berhasil menyelesaikan seluruh tahapan Flow ${flow} dalam ${actualElapsedSec} detik tanpa kegagalan (Error: 0.00%, Latensi P95: ${currentTestStatus.p95LatencyMs}ms).`;
+        const displayFlowName = currentTestStatus.flowTitle ? `"${currentTestStatus.flowTitle}"` : `Flow ${flow}`;
+        currentTestStatus.healthVerdict = `Sistem Sangat Sehat: Sebanyak ${currentTestStatus.targetVUs} pasien berhasil menyelesaikan seluruh tahapan ${displayFlowName} dalam ${actualElapsedSec} detik tanpa kegagalan (Error: 0.00%, Latensi P95: ${currentTestStatus.p95LatencyMs}ms).`;
       }
 
       broadcastLog(`[k6] Pengujian selesai dalam ${actualElapsedSec} detik dengan kode keluar: ${code}`);
@@ -693,12 +698,12 @@ router.post('/start', (req, res) => {
         k6Metrics: currentTestStatus.k6Metrics,
         createdAt: new Date().toISOString(),
       }).then((saved) => {
-        console.log(`[NeonDB] 💾 Hasil pengujian k6 berhasil disimpan ke database: ${saved?.id}`);
+        console.log(`[MySQL Database] 💾 Hasil pengujian k6 berhasil disimpan ke database: ${saved?.id}`);
         if (ioServer) {
           ioServer.emit('stress-test:saved', saved);
         }
       }).catch((err) => {
-        console.error('[NeonDB] ⚠️ Gagal menyimpan riwayat uji beban ke NeonDB:', err.message);
+        console.error('[MySQL Database] ⚠️ Gagal menyimpan riwayat uji beban ke MySQL:', err.message);
       });
     });
 
@@ -774,8 +779,19 @@ router.post('/ai-insight', async (req, res) => {
   try {
     const { records = [], forceRefresh = false, projectName, projectId } = req.body || {};
 
-    // If no records passed in payload, attempt to construct one from currentTestStatus if available
+    // If no records passed in payload, attempt to load from database for this project or construct from live status
     let testRecords = Array.isArray(records) ? records : [];
+    if (testRecords.length === 0 && projectId) {
+      try {
+        const { runs } = await stressTestRepository.getRuns({ projectId, limit: 10 });
+        if (runs && runs.length > 0) {
+          testRecords = runs;
+        }
+      } catch (err) {
+        console.warn('[k6 AI Route] Could not load runs from repository:', err.message);
+      }
+    }
+
     if (testRecords.length === 0 && currentTestStatus.totalRequests > 0) {
       testRecords = [
         {
