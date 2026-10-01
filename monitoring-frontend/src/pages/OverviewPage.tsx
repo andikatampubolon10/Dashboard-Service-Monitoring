@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Server,
@@ -48,14 +48,32 @@ export const OverviewPage: React.FC = () => {
 
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
 
-  // Load Projects
-  const fetchProjects = () => {
+  // Load Projects from Database
+  const fetchProjects = useCallback(() => {
     setIsLoadingProjects(true);
     ProjectService.getProjects()
-      .then((projs) => setProjects(projs))
-      .catch(() => setProjects([]))
+      .then((projs) => {
+        setProjects(projs || []);
+      })
+      .catch((err) => {
+        console.warn('[OverviewPage] Failed to fetch projects:', err);
+        setProjects([]);
+      })
       .finally(() => setIsLoadingProjects(false));
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchProjects();
+    const interval = setInterval(fetchProjects, 15000);
+    return () => clearInterval(interval);
+  }, [fetchProjects]);
+
+  useEffect(() => {
+    const urlProj = searchParams.get('project');
+    if (urlProj && urlProj !== selectedProjectId) {
+      setSelectedProjectId(urlProj);
+    }
+  }, [searchParams, selectedProjectId]);
 
   const handleSelectProject = (projectId: string) => {
     setSelectedProjectId(projectId);

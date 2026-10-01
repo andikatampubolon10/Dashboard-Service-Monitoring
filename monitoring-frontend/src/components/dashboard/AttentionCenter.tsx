@@ -9,6 +9,7 @@ import {
   ArrowRight,
   ShieldAlert,
   Sparkles,
+  Bot,
 } from 'lucide-react';
 import { Server as ServerType, Service, Project } from '../../types';
 import { AiIncidentTipsModal } from './AiIncidentTipsModal';
@@ -39,6 +40,12 @@ export const AttentionCenter: React.FC<AttentionCenterProps> = ({
 }) => {
   const navigate = useNavigate();
   const [selectedIssueForAi, setSelectedIssueForAi] = useState<AttentionItem | null>(null);
+  const [initialModalTab, setInitialModalTab] = useState<'guide' | 'prompt'>('guide');
+
+  const handleOpenTips = (issue: AttentionItem, tab: 'guide' | 'prompt' = 'guide') => {
+    setInitialModalTab(tab);
+    setSelectedIssueForAi(issue);
+  };
 
   const issues = useMemo<AttentionItem[]>(() => {
     const list: AttentionItem[] = [];
@@ -246,7 +253,7 @@ export const AttentionCenter: React.FC<AttentionCenterProps> = ({
               <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-end gap-2.5">
                 <button
                   type="button"
-                  onClick={() => setSelectedIssueForAi(issue)}
+                  onClick={() => handleOpenTips(issue, 'guide')}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold transition shadow-sm bg-gradient-to-r from-indigo-500/20 to-purple-500/20 hover:from-indigo-500/30 hover:to-purple-500/30 border border-indigo-500/40 text-indigo-300 hover:text-white"
                   title="Dapatkan tips penanganan masalah berbasis AI"
                 >
@@ -256,8 +263,18 @@ export const AttentionCenter: React.FC<AttentionCenterProps> = ({
 
                 <button
                   type="button"
+                  onClick={() => handleOpenTips(issue, 'prompt')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold transition shadow-sm bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/35 text-purple-300 hover:text-white"
+                  title="Generate prompt siap salin untuk AI Agent (Cursor, Claude, ChatGPT, dll)"
+                >
+                  <Bot className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Prompt AI</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => navigate(issue.linkTo)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold transition shadow-sm ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold transition shadow-md ${
                     isCrit
                       ? 'bg-rose-500 hover:bg-rose-400 text-white shadow-rose-500/20'
                       : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
@@ -277,6 +294,7 @@ export const AttentionCenter: React.FC<AttentionCenterProps> = ({
         isOpen={Boolean(selectedIssueForAi)}
         onClose={() => setSelectedIssueForAi(null)}
         incident={selectedIssueForAi}
+        initialTab={initialModalTab}
       />
     </div>
   );
