@@ -2,9 +2,17 @@
 
 A production-grade, highly performant microservice & infrastructure observability dashboard built with **React 18**, **TypeScript**, **Vite**, **Tailwind CSS**, **React Router v6**, **TanStack Query v5**, and **Recharts**.
 
+> 📖 **Dokumentasi Lengkap Fitur Sistem (Bahasa Indonesia):**  
+> Baca panduan komprehensif seluruh modul, APM, stress test k6, Attention Center, serta AI Agent Prompt Generator di [DOKUMENTASI_FITUR_SISTEM.md](DOKUMENTASI_FITUR_SISTEM.md).
+
 ---
 
 ## 🚀 Key Features
+
+- 🤖 **AI-Driven SRE & External Agent Prompt Generator**: Real-time root cause analysis (RCA), CLI remediation commands, and 1-click structured prompt generator for external AI agents (Cursor, Antigravity IDE, Claude Code, ChatGPT).
+- 🚨 **Attention Center & Proactive Anomaly Detection**: Automatic detection of storage saturation, CPU spikes, container crash-loops, and degraded projects.
+- 📁 **Multi-Tenant Project Hierarchy**: Dynamic project-level filtering backed by live MySQL database synchronization.
+- 🧪 **Built-in Grafana k6 Stress & Load Testing Simulator**: Dual mode (Load vs Stress), dynamic 1 VU = 1 real user JWT generation, anti-mocking telemetry, visual flow builder with context injection, and Gemini AI test analysis.
 
 - 📊 **Executive Overview Dashboard**: High-level Golden Signals (Throughput, 1,850 Errors, Avg Latency, Uptime SLA), multi-series latency trends, service health distribution, and microservices status catalog.
 - 🖥️ **Infrastructure Server Monitoring**: Node-level metrics (CPU, RAM, Disk IOPS, Network MB/s), process counts, and hosted container workloads.
