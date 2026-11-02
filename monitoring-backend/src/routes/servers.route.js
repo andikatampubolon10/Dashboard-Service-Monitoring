@@ -24,6 +24,12 @@ const { saveServerMetrics, getServerMetricsHistory, getServerUptimeHistoryFromDb
 
 const router = Router();
 
+// ─── In-process probe cache ──────────────────────────────────────────────────
+// TTL 20 detik — mencegah TCP probe ke semua DB pada setiap HTTP request
+const SERVER_CACHE_TTL_MS = 20_000;
+/** @type {Map<string, { databases: any[]; probeResult: any; system: any; expiresAt: number }>} */
+const serverProbeCache = new Map();
+
 /**
  * Probe a TCP host and port with a timeout.
  * @param {string} host
@@ -177,43 +183,69 @@ async function buildServerResponse(server, includeColocation = false) {
     ])
   );
   const services = buildServiceSummaries(allServiceIds);
-  const databases = await probeDatabases(serverDbs);
 
-  let probeResult = null;
-  if (server.port) {
-    probeResult = await checkTcpPort(server.host || '127.0.0.1', server.port, 1200);
-  }
+  // ─── Probe cache ───────────────────────────────────────────────────────────
+  // Cek cache dulu agar tidak TCP-probe ke semua DB pada setiap request
+  const now = Date.now();
+  const cached = serverProbeCache.get(server.id);
+  let databases, probeResult, liveHostMetrics;
 
-  // Check if live node-exporter (port 9100) is running on remote host
-  let liveHostMetrics = null;
-  if (server.host && server.host !== 'localhost' && server.host !== '127.0.0.1') {
-    try {
-      liveHostMetrics = await scrapeHostNodeExporter(server.host, 9100);
-      if (liveHostMetrics) {
-        // Asynchronously persist snapshot to PostgreSQL
-        saveServerMetrics({
-          serverId: server.id,
-          serverName: server.name,
-          cpuPercent: liveHostMetrics.cpu?.usagePercent,
-          memUsedMb: liveHostMetrics.memory?.usedMb,
-          memTotalMb: liveHostMetrics.memory?.totalMb,
-          memCachedMb: liveHostMetrics.memory?.cachedMb,
-          memBuffersMb: liveHostMetrics.memory?.buffersMb,
-          diskUsedGb: liveHostMetrics.disk?.usedGb,
-          diskTotalGb: liveHostMetrics.disk?.totalGb,
-          load1m: liveHostMetrics.loadAverage?.load1,
-          load5m: liveHostMetrics.loadAverage?.load5,
-          load15m: liveHostMetrics.loadAverage?.load15,
-          netRxBytesSec: liveHostMetrics.network?.rxBytesSec,
-          netTxBytesSec: liveHostMetrics.network?.txBytesSec,
-          diskReadBytesSec: liveHostMetrics.disk?.readBytesSec,
-          diskWriteBytesSec: liveHostMetrics.disk?.writeBytesSec,
-          recordedAt: liveHostMetrics.timestamp,
-        }).catch(() => {});
-      }
-    } catch {
-      // Exporter port 9100 not reachable
+  if (cached && now < cached.expiresAt) {
+    // Cache hit — gunakan hasil probe sebelumnya
+    databases = cached.databases;
+    probeResult = cached.probeResult;
+    liveHostMetrics = cached.system;
+  } else {
+    // Cache miss — lakukan probe, simpan hasilnya
+    databases = await probeDatabases(serverDbs);
+
+    probeResult = null;
+    if (server.port) {
+      probeResult = await checkTcpPort(server.host || '127.0.0.1', server.port, 800);
     }
+
+    // Fire-and-forget: scrape node-exporter tapi TIDAK block response
+    liveHostMetrics = null;
+    if (server.host && server.host !== 'localhost' && server.host !== '127.0.0.1') {
+      scrapeHostNodeExporter(server.host, 9100)
+        .then((metrics) => {
+          if (metrics) {
+            liveHostMetrics = metrics;
+            // Update cache entry dengan system terbaru
+            const entry = serverProbeCache.get(server.id);
+            if (entry) entry.system = metrics;
+            // Persist ke DB secara async
+            saveServerMetrics({
+              serverId: server.id,
+              serverName: server.name,
+              cpuPercent: metrics.cpu?.usagePercent,
+              memUsedMb: metrics.memory?.usedMb,
+              memTotalMb: metrics.memory?.totalMb,
+              memCachedMb: metrics.memory?.cachedMb,
+              memBuffersMb: metrics.memory?.buffersMb,
+              diskUsedGb: metrics.disk?.usedGb,
+              diskTotalGb: metrics.disk?.totalGb,
+              load1m: metrics.loadAverage?.load1,
+              load5m: metrics.loadAverage?.load5,
+              load15m: metrics.loadAverage?.load15,
+              netRxBytesSec: metrics.network?.rxBytesSec,
+              netTxBytesSec: metrics.network?.txBytesSec,
+              diskReadBytesSec: metrics.disk?.readBytesSec,
+              diskWriteBytesSec: metrics.disk?.writeBytesSec,
+              recordedAt: metrics.timestamp,
+            }).catch(() => {});
+          }
+        })
+        .catch(() => {}); // port 9100 tidak terjangkau
+    }
+
+    // Simpan ke cache
+    serverProbeCache.set(server.id, {
+      databases,
+      probeResult,
+      system: liveHostMetrics,
+      expiresAt: now + SERVER_CACHE_TTL_MS,
+    });
   }
 
   // Dedicated server infrastructure metrics
@@ -609,6 +641,7 @@ router.put('/:id', async (req, res) => {
   if (host && host.trim() !== oldHost) {
     updateServicesByServer(id, host.trim());
   }
+  serverProbeCache.delete(id); // invalidate probe cache setelah update
 
   try {
     const fullResponse = await buildServerResponse(updated, true);
@@ -634,6 +667,7 @@ router.delete('/:id', async (req, res) => {
   teardownServerTunnel(id);
   await removeServicesByServer(id);
   const removed = await removeServer(id);
+  serverProbeCache.delete(id); // invalidate cache
 
   return res.json({
     success: removed,

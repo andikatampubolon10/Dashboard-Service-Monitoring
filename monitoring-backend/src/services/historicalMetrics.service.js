@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /**
  * services/historicalMetrics.service.js
@@ -8,6 +8,7 @@
  */
 
 const { query, dbType } = require('../database/db');
+const monitoringConfig = require('../config/monitoring.config');
 
 /**
  * Save a snapshot of host/server metrics to database
@@ -72,6 +73,9 @@ async function saveServerMetrics(m) {
  * @param {object} s
  */
 async function saveServiceMetrics(s) {
+  if (!monitoringConfig.isPersistServiceMetricsEnabled()) {
+    return; // Persistence is currently turned OFF
+  }
   const isMysql = dbType === 'mysql';
 
   const sql = isMysql

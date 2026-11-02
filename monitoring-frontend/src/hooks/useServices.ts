@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+﻿import { useQuery } from '@tanstack/react-query';
 import { monitoringApi } from '../services/monitoringApi';
 import { useGlobalFilters } from '../context/FilterContext';
 
@@ -6,10 +6,11 @@ export function useServices() {
   const { filter, lastRefreshedAt } = useGlobalFilters();
 
   return useQuery({
-    queryKey: ['services', filter, lastRefreshedAt],
+    // Hanya field relevan di queryKey — bukan seluruh object filter
+    queryKey: ['services', filter.environment, filter.serverId, lastRefreshedAt],
     queryFn: () => monitoringApi.getServices(filter),
     refetchInterval: filter.refreshInterval > 0 ? filter.refreshInterval * 1000 : false,
-    staleTime: 5000,
+    staleTime: 10_000,
   });
 }
 

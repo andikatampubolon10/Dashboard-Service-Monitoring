@@ -15,11 +15,12 @@ import {
   HardDrive,
   Cpu,
   Layers,
-  X,
 } from 'lucide-react';
-import { Project, ProjectPayload, Server as ServerType } from '../../types';
+import { Project, Server as ServerType } from '../../types';
 import { ProjectService } from '../../services/projectService';
 import { monitoringApi } from '../../services/monitoringApi';
+import { QuickCreateProjectModal } from '../../components/common/QuickCreateProjectModal';
+import { Bell } from 'lucide-react';
 
 export const ProjectListPage: React.FC = () => {
 
@@ -30,18 +31,10 @@ export const ProjectListPage: React.FC = () => {
   const [selectedEnv, setSelectedEnv] = useState<'all' | 'PRODUCTION' | 'STAGING' | 'DEVELOPMENT'>('all');
 
   // Modal states
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Form states
-  const [formData, setFormData] = useState<ProjectPayload>({
-    name: '',
-    description: '',
-    env: 'PRODUCTION',
-    serverIds: [],
-  });
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -67,44 +60,12 @@ export const ProjectListPage: React.FC = () => {
 
   const openCreateModal = () => {
     setEditingProject(null);
-    setFormData({
-      name: '',
-      description: '',
-      env: 'PRODUCTION',
-      serverIds: [],
-    });
-    setIsModalOpen(true);
+    setIsCreateModalOpen(true);
   };
 
   const openEditModal = (proj: Project) => {
     setEditingProject(proj);
-    setFormData({
-      name: proj.name,
-      description: proj.description || '',
-      env: proj.env || 'PRODUCTION',
-      serverIds: [...(proj.serverIds || [])],
-    });
-    setIsModalOpen(true);
-  };
-
-  const handleSaveProject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.name.trim()) return;
-
-    setIsSubmitting(true);
-    try {
-      if (editingProject) {
-        await ProjectService.updateProject(editingProject.id, formData);
-      } else {
-        await ProjectService.createProject(formData);
-      }
-      setIsModalOpen(false);
-      await fetchData();
-    } catch (err: any) {
-      alert(`Gagal menyimpan projek: ${err.message}`);
-    } finally {
-      setIsSubmitting(false);
-    }
+    setIsCreateModalOpen(true);
   };
 
   const handleDeleteProject = async () => {
@@ -349,6 +310,13 @@ export const ProjectListPage: React.FC = () => {
                         <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                           {project.env || 'PRODUCTION'}
                         </span>
+
+                        {(project.alerts?.length || 0) > 0 && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 flex items-center gap-1 font-mono">
+                            <Bell className="w-3 h-3" />
+                            <span>{project.alerts?.length} Slack</span>
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -488,96 +456,21 @@ export const ProjectListPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Tambah / Edit Projek */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#111622] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-orange-500/10 text-orange-600 flex items-center justify-center">
-                  <FolderKanban className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    {editingProject ? 'Edit Projek' : 'Tambah Projek Baru'}
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    {editingProject ? 'Perbarui informasi dan daftar server yang tergabung' : 'Buat projek baru untuk mengelompokkan server dan service'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveProject} className="p-5 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nama Projek <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Contoh: InaAI Healthcare Ecosystem"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Deskripsi Projek
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Deskripsi singkat mengenai layanan atau ekosistem yang dinaungi projek ini..."
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Environment
-                </label>
-                <select
-                  value={formData.env}
-                  onChange={(e) => setFormData({ ...formData, env: e.target.value })}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                >
-                  <option value="PRODUCTION">PRODUCTION</option>
-                  <option value="STAGING">STAGING</option>
-                  <option value="DEVELOPMENT">DEVELOPMENT</option>
-                </select>
-              </div>
-
-              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  disabled={isSubmitting}
-                  className="px-4 py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 text-xs font-semibold rounded-lg bg-orange-600 hover:bg-orange-700 text-white shadow-sm transition disabled:opacity-50"
-                >
-                  {isSubmitting ? 'Menyimpan...' : editingProject ? 'Simpan Perubahan' : 'Buat Projek'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Modal: Quick Create & Edit Projek (Include Slack Webhook & Server Allocation) */}
+      <QuickCreateProjectModal
+        isOpen={isCreateModalOpen}
+        onClose={() => {
+          setIsCreateModalOpen(false);
+          setEditingProject(null);
+        }}
+        onSuccess={() => {
+          setIsCreateModalOpen(false);
+          setEditingProject(null);
+          fetchData();
+        }}
+        servers={allServers}
+        projectToEdit={editingProject}
+      />
 
       {/* Modal: Hapus Projek */}
       {deleteTarget && (

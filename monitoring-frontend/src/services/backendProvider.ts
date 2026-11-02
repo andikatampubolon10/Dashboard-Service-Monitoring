@@ -1,4 +1,4 @@
-import { IMonitoringProvider } from './IMonitoringProvider';
+﻿import { IMonitoringProvider } from './IMonitoringProvider';
 import {
   Server,
   ServerDetail,
@@ -206,60 +206,56 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
 
   async getServices(_filter: GlobalFilterState): Promise<Service[]> {
     try {
-      const [servicesData, summaryData] = await Promise.all([
-        this.fetchJson<{
-          success: boolean;
-          services: Array<{
-            id: string;
-            name: string;
-            description: string;
-            url: string;
-            host?: string;
-            version?: string;
-            metricsUrl?: string;
-            stack: string;
-            status: string;
-            serverName?: string;
-            serverHost?: string;
-            isRemote?: boolean;
-            serverId?: string;
-            lastScrapedAt?: string | null;
-            scrapeLatencyMs?: number | null;
-            error?: string | null;
-            summary: {
-              reqPerSecond: number;
-              reqTotal?: number;
-              errorRatePercent: number;
-              errorCount?: number;
-              p95LatencyMs?: number;
-              p99LatencyMs: number;
-              cpuPercent: number;
-              memoryRssMb: number;
-            } | null;
-          }>;
-        }>('/api/services'),
-        this.getMetricsSummary().catch(() => null),
-      ]);
-
-      const summaryMap = new Map((summaryData?.services || []).map((s) => [s.id, s]));
+      // Satu request saja ke /api/services — data summary sudah tersedia di field s.summary
+      // (duplikasi getMetricsSummary() dihapus untuk mengurangi jumlah network roundtrip)
+      const servicesData = await this.fetchJson<{
+        success: boolean;
+        services: Array<{
+          id: string;
+          name: string;
+          description: string;
+          url: string;
+          host?: string;
+          version?: string;
+          metricsUrl?: string;
+          stack: string;
+          status: string;
+          serverName?: string;
+          serverHost?: string;
+          isRemote?: boolean;
+          serverId?: string;
+          lastScrapedAt?: string | null;
+          scrapeLatencyMs?: number | null;
+          error?: string | null;
+          summary: {
+            reqPerSecond: number;
+            reqTotal?: number;
+            errorRatePercent: number;
+            errorCount?: number;
+            p95LatencyMs?: number;
+            p99LatencyMs: number;
+            cpuPercent: number;
+            memoryRssMb: number;
+          } | null;
+        }>;
+      }>('/api/services');
 
       return servicesData.services.map((s) => {
-        const sumItem = summaryMap.get(s.id);
-        const cpuPercent = sumItem?.cpuPercent ?? s.summary?.cpuPercent ?? 0;
-        const memoryRssMb = sumItem?.memoryRssMb ?? s.summary?.memoryRssMb ?? 0;
-        const memoryHeapUsedMb = sumItem?.memoryHeapUsedMb ?? 0;
-        const memoryHeapTotalMb = sumItem?.memoryHeapTotalMb ?? 0;
-        const openFds = sumItem?.openFds ?? 0;
-        const activeConnections = sumItem?.activeConnections ?? 0;
-        const throughputRps = sumItem?.reqPerSecond ?? s.summary?.reqPerSecond ?? 0;
-        const reqTotal = sumItem?.reqTotal ?? s.summary?.reqTotal ?? 0;
-        const errorRatePercent = sumItem?.errorRatePercent ?? s.summary?.errorRatePercent ?? 0;
-        const total5xx = sumItem?.total5xx ?? 0;
-        const total4xx = sumItem?.total4xx ?? 0;
-        const latencyP50Ms = sumItem?.latencyP50Ms ?? (s.summary?.p99LatencyMs ? Math.round(s.summary.p99LatencyMs * 0.4) : 0);
-        const latencyP95Ms = sumItem?.latencyP95Ms ?? s.summary?.p95LatencyMs ?? 0;
-        const latencyP99Ms = sumItem?.latencyP99Ms ?? s.summary?.p99LatencyMs ?? 0;
-        const latencyAvgMs = sumItem?.latencyAvgMs ?? 0;
+        const cpuPercent = s.summary?.cpuPercent ?? 0;
+        const memoryRssMb = s.summary?.memoryRssMb ?? 0;
+        const memoryHeapUsedMb = 0;
+        const memoryHeapTotalMb = 0;
+        const openFds = 0;
+        const activeConnections = 0;
+        const throughputRps = s.summary?.reqPerSecond ?? 0;
+        const reqTotal = s.summary?.reqTotal ?? 0;
+        const errorRatePercent = s.summary?.errorRatePercent ?? 0;
+        const total5xx = 0;
+        const total4xx = 0;
+        const latencyP50Ms = s.summary?.p99LatencyMs ? Math.round(s.summary.p99LatencyMs * 0.4) : 0;
+        const latencyP95Ms = s.summary?.p95LatencyMs ?? 0;
+        const latencyP99Ms = s.summary?.p99LatencyMs ?? 0;
+        const latencyAvgMs = 0;
 
         const isRemote = Boolean(s.isRemote || (s.url && (s.url.includes('10.148.218.66') || !s.url.includes('localhost'))));
         const serverName = s.serverName || (isRemote ? 'Remote Server' : 'Server Host');

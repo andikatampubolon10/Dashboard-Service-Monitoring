@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /**
  * routes/services.route.js
@@ -13,6 +13,7 @@
  */
 
 const { Router } = require('express');
+const monitoringConfig = require('../config/monitoring.config');
 const { SERVICES, getAllActiveServices, getServiceById, setServiceDatabases, registerService } = require('../config/services.config');
 const { getAllServers, getServerById, updateServer } = require('../config/servers.config');
 const { probeDatabases } = require('../utils/databaseProber');
@@ -176,6 +177,45 @@ router.get('/', (req, res) => {
     upCount: services.filter((s) => s.status === 'UP').length,
     downCount: services.filter((s) => s.status === 'DOWN').length,
     services,
+  });
+});
+
+// ─── GET /api/services/collector/status ──────────────────────────────────
+router.get('/collector/status', (req, res) => {
+  res.json({
+    success: true,
+    enabled: monitoringConfig.isServiceMetricsEnabled(),
+    persistToDb: monitoringConfig.isPersistServiceMetricsEnabled(),
+    pollIntervalSeconds: monitoringConfig.pollIntervalSeconds,
+    status: monitoringConfig.isServiceMetricsEnabled() ? 'ACTIVE' : 'PAUSED',
+    message: monitoringConfig.isServiceMetricsEnabled()
+      ? 'Service metrics collector is currently ACTIVE'
+      : 'Service metrics collector is currently PAUSED / STANDBY',
+  });
+});
+
+// ─── POST /api/services/collector/toggle ─────────────────────────────────
+router.post('/collector/toggle', (req, res) => {
+  const { enabled, persistToDb } = req.body || {};
+
+  if (typeof enabled === 'boolean') {
+    monitoringConfig.setServiceMetricsEnabled(enabled);
+  }
+  if (typeof persistToDb === 'boolean') {
+    monitoringConfig.setPersistServiceMetricsEnabled(persistToDb);
+  }
+
+  const currentEnabled = monitoringConfig.isServiceMetricsEnabled();
+  const currentPersist = monitoringConfig.isPersistServiceMetricsEnabled();
+
+  console.log(`[Collector Toggle] Service metrics toggled to: ${currentEnabled ? 'ENABLED' : 'PAUSED'} (Persist DB: ${currentPersist ? 'ON' : 'OFF'})`);
+
+  res.json({
+    success: true,
+    enabled: currentEnabled,
+    persistToDb: currentPersist,
+    status: currentEnabled ? 'ACTIVE' : 'PAUSED',
+    message: `Service metrics collection successfully ${currentEnabled ? 'ACTIVATED' : 'PAUSED'}`,
   });
 });
 

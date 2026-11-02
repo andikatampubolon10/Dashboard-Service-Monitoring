@@ -1,0 +1,556 @@
+{
+  "_metadata": {
+    "title": "Pulse Observability Dashboard - Dummy Data for UI/UX Design",
+    "description": "Complete realistic dataset for designing Overview, Servers, Services, Charts, and APM Traces in Figma / Sketch / Web.",
+    "generatedDate": "2026-09-07",
+    "version": "1.0.0"
+  },
+  "statusThemeMap": {
+    "healthy": {
+      "label": "Healthy",
+      "colorHex": "#10B981",
+      "bgLight": "#ECFDF5",
+      "bgDark": "rgba(16,185,129,0.1)",
+      "badgeBorder": "rgba(16,185,129,0.3)"
+    },
+    "warning": {
+      "label": "Warning",
+      "colorHex": "#F59E0B",
+      "bgLight": "#FFFBEB",
+      "bgDark": "rgba(245,158,11,0.1)",
+      "badgeBorder": "rgba(245,158,11,0.3)"
+    },
+    "degraded": {
+      "label": "Degraded",
+      "colorHex": "#F97316",
+      "bgLight": "#FFF7ED",
+      "bgDark": "rgba(249,115,22,0.1)",
+      "badgeBorder": "rgba(249,115,22,0.3)"
+    },
+    "critical": {
+      "label": "Critical",
+      "colorHex": "#F43F5E",
+      "bgLight": "#FFF1F2",
+      "bgDark": "rgba(244,63,94,0.1)",
+      "badgeBorder": "rgba(244,63,94,0.3)"
+    },
+    "offline": {
+      "label": "Offline",
+      "colorHex": "#64748B",
+      "bgLight": "#F1F5F9",
+      "bgDark": "rgba(100,116,139,0.1)",
+      "badgeBorder": "rgba(100,116,139,0.3)"
+    }
+  },
+  "overview": {
+    "goldenSignalsKPI": [
+      {
+        "id": "throughput",
+        "title": "TOTAL THROUGHPUT",
+        "value": "1,420,500",
+        "unit": "reqs/day",
+        "changePercent": "+12.4%",
+        "changeType": "positive",
+        "subtext": "avg 16.4 req/s across 7 services"
+      },
+      {
+        "id": "errors",
+        "title": "TOTAL ERRORS",
+        "value": "1,850",
+        "unit": "errs",
+        "changePercent": "-3.2%",
+        "changeType": "positive",
+        "subtext": "error rate 0.13% (SLA normal)"
+      },
+      {
+        "id": "latency",
+        "title": "P95 RESPONSE TIME",
+        "value": "142ms",
+        "unit": "ms",
+        "changePercent": "+8.1ms",
+        "changeType": "warning",
+        "subtext": "target threshold < 250ms"
+      },
+      {
+        "id": "sla",
+        "title": "SYSTEM AVAILABILITY",
+        "value": "99.94%",
+        "unit": "uptime",
+        "changePercent": "0.00%",
+        "changeType": "neutral",
+        "subtext": "30-day trailing SLA"
+      }
+    ],
+    "hourlyThroughputChart": [
+      {
+        "time": "00:00",
+        "totalRequests": 42235,
+        "success2xx": 42100,
+        "clientErrors4xx": 120,
+        "serverErrors5xx": 15
+      },
+      {
+        "time": "02:00",
+        "totalRequests": 28410,
+        "success2xx": 28330,
+        "clientErrors4xx": 72,
+        "serverErrors5xx": 8
+      },
+      {
+        "time": "04:00",
+        "totalRequests": 18449,
+        "success2xx": 18400,
+        "clientErrors4xx": 45,
+        "serverErrors5xx": 4
+      },
+      {
+        "time": "06:00",
+        "totalRequests": 45890,
+        "success2xx": 45720,
+        "clientErrors4xx": 150,
+        "serverErrors5xx": 20
+      },
+      {
+        "time": "08:00",
+        "totalRequests": 89658,
+        "success2xx": 89300,
+        "clientErrors4xx": 310,
+        "serverErrors5xx": 48
+      },
+      {
+        "time": "10:00",
+        "totalRequests": 125920,
+        "success2xx": 125360,
+        "clientErrors4xx": 480,
+        "serverErrors5xx": 80
+      },
+      {
+        "time": "12:00",
+        "totalRequests": 142602,
+        "success2xx": 142000,
+        "clientErrors4xx": 520,
+        "serverErrors5xx": 82
+      },
+      {
+        "time": "14:00",
+        "totalRequests": 138540,
+        "success2xx": 137960,
+        "clientErrors4xx": 510,
+        "serverErrors5xx": 70
+      },
+      {
+        "time": "16:00",
+        "totalRequests": 129044,
+        "success2xx": 128500,
+        "clientErrors4xx": 480,
+        "serverErrors5xx": 64
+      },
+      {
+        "time": "18:00",
+        "totalRequests": 112420,
+        "success2xx": 111980,
+        "clientErrors4xx": 390,
+        "serverErrors5xx": 50
+      },
+      {
+        "time": "20:00",
+        "totalRequests": 95725,
+        "success2xx": 95400,
+        "clientErrors4xx": 290,
+        "serverErrors5xx": 35
+      },
+      {
+        "time": "22:00",
+        "totalRequests": 68512,
+        "success2xx": 68310,
+        "clientErrors4xx": 180,
+        "serverErrors5xx": 22
+      }
+    ],
+    "dailyThroughputChart": [
+      {
+        "date": "01 Sep",
+        "totalRequests": 1355020,
+        "success2xx": 1350000,
+        "clientErrors4xx": 4200,
+        "serverErrors5xx": 820
+      },
+      {
+        "date": "02 Sep",
+        "totalRequests": 1424890,
+        "success2xx": 1420000,
+        "clientErrors4xx": 4100,
+        "serverErrors5xx": 790
+      },
+      {
+        "date": "03 Sep",
+        "totalRequests": 1485160,
+        "success2xx": 1480000,
+        "clientErrors4xx": 4350,
+        "serverErrors5xx": 810
+      },
+      {
+        "date": "04 Sep",
+        "totalRequests": 1515520,
+        "success2xx": 1510000,
+        "clientErrors4xx": 4600,
+        "serverErrors5xx": 920
+      },
+      {
+        "date": "05 Sep",
+        "totalRequests": 1394610,
+        "success2xx": 1390000,
+        "clientErrors4xx": 3900,
+        "serverErrors5xx": 710
+      },
+      {
+        "date": "06 Sep",
+        "totalRequests": 1253840,
+        "success2xx": 1250000,
+        "clientErrors4xx": 3200,
+        "serverErrors5xx": 640
+      },
+      {
+        "date": "07 Sep",
+        "totalRequests": 1455260,
+        "success2xx": 1450200,
+        "clientErrors4xx": 4210,
+        "serverErrors5xx": 850
+      }
+    ],
+    "servicesHealthBreakdown": {
+      "total": 7,
+      "healthy": 5,
+      "degraded": 2,
+      "critical": 0,
+      "offline": 0
+    },
+    "serversHealthBreakdown": {
+      "total": 4,
+      "healthy": 3,
+      "degraded": 1,
+      "critical": 0
+    }
+  },
+  "servers": [
+    {
+      "id": "prod-web-01",
+      "name": "prod-web-01",
+      "ip": "10.0.1.10",
+      "env": "PRODUCTION",
+      "status": "healthy",
+      "os": "Ubuntu 22.04.3 LTS",
+      "region": "jakarta-idc",
+      "uptime": "42d 6h",
+      "cpuUsagePercent": 42,
+      "memoryUsagePercent": 61,
+      "memoryUsedGB": 19.5,
+      "memoryTotalGB": 32,
+      "diskUsagePercent": 42,
+      "diskUsedGB": 210,
+      "diskTotalGB": 500,
+      "networkInMbps": 58.4,
+      "networkOutMbps": 142.8,
+      "servicesCount": 3,
+      "hostedServices": [
+        "identity-service",
+        "audit-service",
+        "health-profile-service"
+      ],
+      "processesCount": 142
+    },
+    {
+      "id": "prod-web-02",
+      "name": "prod-web-02",
+      "ip": "10.0.1.20",
+      "env": "PRODUCTION",
+      "status": "degraded",
+      "os": "Ubuntu 22.04.3 LTS",
+      "region": "jakarta-idc",
+      "uptime": "18d 2h",
+      "cpuUsagePercent": 78,
+      "memoryUsagePercent": 84,
+      "memoryUsedGB": 26.8,
+      "memoryTotalGB": 32,
+      "diskUsagePercent": 58,
+      "diskUsedGB": 289,
+      "diskTotalGB": 500,
+      "networkInMbps": 135,
+      "networkOutMbps": 210,
+      "servicesCount": 4,
+      "hostedServices": [
+        "live-consult-service",
+        "lifestyle-service",
+        "medical-record-service",
+        "ai-consultation-service"
+      ],
+      "processesCount": 264
+    },
+    {
+      "id": "prod-db-01",
+      "name": "prod-db-01",
+      "ip": "10.0.2.10",
+      "env": "PRODUCTION",
+      "status": "healthy",
+      "os": "Debian 12 Bookworm",
+      "region": "jakarta-idc",
+      "uptime": "91d 14h",
+      "cpuUsagePercent": 35,
+      "memoryUsagePercent": 72,
+      "memoryUsedGB": 46.1,
+      "memoryTotalGB": 64,
+      "diskUsagePercent": 64,
+      "diskUsedGB": 1280,
+      "diskTotalGB": 2000,
+      "networkInMbps": 240.5,
+      "networkOutMbps": 88.2,
+      "servicesCount": 2,
+      "hostedServices": [
+        "postgresql-primary",
+        "redis-cluster"
+      ],
+      "processesCount": 98
+    },
+    {
+      "id": "stg-web-01",
+      "name": "stg-web-01",
+      "ip": "10.0.3.10",
+      "env": "STAGING",
+      "status": "healthy",
+      "os": "Ubuntu 22.04.3 LTS",
+      "region": "singapore-aws",
+      "uptime": "9d 4h",
+      "cpuUsagePercent": 24,
+      "memoryUsagePercent": 38,
+      "memoryUsedGB": 6.1,
+      "memoryTotalGB": 16,
+      "diskUsagePercent": 28,
+      "diskUsedGB": 70,
+      "diskTotalGB": 250,
+      "networkInMbps": 12,
+      "networkOutMbps": 18.5,
+      "servicesCount": 7,
+      "hostedServices": [
+        "staging-gateway",
+        "staging-all-services"
+      ],
+      "processesCount": 88
+    }
+  ],
+  "services": [
+    {
+      "id": "live-consult-service",
+      "name": "live-consult-service",
+      "description": "WebRTC video room signaling, SFU media gateway routing, and real-time chat between doctor & patient",
+      "team": "Telehealth Squad",
+      "version": "v2.8.2",
+      "env": "PRODUCTION",
+      "status": "degraded",
+      "serverId": "prod-web-02",
+      "throughputRps": 92.4,
+      "totalRequestsToday": 148200,
+      "errorCountToday": 1420,
+      "errorRatePercent": 0.96,
+      "latencyP50Ms": 145,
+      "latencyP90Ms": 290,
+      "latencyP95Ms": 380,
+      "latencyP99Ms": 720,
+      "uptimePercent": 99.85,
+      "uptime": "18d 2h",
+      "instancesCount": 6,
+      "category": "core"
+    },
+    {
+      "id": "identity-service",
+      "name": "identity-service",
+      "description": "User authentication, OAuth2 SSO, JWT validation, and RBAC permissions for clinical staff and users",
+      "team": "Security & IAM Squad",
+      "version": "v2.4.1",
+      "env": "PRODUCTION",
+      "status": "healthy",
+      "serverId": "prod-web-01",
+      "throughputRps": 112.4,
+      "totalRequestsToday": 210400,
+      "errorCountToday": 120,
+      "errorRatePercent": 0.06,
+      "latencyP50Ms": 14.2,
+      "latencyP90Ms": 18.5,
+      "latencyP95Ms": 22.4,
+      "latencyP99Ms": 42,
+      "uptimePercent": 99.98,
+      "uptime": "42d 6h",
+      "instancesCount": 4,
+      "category": "identity"
+    },
+    {
+      "id": "ai-consultation-service",
+      "name": "ai-consultation-service",
+      "description": "Clinical symptom triage analysis, differential diagnosis suggestions, and LLM-assisted doctor notes",
+      "team": "Clinical AI Squad",
+      "version": "v1.4.0",
+      "env": "PRODUCTION",
+      "status": "healthy",
+      "serverId": "prod-web-02",
+      "throughputRps": 28.5,
+      "totalRequestsToday": 64200,
+      "errorCountToday": 42,
+      "errorRatePercent": 0.07,
+      "latencyP50Ms": 185,
+      "latencyP90Ms": 240,
+      "latencyP95Ms": 310,
+      "latencyP99Ms": 480,
+      "uptimePercent": 99.95,
+      "uptime": "18d 2h",
+      "instancesCount": 3,
+      "category": "core"
+    },
+    {
+      "id": "medical-record-service",
+      "name": "medical-record-service",
+      "description": "FHIR compliant electronic medical record store, encrypted lab attachments, and clinical prescriptions",
+      "team": "EHR Core Squad",
+      "version": "v3.1.0",
+      "env": "PRODUCTION",
+      "status": "healthy",
+      "serverId": "prod-web-02",
+      "throughputRps": 84.6,
+      "totalRequestsToday": 189500,
+      "errorCountToday": 85,
+      "errorRatePercent": 0.04,
+      "latencyP50Ms": 28,
+      "latencyP90Ms": 42,
+      "latencyP95Ms": 58,
+      "latencyP99Ms": 110,
+      "uptimePercent": 99.97,
+      "uptime": "18d 2h",
+      "instancesCount": 4,
+      "category": "storage"
+    },
+    {
+      "id": "audit-service",
+      "name": "audit-service",
+      "description": "HIPAA/GDPR immutable compliance audit trail, encrypted access logging, and security activity monitoring",
+      "team": "Governance Squad",
+      "version": "v1.6.0",
+      "env": "PRODUCTION",
+      "status": "healthy",
+      "serverId": "prod-web-01",
+      "throughputRps": 64.8,
+      "totalRequestsToday": 135000,
+      "errorCountToday": 15,
+      "errorRatePercent": 0.01,
+      "latencyP50Ms": 11.5,
+      "latencyP90Ms": 15,
+      "latencyP95Ms": 18.2,
+      "latencyP99Ms": 34,
+      "uptimePercent": 99.99,
+      "uptime": "42d 6h",
+      "instancesCount": 3,
+      "category": "storage"
+    },
+    {
+      "id": "lifestyle-service",
+      "name": "lifestyle-service",
+      "description": "Dietary diary, step counter wearable telemetry sync, and habit wellness goal tracking",
+      "team": "Preventive Health",
+      "version": "v1.2.5",
+      "env": "PRODUCTION",
+      "status": "healthy",
+      "serverId": "prod-web-02",
+      "throughputRps": 38.2,
+      "totalRequestsToday": 78900,
+      "errorCountToday": 55,
+      "errorRatePercent": 0.07,
+      "latencyP50Ms": 22,
+      "latencyP90Ms": 35,
+      "latencyP95Ms": 44,
+      "latencyP99Ms": 82,
+      "uptimePercent": 99.96,
+      "uptime": "18d 2h",
+      "instancesCount": 2,
+      "category": "core"
+    },
+    {
+      "id": "health-profile-service",
+      "name": "health-profile-service",
+      "description": "Patient biometric vitals, blood pressure, BMI calculations, chronic disease tracking, and immunization",
+      "team": "Patient Care",
+      "version": "v2.0.1",
+      "env": "PRODUCTION",
+      "status": "healthy",
+      "serverId": "prod-web-01",
+      "throughputRps": 52.1,
+      "totalRequestsToday": 112000,
+      "errorCountToday": 35,
+      "errorRatePercent": 0.03,
+      "latencyP50Ms": 16.5,
+      "latencyP90Ms": 21,
+      "latencyP95Ms": 25.4,
+      "latencyP99Ms": 48,
+      "uptimePercent": 99.98,
+      "uptime": "42d 6h",
+      "instancesCount": 3,
+      "category": "identity"
+    }
+  ],
+  "sampleRequestWithTraceWaterfall": {
+    "id": "req-001",
+    "traceId": "8f3c-a9b1-42cd-99ef",
+    "serviceId": "live-consult-service",
+    "serviceName": "Live Consult Service",
+    "method": "POST",
+    "path": "/api/v1/consultations/live/session-join",
+    "statusCode": 504,
+    "statusText": "Gateway Timeout",
+    "durationMs": 2145.2,
+    "timestamp": "2026-09-07T11:14:00Z",
+    "clientIp": "198.51.100.42",
+    "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+    "waterfallBreakdown": [
+      {
+        "spanName": "DNS Resolution",
+        "durationMs": 2.1,
+        "percent": 0.1
+      },
+      {
+        "spanName": "TCP / TLS Handshake",
+        "durationMs": 18.4,
+        "percent": 0.9
+      },
+      {
+        "spanName": "Internal Route Processing",
+        "durationMs": 24.7,
+        "percent": 1.1
+      },
+      {
+        "spanName": "SFU Media Gateway ICE Negotiation",
+        "durationMs": 2100,
+        "percent": 97.9,
+        "hasError": true
+      }
+    ],
+    "requestPayload": {
+      "consultationId": "cons_991823",
+      "roomToken": "rtk_live_webrtc_991",
+      "mediaType": "video_audio"
+    },
+    "responsePayload": {
+      "error": "WebRTCSignalingTimeout",
+      "message": "SFU Media Gateway ICE candidate negotiation timed out after 2000ms",
+      "traceId": "8f3c-a9b1-42cd-99ef"
+    }
+  },
+  "sampleErrorIncident": {
+    "id": "err-001",
+    "serviceId": "live-consult-service",
+    "errorType": "WebRTCSignalingTimeoutException",
+    "message": "SFU Gateway WebSocket connection handshake timed out after 5000ms",
+    "occurrencesCount": 1420,
+    "impactedUsersEstimate": 340,
+    "firstSeen": "2026-09-07T06:12:00Z",
+    "lastSeen": "2026-09-07T11:14:00Z",
+    "status": "unresolved",
+    "severity": "critical",
+    "stackTrace": "WebRTCSignalingTimeoutException: Connection timed out\n  at SFUClient.connect (/app/dist/sfu/client.js:142:19)\n  at async SessionJoinHandler (/app/dist/handlers/session.js:58:9)"
+  }
+}

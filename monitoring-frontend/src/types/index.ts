@@ -164,12 +164,38 @@ export interface ServerUptimePoint {
 }
 
 // Project Hierarchy Types (Project -> Server -> Service)
+export interface ProjectAlertTriggers {
+  serverDown: boolean;
+  serviceDown: boolean;
+  highErrorRate?: boolean;
+  highLatency?: boolean;
+  highResourceUsage?: boolean;
+  onRecovery: boolean;
+}
+
+export interface ProjectAlertItem {
+  id: string;
+  name: string;
+  webhookUrl: string;
+  channelLabel: string;
+  mentions?: string;
+  triggers: ProjectAlertTriggers;
+  messageStyle?: 'STANDARD' | 'EMERGENCY' | 'COMPACT';
+  teamNote?: string;
+  useCustomTemplate?: boolean;
+  customTemplate?: string;
+  isEnabled: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   description: string;
   env: 'PRODUCTION' | 'STAGING' | 'DEVELOPMENT' | string;
   serverIds: string[];
+  alerts?: ProjectAlertItem[];
   createdAt: string;
   updatedAt: string;
   serversCount: number;
@@ -194,6 +220,7 @@ export interface ProjectPayload {
   description?: string;
   env?: 'PRODUCTION' | 'STAGING' | 'DEVELOPMENT' | string;
   serverIds?: string[];
+  alerts?: ProjectAlertItem[];
 }
 
 export interface SlaAssessment {

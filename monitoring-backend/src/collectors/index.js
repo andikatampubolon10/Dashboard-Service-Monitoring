@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /**
  * collectors/index.js — Collector Orchestrator
@@ -29,6 +29,7 @@ const {
 } = require('../store/metricsStore');
 const { scrapeHostNodeExporter } = require('../services/nodeExporter.service');
 const { saveServerMetrics, saveServiceMetrics } = require('../services/historicalMetrics.service');
+const { recordServerProbeResult, recordServiceResult } = require('../services/alertManager.service');
 
 /**
  * Fast TCP probe helper for server reachability.
@@ -99,94 +100,101 @@ async function runScrapeCycle() {
   const intervalSeconds = (now - lastScrapeAt) / 1000;
   lastScrapeAt = now;
 
-  const activeServices = getAllActiveServices();
+  const isServiceMetricsEnabled = monitoringConfig.isServiceMetricsEnabled();
+  let scrapeResults = [];
 
-  // Scrape all services in parallel
-  const scrapePromises = activeServices.map((service) => {
-    const prevMap = getPrevMetricMap(service.id);
-    return scrapeService(service, prevMap, intervalSeconds)
-      .then((result) => ({ service, result }));
-  });
+  // Scrape microservices only if enabled
+  if (isServiceMetricsEnabled) {
+    const activeServices = getAllActiveServices();
 
-  // Collect system metrics in parallel with service scrapes
-  const systemPromise = collectSystemMetrics().catch(() => null);
+    // Scrape all services in parallel
+    const scrapePromises = activeServices.map((service) => {
+      const prevMap = getPrevMetricMap(service.id);
+      return scrapeService(service, prevMap, intervalSeconds)
+        .then((result) => ({ service, result }));
+    });
+    scrapeResults = await Promise.all(scrapePromises);
+  }
 
-  const [scrapeResults, systemMetrics] = await Promise.all([
-    Promise.all(scrapePromises),
-    systemPromise,
-  ]);
+  // Collect system metrics in parallel
+  const systemMetrics = await collectSystemMetrics().catch(() => null);
 
-  // Process service results
-  const upServices = [];
-  const downServices = [];
+  // Process service results (if enabled)
+  if (isServiceMetricsEnabled && scrapeResults.length > 0) {
+    const upServices = [];
+    const downServices = [];
 
-  for (const { service, result } of scrapeResults) {
-    const prevStatus = getStatus(service.id);
+    for (const { service, result } of scrapeResults) {
+      const prevStatus = getStatus(service.id);
 
-    // Store raw metric map for next delta computation
-    if (result.metricMap) {
-      storePrevMetricMap(service.id, result.metricMap);
-    }
+      // Store raw metric map for next delta computation
+      if (result.metricMap) {
+        storePrevMetricMap(service.id, result.metricMap);
+      }
 
-    // Push to circular buffer
-    pushMetrics(service.id, result);
+      // Push to circular buffer
+      pushMetrics(service.id, result);
 
-    // Persist to PostgreSQL historical storage
-    saveServiceMetrics({
-      serviceId: service.id,
-      serviceName: service.name,
-      serverId: service.serverId || null,
-      status: result.status,
-      responseTimeMs: result.scrapeLatencyMs,
-      statusCode: result.status === 'UP' ? 200 : 503,
-      recordedAt: result.timestamp,
-    }).catch(() => {});
+      // Record service health for Slack alerting
+      recordServiceResult(service, result);
 
-    if (result.status === 'UP') {
-      upServices.push({ service, result });
-    } else {
-      downServices.push({ service, result });
-    }
-
-    // Emit real-time update to subscribed clients
-    if (io) {
-      io.emit('metrics:update', {
+      // Persist to PostgreSQL historical storage (if persistence enabled)
+      saveServiceMetrics({
         serviceId: service.id,
         serviceName: service.name,
-        timestamp: result.timestamp,
+        serverId: service.serverId || null,
         status: result.status,
-        scrapeLatencyMs: result.scrapeLatencyMs,
-        metrics: result.metrics,
-        error: result.error,
-      });
+        responseTimeMs: result.scrapeLatencyMs,
+        statusCode: result.status === 'UP' ? 200 : 503,
+        recordedAt: result.timestamp,
+      }).catch(() => {});
 
-      // Emit status change event if UP/DOWN state changed
-      if (prevStatus !== 'UNKNOWN' && prevStatus !== result.status) {
-        io.emit('service:status_change', {
+      if (result.status === 'UP') {
+        upServices.push({ service, result });
+      } else {
+        downServices.push({ service, result });
+      }
+
+      // Emit real-time update to subscribed clients
+      if (io) {
+        io.emit('metrics:update', {
           serviceId: service.id,
           serviceName: service.name,
-          from: prevStatus,
-          to: result.status,
           timestamp: result.timestamp,
+          status: result.status,
+          scrapeLatencyMs: result.scrapeLatencyMs,
+          metrics: result.metrics,
           error: result.error,
         });
 
-        const icon = result.status === 'UP' ? '🟢' : '🔴';
-        console.log(
-          `[STATUS CHANGE] ${icon} ${service.name}: ${prevStatus} → ${result.status}${result.error ? ` (${result.error})` : ''}`,
-        );
+        // Emit status change event if UP/DOWN state changed
+        if (prevStatus !== 'UNKNOWN' && prevStatus !== result.status) {
+          io.emit('service:status_change', {
+            serviceId: service.id,
+            serviceName: service.name,
+            from: prevStatus,
+            to: result.status,
+            timestamp: result.timestamp,
+            error: result.error,
+          });
+
+          const icon = result.status === 'UP' ? '🟢' : '🔴';
+          console.log(
+            `[STATUS CHANGE] ${icon} ${service.name}: ${prevStatus} → ${result.status}${result.error ? ` (${result.error})` : ''}`,
+          );
+        }
       }
     }
-  }
 
-  // Print a clean, readable cycle summary
-  const upNames = upServices.map((s) => `${s.service.name} (${s.result.scrapeLatencyMs}ms)`).join(', ');
-  const downCount = downServices.length;
-  console.log(
-    `[Scrape] ${upServices.length}/${SERVICES.length} services UP` +
-    (upNames ? ` | UP: [${upNames}]` : '') +
-    (downCount > 0 ? ` | ${downCount} offline` : ''),
-  );
+    // Print cycle summary
+    const upNames = upServices.map((s) => `${s.service.name} (${s.result.scrapeLatencyMs}ms)`).join(', ');
+    const downCount = downServices.length;
+    console.log(
+      `[Scrape] ${upServices.length}/${SERVICES.length} services UP` +
+      (upNames ? ` | UP: [${upNames}]` : '') +
+      (downCount > 0 ? ` | ${downCount} offline` : ''),
+    );
+  }
 
   // Process system metrics
   if (systemMetrics) {
@@ -207,6 +215,9 @@ async function runScrapeCycle() {
       probeServerTcp(host, port, 1200)
         .then((probe) => {
           const isUp = probe.open;
+          // Record probe result in AlertManager for Slack alerting
+          recordServerProbeResult(srv, isUp, probe.message);
+
           pushServerStatus(srv.id, {
             status: isUp ? 'UP' : 'DOWN',
             value: isUp ? 1 : 0,
@@ -274,8 +285,12 @@ async function runScrapeCycle() {
  */
 function startCollector() {
   const intervalSeconds = monitoringConfig.pollIntervalSeconds;
-  console.log(`[Collector] Starting — scraping ${SERVICES.length} services every ${intervalSeconds}s`);
-  SERVICES.forEach((s) => console.log(`  → ${s.name} @ ${s.url}${s.metricsPath}`));
+  const isSvcEnabled = monitoringConfig.isServiceMetricsEnabled();
+  console.log(`[Collector] Starting scheduler (every ${intervalSeconds}s)`);
+  console.log(`[Collector] Service Metrics: ${isSvcEnabled ? '🟢 ENABLED' : '⏸️ PAUSED / STANDBY (ENABLE_SERVICE_METRICS=false)'}`);
+  if (isSvcEnabled) {
+    SERVICES.forEach((s) => console.log(`  → ${s.name} @ ${s.url}${s.metricsPath}`));
+  }
 
   // Initialize SSH tunnels for remote servers
   try {
