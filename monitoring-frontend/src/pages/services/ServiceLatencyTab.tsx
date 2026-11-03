@@ -20,13 +20,15 @@ export const ServiceLatencyTab: React.FC = () => {
     { key: 'p99', name: 'p99 Tail', color: '#f43f5e', strokeWidth: 2 },
   ];
 
+  const totalReqs = service?.reqTotal || 0;
+
   const histogramData = [
-    { bucket: '< 10ms', count: 18500 },
-    { bucket: '10 - 25ms', count: 12400 },
-    { bucket: '25 - 50ms', count: 6200 },
-    { bucket: '50 - 100ms', count: 3100 },
-    { bucket: '100 - 250ms', count: 1420 },
-    { bucket: '> 250ms', count: 580 },
+    { bucket: '< 10ms', count: totalReqs > 0 ? Math.round(totalReqs * 0.45) : 0 },
+    { bucket: '10 - 25ms', count: totalReqs > 0 ? Math.round(totalReqs * 0.30) : 0 },
+    { bucket: '25 - 50ms', count: totalReqs > 0 ? Math.round(totalReqs * 0.15) : 0 },
+    { bucket: '50 - 100ms', count: totalReqs > 0 ? Math.round(totalReqs * 0.07) : 0 },
+    { bucket: '100 - 250ms', count: totalReqs > 0 ? Math.round(totalReqs * 0.02) : 0 },
+    { bucket: '> 250ms', count: totalReqs > 0 ? Math.round(totalReqs * 0.01) : 0 },
   ];
 
   const barSeries: BarSeriesConfig[] = [
@@ -43,7 +45,7 @@ export const ServiceLatencyTab: React.FC = () => {
             <span>p50 Median</span>
           </div>
           <div className="text-2xl font-bold font-mono text-cyan-600 dark:text-cyan-400 mt-2">
-            {formatLatency(service?.latencyP50Ms || 18)}
+            {formatLatency(service?.latencyP50Ms ?? 0)}
           </div>
           <span className="text-[10px] text-slate-400 mt-1 font-mono">50% of requests faster than this</span>
         </div>
@@ -54,7 +56,7 @@ export const ServiceLatencyTab: React.FC = () => {
             <span>p90 Latency</span>
           </div>
           <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-2">
-            {formatLatency(service?.latencyP90Ms || 28)}
+            {formatLatency(service?.latencyP90Ms ?? 0)}
           </div>
           <span className="text-[10px] text-slate-400 mt-1 font-mono">90% of requests faster than this</span>
         </div>
@@ -67,7 +69,7 @@ export const ServiceLatencyTab: React.FC = () => {
           <div className={`text-2xl font-bold font-mono mt-2 ${
             (service?.latencyP95Ms || 0) > 50 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'
           }`}>
-            {formatLatency(service?.latencyP95Ms || 42)}
+            {formatLatency(service?.latencyP95Ms ?? 0)}
           </div>
           <span className="text-[10px] text-slate-400 mt-1 font-mono">SLA Threshold: 50.0 ms</span>
         </div>
@@ -80,7 +82,7 @@ export const ServiceLatencyTab: React.FC = () => {
           <div className={`text-2xl font-bold font-mono mt-2 ${
             (service?.latencyP99Ms || 0) > 100 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'
           }`}>
-            {formatLatency(service?.latencyP99Ms || 112)}
+            {formatLatency(service?.latencyP99Ms ?? 0)}
           </div>
           <span className="text-[10px] text-rose-500/80 mt-1 font-mono">Outlier tail latency ceiling</span>
         </div>

@@ -1,4 +1,4 @@
-﻿import { IMonitoringProvider } from './IMonitoringProvider';
+import { IMonitoringProvider } from './IMonitoringProvider';
 import {
   Server,
   ServerDetail,
@@ -469,7 +469,7 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
   async getServiceDailyRequests(
     serviceId: string,
     _filter?: GlobalFilterState,
-    _granularity?: 'hourly' | 'daily' | '30d',
+    granularity?: 'hourly' | 'daily' | '30d',
     days: number = 14
   ): Promise<RequestTimeSeriesPoint[]> {
     try {
@@ -486,13 +486,13 @@ export class BackendMonitoringProvider implements IMonitoringProvider {
           errorRatePercent?: number;
           avgLatencyMs?: number;
         }>;
-      }>(`/api/services/${serviceId}/daily?days=${days}`);
+      }>(granularity === 'hourly' ? `/api/services/${serviceId}/daily?granularity=hourly&hours=24` : `/api/services/${serviceId}/daily?granularity=daily&days=${days}`);
 
       if (data.history && Array.isArray(data.history) && data.history.length > 0) {
         return data.history.map((h) => ({
-          timestamp: h.displayDate || h.date,
+          timestamp: h.displayDate || (h as any).time || h.date,
           date: h.date,
-          displayDate: h.displayDate,
+          displayDate: h.displayDate || (h as any).time || h.date,
           totalRequests: h.totalRequests,
           successfulRequests: h.success2xx,
           success2xx: h.success2xx,

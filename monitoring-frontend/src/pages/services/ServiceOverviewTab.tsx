@@ -132,16 +132,19 @@ export const ServiceOverviewTab: React.FC = () => {
     setTimeout(() => setCopiedPath(null), 2000);
   };
 
-  // Calculations for daily request summaries
+  // Detect if service is an infra / node exporter (not an HTTP web app)
+  const isNodeExporter = id.includes('9100') || id.toLowerCase().includes('node-exporter') || service?.name?.toLowerCase().includes('node exporter');
+
+  // Calculations for request summaries
   const totalWeekRequests = useMemo(() => {
     return dailyRequests.reduce((sum, item) => sum + (item.totalRequests || 0), 0);
   }, [dailyRequests]);
 
-  const avgDailyRequests = useMemo(() => {
+  const avgRequests = useMemo(() => {
     return dailyRequests.length ? Math.round(totalWeekRequests / dailyRequests.length) : 0;
   }, [dailyRequests, totalWeekRequests]);
 
-  const peakDay = useMemo(() => {
+  const peakPoint = useMemo(() => {
     if (!dailyRequests.length) return null;
     return dailyRequests.reduce(
       (max, item) => ((item.totalRequests || 0) > (max.totalRequests || 0) ? item : max),
@@ -149,7 +152,7 @@ export const ServiceOverviewTab: React.FC = () => {
     );
   }, [dailyRequests]);
 
-  const totalWeekErrors = useMemo(() => {
+  const totalErrors = useMemo(() => {
     return dailyRequests.reduce(
       (sum, item) => sum + (item.clientErrors || item.client4xx || 0) + (item.serverErrors || item.server5xx || 0),
       0
@@ -157,12 +160,12 @@ export const ServiceOverviewTab: React.FC = () => {
   }, [dailyRequests]);
 
   const successRate = useMemo(() => {
-    if (totalWeekRequests === 0) return '100.00';
+    if (totalWeekRequests === 0) return '-';
     const success = dailyRequests.reduce(
       (sum, item) => sum + (item.successfulRequests || item.success2xx || 0),
       0
     );
-    return ((success / totalWeekRequests) * 100).toFixed(2);
+    return `${((success / totalWeekRequests) * 100).toFixed(2)}%`;
   }, [dailyRequests, totalWeekRequests]);
 
   // Series config for daily request line chart (matching Request tab)
@@ -175,8 +178,8 @@ export const ServiceOverviewTab: React.FC = () => {
   const dailyChartData = useMemo(() => {
     return dailyRequests.map((d) => ({
       ...d,
-      timestamp: d.displayDate || d.timestamp?.split(',')[0] || d.date,
-      shortLabel: d.displayDate || d.timestamp?.split(',')[0] || d.date,
+      timestamp: d.displayDate || d.time || d.timestamp || d.date,
+      shortLabel: d.displayDate || d.time || d.timestamp || d.date,
       successfulRequests: d.successfulRequests ?? d.success2xx ?? 0,
       clientErrors: d.clientErrors ?? d.client4xx ?? 0,
       serverErrors: d.serverErrors ?? d.server5xx ?? 0,
@@ -554,25 +557,34 @@ export const ServiceOverviewTab: React.FC = () => {
           </div>
         )}
 
+        {isNodeExporter && (
+          <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-xs font-mono text-cyan-700 dark:text-cyan-300 flex items-start gap-2.5">
+            <Radio className="w-4 h-4 text-cyan-500 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold">Info Exporter Infrastruktur:</span> Service ini adalah <strong>Node Exporter (Port 9100)</strong> yang bertugas mengumpulkan metrik performa OS (CPU, RAM, Disk, IOPS). Service ini bukan REST API web aplikasi, sehingga metrik HTTP route request (2xx/4xx/5xx) secara wajar bernilai 0.
+            </div>
+          </div>
+        )}
+
         {/* Summary Footer for Daily Requests */}
         <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-4 text-xs font-mono text-slate-500 dark:text-slate-400">
           <div>
-            Rata-rata: <strong className="text-slate-900 dark:text-white">{formatNumber(avgDailyRequests)} req/hari</strong>
+            Rata-rata: <strong className="text-slate-900 dark:text-white">{formatNumber(avgRequests)} {granularity === 'hourly' ? 'req/jam' : 'req/hari'}</strong>
           </div>
           <div>
             Puncak Tertinggi:{' '}
             <strong className="text-slate-900 dark:text-white">
-              {peakDay ? `${peakDay.timestamp || peakDay.date} (${formatNumber(peakDay.totalRequests)})` : '-'}
+              {peakPoint && (peakPoint.totalRequests || 0) > 0 ? `${peakPoint.displayDate || peakPoint.time || peakPoint.timestamp || peakPoint.date} (${formatNumber(peakPoint.totalRequests)})` : '-'}
             </strong>
           </div>
           <div>
             Total Error:{' '}
-            <strong className={totalWeekErrors > 0 ? 'text-rose-500 font-bold' : 'text-slate-900 dark:text-white'}>
-              {formatNumber(totalWeekErrors)} errs
+            <strong className={totalErrors > 0 ? 'text-rose-500 font-bold' : 'text-slate-900 dark:text-white'}>
+              {formatNumber(totalErrors)} errs
             </strong>
           </div>
           <div>
-            Success Rate: <strong className="text-emerald-500 font-bold">{successRate}%</strong>
+            Success Rate: <strong className={totalWeekRequests > 0 ? 'text-emerald-500 font-bold' : 'text-slate-400'}>{successRate}</strong>
           </div>
         </div>
       </div>

@@ -78,11 +78,17 @@ export const LineChart: React.FC<LineChartProps> = ({
             formatter={(val: number, name: string) => [`${val} ${unit}`, name]}
           />
           <Legend
+            payload={series.map((s) => ({
+              value: s.name,
+              type: 'circle' as const,
+              id: s.key,
+              color: s.color,
+            }))}
             wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
             iconType="circle"
             iconSize={8}
           />
-          {series.map((s) => (
+          {[...series].reverse().map((s) => (
             <Line
               key={s.key}
               type="monotone"

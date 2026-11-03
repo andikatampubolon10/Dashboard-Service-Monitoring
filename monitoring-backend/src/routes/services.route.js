@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 /**
  * routes/services.route.js
@@ -24,6 +24,7 @@ const {
   getChartSeries,
   getRequests,
   getDailyMetrics,
+  getHourlyMetrics,
 } = require('../store/metricsStore');
 
 const router = Router();
@@ -430,6 +431,18 @@ router.get('/:id/daily', (req, res) => {
   const service = getServiceById(req.params.id);
   if (!service) {
     return res.status(404).json({ success: false, error: 'Service not found' });
+  }
+
+  const granularity = req.query.granularity || 'daily';
+  if (granularity === 'hourly') {
+    const hours = parseInt(req.query.hours || '24', 10);
+    const hourly = getHourlyMetrics(service.id, isNaN(hours) ? 24 : hours);
+    return res.json({
+      success: true,
+      serviceId: service.id,
+      serviceName: service.name,
+      ...hourly,
+    });
   }
 
   const days = parseInt(req.query.days || '14', 10);

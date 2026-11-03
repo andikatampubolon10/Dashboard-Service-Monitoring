@@ -162,8 +162,12 @@ export const ServiceRequestsTab: React.FC = () => {
           <ChartSkeleton height="h-48" />
         ) : (
           <LineChart
-            data={dailyRequests as unknown as Record<string, unknown>[]}
+            data={dailyRequests.map((d) => ({
+              ...d,
+              timestamp: d.displayDate || d.time || d.timestamp || d.date,
+            })) as unknown as Record<string, unknown>[]}
             series={requestTimelineSeries}
+            xAxisKey="timestamp"
             height={200}
             unit="reqs"
           />

@@ -549,6 +549,7 @@ export interface RequestTimeSeriesPoint {
   timestamp: string; // e.g. "Mon, 01 Sep", "14:00", etc.
   date: string; // "2026-09-01"
   displayDate?: string;
+  time?: string;
   totalRequests: number;
   successfulRequests: number; // 2xx/3xx
   success2xx?: number;

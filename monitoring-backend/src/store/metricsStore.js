@@ -32,6 +32,7 @@ const requestsLog = new Map();
 
 /** @type {Map<string, DailyStatEntry[]>} Per-service daily requests stats */
 const dailyStats = new Map();
+const hourlyStats = new Map();
 
 /** @type {Map<string, ServerStatusPoint[]>} Per-server uptime/availability history buffer */
 const serverStatusStore = new Map();
@@ -93,6 +94,42 @@ function initDailyStats(serviceId) {
 }
 
 /**
+ * Initialize 24-hour historical hourly baseline for a service.
+ * @param {string} serviceId
+ */
+function initHourlyStats(serviceId) {
+  const now = new Date();
+  const currentHourTime = `${String(now.getHours()).padStart(2, '0')}:00`;
+
+  if (hourlyStats.has(serviceId)) {
+    const list = hourlyStats.get(serviceId);
+    const lastItem = list[list.length - 1];
+    if (lastItem && lastItem.time === currentHourTime) {
+      return;
+    }
+  }
+
+  const hours = [];
+  for (let i = 23; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 3600000);
+    const timeLabel = `${String(d.getHours()).padStart(2, '0')}:00`;
+    hours.push({
+      timestamp: d.toISOString(),
+      date: d.toISOString().split('T')[0],
+      time: timeLabel,
+      displayDate: timeLabel,
+      totalRequests: 0,
+      success2xx: 0,
+      client4xx: 0,
+      server5xx: 0,
+      errorRatePercent: 0,
+      avgLatencyMs: 0,
+    });
+  }
+  hourlyStats.set(serviceId, hours);
+}
+
+/**
  * Initialize recent requests log for a service. Starts empty without fake requests.
  * @param {string} serviceId
  * @param {Array<{ method: string, path: string, status: number, avgLatencyMs: number }>} [routes]
@@ -136,6 +173,7 @@ function ensureBuffer(serviceId) {
       lastRouteCounts: new Map(),
     });
     initDailyStats(serviceId);
+    initHourlyStats(serviceId);
   }
 }
 
@@ -242,6 +280,36 @@ function pushMetrics(serviceId, scrapeResult) {
           ? parseFloat(((today.server5xx / today.totalRequests) * 100).toFixed(2))
           : 0;
         today.avgLatencyMs = scrapeResult.metrics.latency?.avgMs || today.avgLatencyMs;
+      }
+    }
+
+    // Update current hour aggregate
+    initHourlyStats(serviceId);
+    const hList = hourlyStats.get(serviceId);
+    if (hList && hList.length > 0) {
+      const currentHour = hList[hList.length - 1];
+      const deltaTotal = scrapeResult.metrics.throughput?.deltaRequests || 0;
+      const delta5xx = scrapeResult.metrics.errorRate?.delta5xx || 0;
+      const delta4xx = scrapeResult.metrics.errorRate?.delta4xx || 0;
+
+      if (currentHour.totalRequests === 0 && (scrapeResult.metrics.throughput?.reqTotal || 0) > 0 && dList && dList[dList.length - 1].totalRequests === scrapeResult.metrics.throughput.reqTotal) {
+        currentHour.totalRequests = scrapeResult.metrics.throughput.reqTotal;
+        currentHour.server5xx = scrapeResult.metrics.throughput.total5xx || 0;
+        currentHour.client4xx = scrapeResult.metrics.throughput.total4xx || 0;
+        currentHour.success2xx = Math.max(0, currentHour.totalRequests - currentHour.server5xx - currentHour.client4xx);
+        currentHour.errorRatePercent = currentHour.totalRequests > 0
+          ? parseFloat(((currentHour.server5xx / currentHour.totalRequests) * 100).toFixed(2))
+          : 0;
+        currentHour.avgLatencyMs = scrapeResult.metrics.latency?.avgMs || currentHour.avgLatencyMs;
+      } else if (deltaTotal > 0) {
+        currentHour.totalRequests += deltaTotal;
+        currentHour.server5xx += delta5xx;
+        currentHour.client4xx += delta4xx;
+        currentHour.success2xx = Math.max(0, currentHour.totalRequests - currentHour.server5xx - currentHour.client4xx);
+        currentHour.errorRatePercent = currentHour.totalRequests > 0
+          ? parseFloat(((currentHour.server5xx / currentHour.totalRequests) * 100).toFixed(2))
+          : 0;
+        currentHour.avgLatencyMs = scrapeResult.metrics.latency?.avgMs || currentHour.avgLatencyMs;
       }
     }
   }
@@ -491,6 +559,37 @@ function getDailyMetrics(serviceId, days = 14) {
  * Get daily requests aggregated across all services.
  * @param {number} [days=14]
  */
+
+/**
+ * Get hourly requests stats for a service (for the hourly request graph).
+ * @param {string} serviceId
+ * @param {number} [hours=24]
+ */
+function getHourlyMetrics(serviceId, hours = 24) {
+  initHourlyStats(serviceId);
+  const list = hourlyStats.get(serviceId) || [];
+  const sliced = list.slice(-hours);
+
+  const currentHour = sliced[sliced.length - 1];
+  const prevHour = sliced.length > 1 ? sliced[sliced.length - 2] : null;
+
+  let growthPercent = 0;
+  if (prevHour && prevHour.totalRequests > 0) {
+    growthPercent = parseFloat(
+      (((currentHour.totalRequests - prevHour.totalRequests) / prevHour.totalRequests) * 100).toFixed(1)
+    );
+  }
+
+  return {
+    serviceId,
+    granularity: 'hourly',
+    hours: sliced.length,
+    todayTotal: currentHour?.totalRequests ?? 0,
+    yesterdayTotal: prevHour?.totalRequests ?? 0,
+    growthPercent,
+    history: sliced,
+  };
+}
 function getAllDailyMetrics(days = 14) {
   const allServices = Array.from(store.keys());
   const dailyMap = new Map();
@@ -676,6 +775,7 @@ module.exports = {
   getChartSeries,
   getRequests,
   getDailyMetrics,
+  getHourlyMetrics,
   getAllDailyMetrics,
   getAllLatest,
   pushSystemMetrics,
