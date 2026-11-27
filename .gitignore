@@ -17,6 +17,8 @@ monitoring-frontend/dist/
 # Local monitoring persistent databases (each machine maintains its own registered servers and services)
 monitoring-backend/data/*.json
 !monitoring-backend/data/.gitkeep
+# Backups of the data folder contain SSH credentials — never commit them
+monitoring-backend/data_backup/
 
 # Logs and debug files
 *.log

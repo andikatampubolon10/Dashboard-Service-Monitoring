@@ -2,12 +2,17 @@ const { Client } = require('pg');
 require('dotenv').config();
 
 async function run() {
+  // Credentials come only from the environment (.env); never hardcode them here
+  if (!process.env.PG_PASSWORD) {
+    console.error('PG_PASSWORD is not set. Add it to monitoring-backend/.env first.');
+    process.exit(1);
+  }
   const client = new Client({
     host: process.env.PG_HOST || 'localhost',
     port: parseInt(process.env.PG_PORT || '5432', 10),
-    database: 'sotardoc_server_monitoring',
-    user: 'sotardoc_andika',
-    password: process.env.PG_PASSWORD || 'parlinggoman10'
+    database: process.env.PG_DATABASE || 'sotardoc_server_monitoring',
+    user: process.env.PG_USER || 'sotardoc_andika',
+    password: process.env.PG_PASSWORD,
   });
 
   try {
