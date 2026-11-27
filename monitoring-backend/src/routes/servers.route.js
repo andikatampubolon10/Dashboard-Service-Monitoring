@@ -683,7 +683,7 @@ router.post('/:id/tunnel', async (req, res) => {
     return res.status(404).json({ success: false, error: 'Server tidak ditemukan.' });
   }
 
-  const { username, password, privateKey, port } = req.body;
+  const { username, password, passphrase, privateKey, port } = req.body;
   if (!username || !username.trim()) {
     return res.status(400).json({ success: false, error: 'Username SSH wajib diisi.' });
   }
@@ -691,12 +691,14 @@ router.post('/:id/tunnel', async (req, res) => {
   const sshConfig = {
     username: username.trim(),
     password: password || undefined,
+    passphrase: passphrase || password || undefined,
     privateKey: privateKey || undefined,
     port: parseInt(port, 10) || 22,
   };
 
+  // Persist before starting the tunnel so the new credentials survive a restart
+  await updateServer(id, { ssh: sshConfig });
   server.ssh = sshConfig;
-  updateServer(id, { ssh: sshConfig });
 
   const allActive = getAllActiveServices();
   const serverServices = allActive.filter((s) => s.serverId === id);

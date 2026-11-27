@@ -80,8 +80,27 @@ async function query(sql, params = []) {
   }
 }
 
+/**
+ * Execute SQL written with MySQL-style `?` placeholders on either database.
+ * For PostgreSQL, `?` is converted to `$1, $2, ...` before running.
+ * Note: only the placeholders are converted — the SQL itself must be valid
+ * on both engines (no `ON DUPLICATE KEY UPDATE`, `VALUES()`, etc.).
+ *
+ * @param {string} sqlWithQuestionMarks
+ * @param {Array<any>} params
+ */
+async function executeSql(sqlWithQuestionMarks, params = []) {
+  if (dbType === 'mysql') {
+    return query(sqlWithQuestionMarks, params);
+  }
+  let paramIdx = 1;
+  const pgSql = sqlWithQuestionMarks.replace(/\?/g, () => `$${paramIdx++}`);
+  return query(pgSql, params);
+}
+
 module.exports = {
   query,
+  executeSql,
   pool,
   dbType,
 };

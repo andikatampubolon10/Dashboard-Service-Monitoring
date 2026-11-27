@@ -14,7 +14,7 @@ require('dotenv').config();
 
 const fs = require('fs');
 const path = require('path');
-const { query } = require('../database/db');
+const { query, executeSql } = require('../database/db');
 
 const STORAGE_FILE = path.join(__dirname, '../../data/registered_servers.json');
 
@@ -72,9 +72,8 @@ async function loadServersFromDb() {
     console.warn('[servers.config] Failed to fetch servers from MySQL, using local cache:', err.message);
   }
 
-  if (!isDbLoaded) {
-    loadPersistedServersFromFile();
-  }
+  // The JSON backup is loaded once at module init. Re-reading it here would
+  // overwrite in-memory edits (e.g. new SSH credentials) made since then.
   return [...SERVERS, ...CUSTOM_SERVERS];
 }
 
@@ -283,9 +282,14 @@ async function updateServer(id, updates) {
   if (updates.databases && Array.isArray(updates.databases)) {
     target.databases = updates.databases;
   }
+  // SSH credentials: an object replaces them, null clears them, undefined leaves them unchanged
+  if (updates.ssh !== undefined) {
+    target.ssh = updates.ssh || null;
+  }
 
   try {
-    await query(
+    // executeSql converts `?` to `$n` on PostgreSQL; plain query() would fail there
+    await executeSql(
       `UPDATE registered_servers SET
         project_id = ?,
         name = ?,
@@ -297,6 +301,7 @@ async function updateServer(id, updates) {
         region = ?,
         service_ids = ?,
         databases_json = ?,
+        ssh = ?,
         updated_at = NOW()
        WHERE id = ?`,
       [
@@ -310,6 +315,7 @@ async function updateServer(id, updates) {
         target.region || 'jakarta-idc',
         JSON.stringify(target.serviceIds || []),
         JSON.stringify(target.databases || []),
+        JSON.stringify(target.ssh || null),
         id,
       ]
     );

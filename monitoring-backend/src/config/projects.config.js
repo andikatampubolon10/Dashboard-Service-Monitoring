@@ -12,26 +12,13 @@
 
 const fs = require('fs');
 const path = require('path');
-const { query, dbType } = require('../database/db');
+const { query, executeSql } = require('../database/db');
 
 const PROJECTS_FILE = path.join(__dirname, '../../data/projects.json');
 
 /** @type {Array<object>} */
 let PROJECTS = [];
 let isDbLoaded = false;
-
-/**
- * Helper to execute SQL with '?' placeholders across both MySQL and PostgreSQL.
- * For PostgreSQL, automatically converts '?' to '$1, $2, $3...'.
- */
-async function executeSql(sqlWithQuestionMarks, params = []) {
-  if (dbType === 'mysql') {
-    return await query(sqlWithQuestionMarks, params);
-  }
-  let paramIdx = 1;
-  const pgSql = sqlWithQuestionMarks.replace(/\?/g, () => `$${paramIdx++}`);
-  return await query(pgSql, params);
-}
 
 function mapAlertRow(r) {
   if (!r) return null;
